@@ -30,135 +30,6 @@ type SandboxInstance = ReturnType<typeof getSandbox>;
 
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 
-// Keep the runner script synced even for long-lived sandboxes by writing it at runtime.
-// This avoids needing every sandbox instance to restart to pick up container image changes.
-const RUN_CHAT_SCRIPT = `import { unstable_v2_createSession, unstable_v2_resumeSession } from "@anthropic-ai/claude-agent-sdk";
-import fs from "fs/promises";
-import path from "path";
-
-async function readOptional(filePath) {
-\ttry {
-\t\treturn await fs.readFile(filePath, "utf-8");
-\t} catch {
-\t\treturn "";
-\t}
-}
-
-async function main() {
-\tconst apiKey = process.env.ANTHROPIC_API_KEY;
-\tif (!apiKey) {
-\t\tconsole.error("Error: ANTHROPIC_API_KEY not found in environment");
-\t\tprocess.exit(1);
-\t}
-
-\tconst model = process.env.ANTHROPIC_MODEL || "${DEFAULT_ANTHROPIC_MODEL}";
-\tconst pathToClaudeCodeExecutable =
-\t\tprocess.env.CLAUDE_CODE_PATH || "/runner/node_modules/.bin/claude";
-
-\tconst projectDir = process.cwd();
-\t// Ensure Claude Code stores session/transcripts in the project dir so resume works.
-\tconst claudeConfigDir = path.join(projectDir, ".claude");
-\tawait fs.mkdir(claudeConfigDir, { recursive: true });
-\tconst researchObjective = await readOptional(path.join(projectDir, "research_objective.md"));
-\tconst userMessage = await readOptional(path.join(projectDir, ".current_message.txt"));
-\tif (!userMessage) {
-\t\tconsole.error("Error: .current_message.txt not found");
-\t\tprocess.exit(1);
-\t}
-\tconst sessionFilePath = path.join(projectDir, ".claude_session_id");
-\tconst existingSessionId = (await readOptional(sessionFilePath)).trim();
-
-\tconst sessionOptions = {
-\t\tmodel,
-\t\tpathToClaudeCodeExecutable,
-\t\tenv: {
-\t\t\t...process.env,
-\t\t\tANTHROPIC_API_KEY: apiKey,
-\t\t\tCLAUDE_CONFIG_DIR: claudeConfigDir,
-\t\t},
-\t};
-
-\tconst isNewSession = !existingSessionId;
-\tlet promptPrefix =
-\t\t"You are a research assistant. Do not use tools unless explicitly asked.\\n\\n";
-\tif (researchObjective && isNewSession) {
-\t\tpromptPrefix =
-\t\t\t"You are a research assistant. Use the following context. Do not use tools unless explicitly asked.\\n\\nContext:\\n" +
-\t\t\tresearchObjective +
-\t\t\t"\\n\\n";
-\t}
-\tconst perTurnPrefix = "Do not use tools unless explicitly asked.\\n\\n";
-\tconst messageToSend = isNewSession
-\t\t? promptPrefix + userMessage
-\t\t: perTurnPrefix + userMessage;
-
-\tconst session = existingSessionId
-\t\t? unstable_v2_resumeSession(existingSessionId, sessionOptions)
-\t\t: unstable_v2_createSession(sessionOptions);
-
-\ttry {
-\t\tawait session.send(messageToSend);
-
-\t\tlet wroteAnyText = false;
-\t\tlet observedSessionId = existingSessionId;
-
-\t\tfor await (const msg of session.receive()) {
-\t\t\tif (!observedSessionId && msg && typeof msg === "object" && "session_id" in msg) {
-\t\t\t\tobservedSessionId = String(msg.session_id || "");
-\t\t\t}
-
-\t\t\tif (msg.type === "auth_status") {
-\t\t\t\tif (Array.isArray(msg.output) && msg.output.length) {
-\t\t\t\t\tconsole.error(msg.output.join("\\n"));
-\t\t\t\t}
-\t\t\t\tif (msg.error) {
-\t\t\t\t\tconsole.error(msg.error);
-\t\t\t\t}
-\t\t\t}
-
-\t\t\tif (msg.type === "stream_event") {
-\t\t\t\tconst ev = msg.event;
-\t\t\t\tif (ev && ev.type === "content_block_delta" && ev.delta && typeof ev.delta.text === "string") {
-\t\t\t\t\tprocess.stdout.write(ev.delta.text);
-\t\t\t\t\twroteAnyText = true;
-\t\t\t\t}
-\t\t\t}
-
-\t\t\tif (!wroteAnyText && msg.type === "assistant" && msg.message && Array.isArray(msg.message.content)) {
-\t\t\t\tconst text = msg.message.content
-\t\t\t\t\t.filter((b) => b && b.type === "text")
-\t\t\t\t\t.map((b) => b.text)
-\t\t\t\t\t.join(\"\");
-\t\t\t\tif (text) {
-\t\t\t\t\tprocess.stdout.write(text);
-\t\t\t\t\twroteAnyText = true;
-\t\t\t\t}
-\t\t\t}
-
-\t\t\t// A 'result' message marks the end of the current turn.
-\t\t\tif (msg.type === "result") {
-\t\t\t\tif (msg.subtype !== "success") {
-\t\t\t\t\tconsole.error("Agent SDK error:", msg.subtype, msg.errors || []);
-\t\t\t\t}
-\t\t\t\tbreak;
-\t\t\t}
-\t\t}
-
-\t\tconst finalSessionId = observedSessionId || (session && session.sessionId) || \"\";
-\t\tif (finalSessionId) {
-\t\t\tawait fs.writeFile(sessionFilePath, finalSessionId, \"utf-8\");
-\t\t}
-\t} finally {
-\t\tsession.close();
-\t}
-}
-
-main().catch((err) => {
-\tconsole.error("Fatal error:", err);
-\tprocess.exit(1);
-});
-`;
-
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
@@ -220,11 +91,6 @@ async function handleEnsure(
 		const projectDir = `/workspace/projects/${projectId}`;
 		await sandbox.exec(`mkdir -p ${projectDir}`);
 
-		// Ensure the runner script in /runner is up-to-date for this sandbox instance.
-		// (Writing is cheap and makes deploys deterministic.)
-		await sandbox.exec("mkdir -p /runner");
-		await sandbox.writeFile("/runner/run_chat.mjs", RUN_CHAT_SCRIPT);
-
 		// Write research objective if not exists
 		const objectivePath = `${projectDir}/research_objective.md`;
 		const checkResult = await sandbox.exec(
@@ -280,10 +146,6 @@ async function handleChat(
 		const historyFile = `${projectDir}/.chat_history.json`;
 		const sessionFile = `${projectDir}/.claude_session_id`;
 
-		// Ensure runner exists even if ensure wasn't called (or sandbox is long-lived).
-		await sandbox.exec("mkdir -p /runner");
-		await sandbox.writeFile("/runner/run_chat.mjs", RUN_CHAT_SCRIPT);
-
 		await sandbox.writeFile(messageFile, body.message);
 		await sandbox.writeFile(historyFile, JSON.stringify(body.history || []));
 
@@ -292,10 +154,10 @@ async function handleChat(
 		}
 
 		// Run the baked-in chat script
-		// Note: We use the pre-baked runner at /runner/run_chat.mjs
+		// Note: We use the pre-baked runner at /runner/run_chat.js (compiled from TS)
 		// We pass ANTHROPIC_API_KEY as an environment variable to the exec command
 		const stream = await sandbox.execStream(
-			`cd ${projectDir} && node /runner/run_chat.mjs`,
+			`cd ${projectDir} && node /runner/run_chat.js`,
 			{
 				env: {
 					ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,

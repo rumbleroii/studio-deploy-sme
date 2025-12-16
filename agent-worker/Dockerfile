@@ -4,11 +4,14 @@ FROM docker.io/cloudflare/sandbox:0.6.6
 
 # Bake the runner + deps into the image (do NOT rely on global npm installs).
 WORKDIR /runner
-COPY src/runner.mjs ./run_chat.mjs
-RUN npm init -y && npm install @anthropic-ai/claude-agent-sdk@0.1.70 @anthropic-ai/claude-code@2.0.70
+COPY runner/run_chat.ts ./run_chat.ts
+RUN npm init -y \
+  && npm pkg set type=module \
+  && npm install @anthropic-ai/claude-agent-sdk@0.1.70 @anthropic-ai/claude-code@2.0.70 esbuild \
+  && npx esbuild ./run_chat.ts --platform=node --format=esm --target=es2022 --outfile=./run_chat.js
 
 # Ensure the runner is executable.
-RUN chmod +x ./run_chat.mjs
+RUN chmod +x ./run_chat.js
 
 # The Sandbox runtime listens on 3000 (internal control plane).
 EXPOSE 3000
