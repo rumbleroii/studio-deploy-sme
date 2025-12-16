@@ -56,6 +56,9 @@ async function main() {
 \t\tprocess.env.CLAUDE_CODE_PATH || "/runner/node_modules/.bin/claude";
 
 \tconst projectDir = process.cwd();
+\t// Ensure Claude Code stores session/transcripts in the project dir so resume works.
+\tconst claudeConfigDir = path.join(projectDir, ".claude");
+\tawait fs.mkdir(claudeConfigDir, { recursive: true });
 \tconst researchObjective = await readOptional(path.join(projectDir, "research_objective.md"));
 \tconst userMessage = await readOptional(path.join(projectDir, ".current_message.txt"));
 \tif (!userMessage) {
@@ -71,6 +74,7 @@ async function main() {
 \t\tenv: {
 \t\t\t...process.env,
 \t\t\tANTHROPIC_API_KEY: apiKey,
+\t\t\tCLAUDE_CONFIG_DIR: claudeConfigDir,
 \t\t},
 \t};
 
@@ -83,7 +87,10 @@ async function main() {
 \t\t\tresearchObjective +
 \t\t\t"\\n\\n";
 \t}
-\tconst messageToSend = isNewSession ? promptPrefix + userMessage : userMessage;
+\tconst perTurnPrefix = "Do not use tools unless explicitly asked.\\n\\n";
+\tconst messageToSend = isNewSession
+\t\t? promptPrefix + userMessage
+\t\t: perTurnPrefix + userMessage;
 
 \tconst session = existingSessionId
 \t\t? unstable_v2_resumeSession(existingSessionId, sessionOptions)

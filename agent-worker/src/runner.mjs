@@ -30,6 +30,9 @@ async function main() {
 
 	// 2. Read context and inputs
 	const projectDir = process.cwd();
+	// Ensure Claude Code stores session/transcripts in the project dir so resume works.
+	const claudeConfigDir = path.join(projectDir, ".claude");
+	await fs.mkdir(claudeConfigDir, { recursive: true });
 
 	const researchObjective = await readOptional(
 		path.join(projectDir, "research_objective.md")
@@ -52,6 +55,7 @@ async function main() {
 		env: {
 			...process.env,
 			ANTHROPIC_API_KEY: apiKey,
+			CLAUDE_CONFIG_DIR: claudeConfigDir,
 		},
 	};
 
@@ -64,7 +68,10 @@ async function main() {
 			researchObjective +
 			"\n\n";
 	}
-	const messageToSend = isNewSession ? promptPrefix + userMessage : userMessage;
+	const perTurnPrefix = "Do not use tools unless explicitly asked.\n\n";
+	const messageToSend = isNewSession
+		? promptPrefix + userMessage
+		: perTurnPrefix + userMessage;
 
 	const session = existingSessionId
 		? unstable_v2_resumeSession(existingSessionId, sessionOptions)
