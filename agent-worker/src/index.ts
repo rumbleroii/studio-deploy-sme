@@ -1,4 +1,9 @@
-import { getSandbox, parseSSEStream, Sandbox } from "@cloudflare/sandbox";
+import {
+	getSandbox,
+	parseSSEStream,
+	Sandbox,
+	proxyToSandbox,
+} from "@cloudflare/sandbox";
 export { Sandbox };
 
 interface Env {
@@ -55,6 +60,8 @@ interface SSEEvent {
 type SandboxInstance = ReturnType<typeof getSandbox>;
 
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
+const PREVIEW_PORT = 3001;
+const CUSTOM_DOMAIN = "metaforms-sandbox.com";
 
 /**
  * Validate and resolve a relative path to an absolute path under workingDir.
@@ -108,10 +115,16 @@ function filterFileList(files: FileInfo[], workingDir: string): FileInfo[] {
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
+		// Handle preview URLs (port-exposed sandbox requests)
+		const proxyResponse = await proxyToSandbox(request, env);
+		if (proxyResponse) {
+			return proxyResponse;
+		}
+
 		const url = new URL(request.url);
 		const path = url.pathname;
 
-		// Validate shared secret
+		// Validate shared secret for API requests
 		const secret = request.headers.get("X-Shared-Secret");
 		if (secret !== env.AGENT_WORKER_SHARED_SECRET) {
 			return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -144,13 +157,14 @@ export default {
 			/^[a-zA-Z0-9_-]+$/.test(id);
 
 		if (request.method === "POST" && ensureMatch) {
-			if (!validateProjectId(ensureMatch[1])) {
+			const projectId = ensureMatch[1];
+			if (!validateProjectId(projectId)) {
 				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
 					status: 400,
 					headers: { "Content-Type": "application/json" },
 				});
 			}
-			return handleEnsure(ensureMatch[1], request, env);
+			return handleEnsure(projectId, request, env);
 		}
 
 		if (request.method === "POST" && chatMatch) {
@@ -252,17 +266,43 @@ async function handleEnsure(
 		const checkResult = await sandbox.exec(
 			`test -f ${objectivePath} && echo exists || echo missing`
 		);
-
 		if (checkResult.stdout.trim() === "missing") {
 			await sandbox.writeFile(objectivePath, body.researchObjectiveText);
 		}
 
-		// Warm up the container
-		await sandbox.exec("echo ready");
+		// Start preview server (using baked-in hello-world.mjs)
+		await sandbox.exec("pkill -f hello-world.mjs || true");
+		await sandbox.exec("node /runner/hello-world.mjs &");
+		await sandbox.exec("sleep 2");
 
-		return new Response(JSON.stringify({ status: "ready", sandboxId }), {
-			headers: { "Content-Type": "application/json" },
-		});
+		// Expose port and get public URL
+		let previewUrl: string | undefined;
+		try {
+			const existingPorts = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
+			const existingPort = existingPorts.find((p) => p.port === PREVIEW_PORT);
+
+			if (existingPort) {
+				previewUrl = existingPort.url;
+			} else {
+				const portResult = await sandbox.exposePort(PREVIEW_PORT, {
+					hostname: CUSTOM_DOMAIN,
+				});
+				previewUrl = portResult.url;
+			}
+		} catch (portError) {
+			console.warn("Port exposure failed:", portError);
+		}
+
+		return new Response(
+			JSON.stringify({
+				status: "ready",
+				sandboxId,
+				previewUrl,
+			}),
+			{
+				headers: { "Content-Type": "application/json" },
+			}
+		);
 	} catch (error) {
 		console.error("Ensure failed:", error);
 		const errorMessage = error instanceof Error ? error.message : String(error);

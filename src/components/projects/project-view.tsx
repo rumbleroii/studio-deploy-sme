@@ -183,6 +183,9 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 	const [isStreaming, setIsStreaming] = useState(false);
 	const [streamingContent, setStreamingContent] = useState("");
 	const [showContext, setShowContext] = useState(true);
+	const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+	const [isLoadingPreview, setIsLoadingPreview] = useState(true);
+	const scrollRef = useRef<HTMLDivElement>(null);
 	const [sandboxStatus, setSandboxStatus] = useState<
 		"connecting" | "connected"
 	>("connecting");
@@ -609,10 +612,31 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 		messagesEndRef.current?.scrollIntoView({ block: "end" });
 	}, [messages, streamingContent]);
 
+	// Ensure sandbox is ready on mount and get preview URL
 	useEffect(() => {
 		resizeComposer();
 	}, [input, resizeComposer]);
 
+	useEffect(() => {
+		setIsLoadingPreview(true);
+		fetch(`/api/projects/${project.id}/sandbox/ensure`, {
+			method: "POST",
+		})
+			.then((res) => res.json())
+			.then((data) => {
+				if (data.previewUrl) {
+					setPreviewUrl(data.previewUrl);
+				}
+			})
+			.catch(() => {
+				// Silently fail - sandbox will be created on first message if needed
+			})
+			.finally(() => {
+				setIsLoadingPreview(false);
+			});
+	}, [project.id]);
+
+	// Track composer height for scroll padding
 	useEffect(() => {
 		const el = composerRef.current;
 		if (!el) return;
@@ -1237,37 +1261,74 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 					</div>
 				</div>
 
-				{/* Right panel with tabs */}
+				{/* Preview & Context panel */}
 				{showContext && (
-					<div className="w-80 border-l border-gray-200 hidden lg:flex flex-col bg-white">
-						<Tabs
-							value={activeTab}
-							onValueChange={(v) => setActiveTab(v as "context" | "files")}
-							className="flex flex-col flex-1"
-						>
-							<div className="h-12 px-4 border-b border-gray-200 flex items-center">
-								<TabsList className="h-8 p-0.5">
-									<TabsTrigger value="context" className="text-xs h-7 px-3">
-										Context
-									</TabsTrigger>
-									<TabsTrigger value="files" className="text-xs h-7 px-3">
-										Files
-									</TabsTrigger>
-								</TabsList>
+					<div className="w-1/2 border-l border-gray-200 hidden lg:flex flex-col bg-white">
+						{/* Preview section */}
+						<div className="flex-1 flex flex-col border-b border-gray-200">
+							<div className="h-12 px-4 border-b border-gray-200 flex items-center justify-between">
+								<h2 className="text-sm font-medium text-gray-900">Preview</h2>
+								{previewUrl && (
+									<a
+										href={previewUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-xs text-gray-500 hover:text-gray-700"
+									>
+										Open in new tab ↗
+									</a>
+								)}
 							</div>
-							<TabsContent
-								value="context"
-								className="flex-1 mt-0 data-[state=active]:flex data-[state=active]:flex-col"
-							>
-								<ScrollArea className="flex-1 p-4">{contextContent}</ScrollArea>
-							</TabsContent>
-							<TabsContent
-								value="files"
-								className="flex-1 mt-0 data-[state=active]:flex data-[state=active]:flex-col"
-							>
-								<ScrollArea className="flex-1 p-4">{filesContent}</ScrollArea>
-							</TabsContent>
-						</Tabs>
+							<div className="flex-1 bg-gray-50 relative">
+								{isLoadingPreview ? (
+									<div className="absolute inset-0 flex items-center justify-center">
+										<div className="text-center">
+											<Loader2 className="h-8 w-8 animate-spin text-gray-400 mx-auto mb-3" />
+											<p className="text-sm text-gray-500">
+												Starting preview server...
+											</p>
+										</div>
+									</div>
+								) : previewUrl ? (
+									<iframe
+										src={previewUrl}
+										className="w-full h-full border-0"
+										title="Preview"
+										sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+									/>
+								) : (
+									<div className="absolute inset-0 flex items-center justify-center">
+										<div className="text-center max-w-xs">
+											<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+												<FileText className="h-6 w-6 text-gray-400" />
+											</div>
+											<h3 className="text-sm font-medium text-gray-900 mb-1">
+												No preview available
+											</h3>
+											<p className="text-sm text-gray-500">
+												The preview server is not running yet.
+											</p>
+										</div>
+									</div>
+								)}
+							</div>
+							{previewUrl && (
+								<div className="h-10 px-3 border-t border-gray-200 flex items-center bg-gray-50">
+									<div className="flex-1 px-3 py-1.5 bg-white border border-gray-200 rounded text-xs text-gray-600 truncate">
+										{previewUrl}
+									</div>
+								</div>
+							)}
+						</div>
+						{/* Context section */}
+						<div className="h-64 flex flex-col">
+							<div className="h-12 px-4 border-b border-gray-200 flex items-center">
+								<h2 className="text-sm font-medium text-gray-900">
+									Research Context
+								</h2>
+							</div>
+							<ScrollArea className="flex-1 p-4">{contextContent}</ScrollArea>
+						</div>
 					</div>
 				)}
 			</div>
