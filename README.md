@@ -1,15 +1,6 @@
 # Studio
 
-Research project management with AI-powered chat, built with Next.js, Supabase, MongoDB, and Claude Agent SDK running in Cloudflare Sandbox.
-
-## Features
-
-- **Supabase Authentication**: Email/password sign up and sign in
-- **Role-based Access Control**: Admin, Editor, and Viewer roles
-- **Project Management**: Create projects with research objectives (paste text or upload PDF/DOCX)
-- **AI Chat**: Chat with Claude about your research within each project
-- **Shareable Project Links**: Each project has a unique URL for easy sharing
-- **Persistent Sandboxes**: Each project gets its own Cloudflare Sandbox instance that persists across sessions
+End to end research platform for research managers
 
 ## Architecture
 
@@ -151,7 +142,7 @@ studio/
 ## User Roles
 
 | Role   | Projects | Users Page | Edit Roles |
-|--------|----------|------------|------------|
+| ------ | -------- | ---------- | ---------- |
 | Viewer | ✅       | ❌         | ❌         |
 | Editor | ✅       | ✅ (view)  | ❌         |
 | Admin  | ✅       | ✅         | ✅         |
@@ -175,4 +166,3 @@ npm run db:push
 ## License
 
 MIT
-
