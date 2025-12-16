@@ -5,6 +5,7 @@ FROM docker.io/cloudflare/sandbox:0.6.6
 # Bake the runner + deps into the image (do NOT rely on global npm installs).
 WORKDIR /runner
 COPY runner/run_chat.ts ./run_chat.ts
+COPY runner/.claude ./working_directory/.claude
 RUN npm init -y \
   && npm pkg set type=module \
   && npm install @anthropic-ai/claude-agent-sdk@0.1.70 @anthropic-ai/claude-code@2.0.70 esbuild \

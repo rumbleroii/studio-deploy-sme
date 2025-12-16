@@ -26,6 +26,27 @@ async function main() {
 
 	// Inputs live in the project workspace directory.
 	const projectDir = process.cwd();
+
+	// Create a dedicated working directory inside the project workspace.
+	// Claude Agent SDK V2 does NOT expose a `cwd` option; it uses `process.cwd()`,
+	// so we chdir() into the working directory before starting the session.
+	const workingDir = path.join(projectDir, "working_directory");
+	await fs.mkdir(workingDir, { recursive: true });
+
+	// Copy baked-in .claude into the working directory (first run only).
+	const bakedClaudeDir = "/runner/working_directory/.claude";
+	const workingClaudeDir = path.join(workingDir, ".claude");
+	try {
+		await fs.stat(workingClaudeDir);
+	} catch {
+		try {
+			// Node 20+ supports fs.cp
+			await fs.cp(bakedClaudeDir, workingClaudeDir, { recursive: true });
+		} catch (err) {
+			console.error("Warning: failed to copy baked .claude:", String(err));
+		}
+	}
+
 	const researchObjective = await readOptional(
 		path.join(projectDir, "research_objective.md")
 	);
@@ -37,8 +58,8 @@ async function main() {
 		process.exit(1);
 	}
 
-	// Persist Claude Code state per-project so resuming works.
-	const claudeConfigDir = path.join(projectDir, ".claude");
+	// Persist Claude Code state in working_directory/.claude.
+	const claudeConfigDir = workingClaudeDir;
 	await fs.mkdir(claudeConfigDir, { recursive: true });
 
 	const sessionFilePath = path.join(projectDir, ".claude_session_id");
@@ -69,6 +90,10 @@ async function main() {
 	const messageToSend = isNewSession
 		? promptPrefix + userMessage
 		: perTurnPrefix + userMessage;
+
+	// Make the Agent SDK treat working_directory/ as the current working directory.
+	// (V2 sessions do not accept a `cwd` option.)
+	process.chdir(workingDir);
 
 	const session = existingSessionId
 		? unstable_v2_resumeSession(existingSessionId, sessionOptions)

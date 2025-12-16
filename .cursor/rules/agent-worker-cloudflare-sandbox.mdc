@@ -1,0 +1,78 @@
+---
+description: Cloudflare Worker + Sandbox conventions for this repo.
+globs:
+  - agent-worker/**
+alwaysApply: true
+---
+
+## Cloudflare Worker + Sandbox rules (studio/agent-worker)
+
+- **Worker vs Sandbox**: `agent-worker/src/index.ts` runs on Cloudflare Workers. It orchestrates Durable Object-backed Sandbox instances (one per project).
+- **Container deploy requires Docker**: Wrangler builds the image locally and pushes it to Cloudflare’s registry. If Docker isn’t running, deploy will fail.
+- **Use Node 20+ with Wrangler v4**: Wrangler v4 requires Node >= 20.
+- **Use `wrangler.jsonc`**: Deploy and dev should explicitly pass `--config wrangler.jsonc` to ensure v4 container syntax is used.
+- **Keep container health**: The Sandbox runtime expects the container to be reachable on port 3000; keep `EXPOSE 3000` in `agent-worker/Dockerfile` and use a recent `cloudflare/sandbox` base image.
+
+## How to deploy changes (commands)
+
+From repo root:
+
+```bash
+cd agent-worker
+export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use 20
+
+# First time / if scopes changed:
+npx wrangler login
+
+# Deploy (builds + pushes container image via Docker)
+npx wrangler deploy --config wrangler.jsonc
+```
+
+If deploy fails:
+
+- **`containers:write` scope error**: run `npx wrangler logout` then `npx wrangler login` and grant scopes.
+- **Docker not running**: start Docker Desktop / Docker Engine.
+- **Out of disk**: `docker system prune -af --volumes`.
+
+## How to see logs (commands)
+
+```bash
+cd agent-worker
+npx wrangler tail --config wrangler.jsonc
+```
+
+## Runner packaging + session persistence
+
+- **No embedded runner strings**: Keep the runner in `agent-worker/runner/run_chat.ts`. Compile it in the Docker build to `/runner/run_chat.js` (via `esbuild`).
+- **working_directory/**:
+  - Ensure the container has `/runner/working_directory/` and a baked template `.claude` at `/runner/working_directory/.claude`.
+  - At runtime the runner must create `<projectDir>/working_directory/` and copy that baked `.claude` into `<projectDir>/working_directory/.claude` if missing.
+  - Agent SDK TypeScript v2 does **not** support a `cwd` option; to run “in” `working_directory/`, `process.chdir(workingDir)` before creating/resuming the session.
+- **Streaming UX**: Do not emit noisy debug logs to stdout. Do not forward sandbox stderr to the UI; keep it server-side.
+- **Model availability**: Prefer a known-available model for the configured Anthropic key; model 404s should be surfaced as clear errors (not silent failures).
+
+## Testing workflow
+
+- **Always test the real endpoints** (streaming SSE):
+  - `POST /v1/projects/:projectId/ensure`
+  - `POST /v1/projects/:projectId/chat` (SSE stream)
+- **Cold starts**: Allow long timeouts (e.g. 120–140s) on first run.
+- **Deploy resets DOs**: If you see “Durable Object reset because its code was updated”, re-run `/ensure` and retry.
+
+### Minimal curl test (copy/paste)
+
+```bash
+export AGENT_WORKER_URL="https://<your-worker>.workers.dev"
+export AGENT_WORKER_SHARED_SECRET="<same value as Worker secret>"
+
+curl -s -X POST "$AGENT_WORKER_URL/v1/projects/test/ensure" \
+  -H "Content-Type: application/json" \
+  -H "X-Shared-Secret: $AGENT_WORKER_SHARED_SECRET" \
+  -d '{"researchObjectiveText":""}'
+
+curl --max-time 140 -sN -X POST "$AGENT_WORKER_URL/v1/projects/test/chat" \
+  -H "Content-Type: application/json" \
+  -H "X-Shared-Secret: $AGENT_WORKER_SHARED_SECRET" \
+  -d '{"message":"Hi","history":[],"researchObjectiveText":""}'
+```
