@@ -81,6 +81,15 @@ async function main() {
 				observedSessionId = String(msg.session_id || "");
 			}
 
+			if (msg.type === "auth_status") {
+				if (Array.isArray(msg.output) && msg.output.length) {
+					console.error(msg.output.join("\n"));
+				}
+				if (msg.error) {
+					console.error(msg.error);
+				}
+			}
+
 			if (msg.type === "stream_event") {
 				const ev = msg.event;
 				if (
@@ -103,6 +112,14 @@ async function main() {
 					process.stdout.write(text);
 					wroteAnyText = true;
 				}
+			}
+
+			// A 'result' message marks the end of the current turn.
+			if (msg.type === "result") {
+				if (msg.subtype !== "success") {
+					console.error("Agent SDK error:", msg.subtype, msg.errors || []);
+				}
+				break;
 			}
 		}
 

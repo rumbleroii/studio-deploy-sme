@@ -100,6 +100,15 @@ async function main() {
 \t\t\t\tobservedSessionId = String(msg.session_id || "");
 \t\t\t}
 
+\t\t\tif (msg.type === "auth_status") {
+\t\t\t\tif (Array.isArray(msg.output) && msg.output.length) {
+\t\t\t\t\tconsole.error(msg.output.join("\\n"));
+\t\t\t\t}
+\t\t\t\tif (msg.error) {
+\t\t\t\t\tconsole.error(msg.error);
+\t\t\t\t}
+\t\t\t}
+
 \t\t\tif (msg.type === "stream_event") {
 \t\t\t\tconst ev = msg.event;
 \t\t\t\tif (ev && ev.type === "content_block_delta" && ev.delta && typeof ev.delta.text === "string") {
@@ -117,6 +126,14 @@ async function main() {
 \t\t\t\t\tprocess.stdout.write(text);
 \t\t\t\t\twroteAnyText = true;
 \t\t\t\t}
+\t\t\t}
+
+\t\t\t// A 'result' message marks the end of the current turn.
+\t\t\tif (msg.type === "result") {
+\t\t\t\tif (msg.subtype !== "success") {
+\t\t\t\t\tconsole.error("Agent SDK error:", msg.subtype, msg.errors || []);
+\t\t\t\t}
+\t\t\t\tbreak;
 \t\t\t}
 \t\t}
 
