@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -24,6 +25,16 @@ import {
 	FileText,
 	PanelRightClose,
 	PanelRight,
+	Upload,
+	FolderUp,
+	Folder,
+	File,
+	Download,
+	Trash2,
+	FolderPlus,
+	ChevronRight,
+	ChevronDown,
+	RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +43,23 @@ interface Message {
 	role: "user" | "assistant";
 	content: string;
 	createdAt: string;
+}
+
+interface FileInfo {
+	name: string;
+	absolutePath: string;
+	relativePath: string;
+	type: "file" | "directory" | "symlink" | "other";
+	size: number;
+	modifiedAt: string;
+}
+
+interface TreeNode {
+	name: string;
+	path: string;
+	type: "file" | "directory";
+	size?: number;
+	children: TreeNode[];
 }
 
 interface ProjectViewProps {
@@ -170,6 +198,20 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 	const ensureBackoffMsRef = useRef(500);
 	const { toast } = useToast();
 
+	// Files state
+	const [activeTab, setActiveTab] = useState<"context" | "files">("context");
+	const [files, setFiles] = useState<FileInfo[]>([]);
+	const [filesLoading, setFilesLoading] = useState(false);
+	const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+		new Set()
+	);
+	const [isDraggingOver, setIsDraggingOver] = useState(false);
+	const [uploadingFiles, setUploadingFiles] = useState(false);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const folderInputRef = useRef<HTMLInputElement>(null);
+	const filesRefetchTimeoutRef = useRef<number | null>(null);
+	const eventSourceRef = useRef<EventSource | null>(null);
+
 	const startEnsureLoop = useCallback(() => {
 		if (ensureActiveRef.current) return;
 		ensureActiveRef.current = true;
@@ -220,6 +262,337 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 
 		void attemptEnsure();
 	}, [project.id]);
+
+	// File management functions
+	const fetchFiles = useCallback(async () => {
+		try {
+			setFilesLoading(true);
+			const res = await fetch(`/api/projects/${project.id}/files`);
+			if (res.ok) {
+				const data = await res.json();
+				setFiles(data.files || []);
+			}
+		} catch (error) {
+			console.error("Failed to fetch files:", error);
+		} finally {
+			setFilesLoading(false);
+		}
+	}, [project.id]);
+
+	const uploadFiles = useCallback(
+		async (fileList: FileList | File[]) => {
+			const filesToUpload = Array.from(fileList);
+			if (filesToUpload.length === 0) return;
+
+			setUploadingFiles(true);
+			try {
+				const filePayloads = await Promise.all(
+					filesToUpload.map(async (file) => {
+						// Use webkitRelativePath for folder uploads, or just the name
+						const relativePath = (file as any).webkitRelativePath || file.name;
+						const arrayBuffer = await file.arrayBuffer();
+						const bytes = new Uint8Array(arrayBuffer);
+						let binary = "";
+						for (let i = 0; i < bytes.byteLength; i++) {
+							binary += String.fromCharCode(bytes[i]);
+						}
+						const base64 = btoa(binary);
+						return {
+							path: relativePath,
+							content: base64,
+							encoding: "base64" as const,
+						};
+					})
+				);
+
+				const res = await fetch(`/api/projects/${project.id}/files/write`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ files: filePayloads }),
+				});
+
+				if (res.ok) {
+					toast({
+						title: "Files uploaded",
+						description: `${filesToUpload.length} file(s) uploaded successfully.`,
+					});
+					await fetchFiles();
+				} else {
+					throw new Error("Upload failed");
+				}
+			} catch (error) {
+				console.error("Upload error:", error);
+				toast({
+					variant: "destructive",
+					title: "Upload failed",
+					description: "Could not upload files. Please try again.",
+				});
+			} finally {
+				setUploadingFiles(false);
+			}
+		},
+		[project.id, fetchFiles, toast]
+	);
+
+	const deleteFile = useCallback(
+		async (path: string, kind: "file" | "directory") => {
+			try {
+				const res = await fetch(`/api/projects/${project.id}/files/delete`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ path, kind }),
+				});
+
+				if (res.ok) {
+					toast({
+						title: kind === "directory" ? "Folder deleted" : "File deleted",
+						description: `${path} has been deleted.`,
+					});
+					await fetchFiles();
+				} else {
+					throw new Error("Delete failed");
+				}
+			} catch (error) {
+				console.error("Delete error:", error);
+				toast({
+					variant: "destructive",
+					title: "Delete failed",
+					description: "Could not delete. Please try again.",
+				});
+			}
+		},
+		[project.id, fetchFiles, toast]
+	);
+
+	const downloadFile = useCallback(
+		(path: string) => {
+			const url = `/api/projects/${
+				project.id
+			}/files/download?path=${encodeURIComponent(path)}`;
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = path.split("/").pop() || "download";
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+		},
+		[project.id]
+	);
+
+	const createFolder = useCallback(async () => {
+		const folderName = window.prompt("Enter folder name:");
+		if (!folderName) return;
+
+		try {
+			const res = await fetch(`/api/projects/${project.id}/files/mkdir`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ path: folderName }),
+			});
+
+			if (res.ok) {
+				toast({
+					title: "Folder created",
+					description: `${folderName} has been created.`,
+				});
+				await fetchFiles();
+			} else {
+				throw new Error("Create folder failed");
+			}
+		} catch (error) {
+			console.error("Create folder error:", error);
+			toast({
+				variant: "destructive",
+				title: "Failed to create folder",
+				description: "Please try again.",
+			});
+		}
+	}, [project.id, fetchFiles, toast]);
+
+	// Build tree from flat file list
+	const fileTree = useMemo(() => {
+		const root: TreeNode = {
+			name: "",
+			path: "",
+			type: "directory",
+			children: [],
+		};
+
+		for (const file of files) {
+			const parts = file.relativePath.split("/");
+			let current = root;
+
+			for (let i = 0; i < parts.length; i++) {
+				const part = parts[i];
+				const isLast = i === parts.length - 1;
+				const pathSoFar = parts.slice(0, i + 1).join("/");
+
+				let existing = current.children.find((c) => c.name === part);
+				if (!existing) {
+					existing = {
+						name: part,
+						path: pathSoFar,
+						type: isLast
+							? file.type === "directory"
+								? "directory"
+								: "file"
+							: "directory",
+						size: isLast ? file.size : undefined,
+						children: [],
+					};
+					current.children.push(existing);
+				}
+				current = existing;
+			}
+		}
+
+		// Sort: directories first, then alphabetically
+		const sortChildren = (node: TreeNode) => {
+			node.children.sort((a, b) => {
+				if (a.type === "directory" && b.type !== "directory") return -1;
+				if (a.type !== "directory" && b.type === "directory") return 1;
+				return a.name.localeCompare(b.name);
+			});
+			node.children.forEach(sortChildren);
+		};
+		sortChildren(root);
+
+		return root.children;
+	}, [files]);
+
+	const toggleFolder = useCallback((path: string) => {
+		setExpandedFolders((prev) => {
+			const next = new Set(prev);
+			if (next.has(path)) {
+				next.delete(path);
+			} else {
+				next.add(path);
+			}
+			return next;
+		});
+	}, []);
+
+	// Drag and drop handlers
+	const handleDragOver = useCallback((e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		setIsDraggingOver(true);
+	}, []);
+
+	const handleDragLeave = useCallback((e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		setIsDraggingOver(false);
+	}, []);
+
+	const handleDrop = useCallback(
+		async (e: React.DragEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			setIsDraggingOver(false);
+
+			const items = e.dataTransfer.items;
+			const fileList: File[] = [];
+
+			// Handle both files and folder drops
+			const processEntry = async (
+				entry: FileSystemEntry,
+				path: string = ""
+			): Promise<void> => {
+				if (entry.isFile) {
+					const fileEntry = entry as FileSystemFileEntry;
+					const file = await new Promise<File>((resolve) =>
+						fileEntry.file(resolve)
+					);
+					// Add path prefix for nested files
+					Object.defineProperty(file, "webkitRelativePath", {
+						value: path ? `${path}/${file.name}` : file.name,
+						writable: false,
+					});
+					fileList.push(file);
+				} else if (entry.isDirectory) {
+					const dirEntry = entry as FileSystemDirectoryEntry;
+					const reader = dirEntry.createReader();
+					const entries = await new Promise<FileSystemEntry[]>((resolve) =>
+						reader.readEntries(resolve)
+					);
+					const newPath = path ? `${path}/${entry.name}` : entry.name;
+					for (const subEntry of entries) {
+						await processEntry(subEntry, newPath);
+					}
+				}
+			};
+
+			if (items) {
+				const entries: FileSystemEntry[] = [];
+				for (let i = 0; i < items.length; i++) {
+					const entry = items[i].webkitGetAsEntry();
+					if (entry) entries.push(entry);
+				}
+				for (const entry of entries) {
+					await processEntry(entry);
+				}
+			}
+
+			if (fileList.length > 0) {
+				await uploadFiles(fileList);
+			}
+		},
+		[uploadFiles]
+	);
+
+	// Fetch files when sandbox is connected and tab is active
+	useEffect(() => {
+		if (sandboxStatus === "connected" && activeTab === "files") {
+			fetchFiles();
+		}
+	}, [sandboxStatus, activeTab, fetchFiles]);
+
+	// Set up EventSource for realtime file updates
+	useEffect(() => {
+		if (sandboxStatus !== "connected" || activeTab !== "files") {
+			// Close existing connection
+			if (eventSourceRef.current) {
+				eventSourceRef.current.close();
+				eventSourceRef.current = null;
+			}
+			return;
+		}
+
+		const eventSource = new EventSource(
+			`/api/projects/${project.id}/files/events`
+		);
+		eventSourceRef.current = eventSource;
+
+		eventSource.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				if (data.type === "fs_event") {
+					// Debounce refetch to avoid hammering the API
+					if (filesRefetchTimeoutRef.current) {
+						window.clearTimeout(filesRefetchTimeoutRef.current);
+					}
+					filesRefetchTimeoutRef.current = window.setTimeout(() => {
+						fetchFiles();
+					}, 300);
+				}
+			} catch {
+				// Ignore parse errors
+			}
+		};
+
+		eventSource.onerror = () => {
+			// EventSource will auto-reconnect
+		};
+
+		return () => {
+			eventSource.close();
+			eventSourceRef.current = null;
+			if (filesRefetchTimeoutRef.current) {
+				window.clearTimeout(filesRefetchTimeoutRef.current);
+			}
+		};
+	}, [sandboxStatus, activeTab, project.id, fetchFiles]);
 
 	const resizeComposer = useCallback(() => {
 		const el = inputRef.current;
@@ -415,6 +788,204 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 		</div>
 	);
 
+	// Recursive tree item renderer
+	const renderTreeItem = (node: TreeNode, depth: number = 0) => {
+		const isExpanded = expandedFolders.has(node.path);
+		const isDir = node.type === "directory";
+		const paddingLeft = depth * 12;
+
+		return (
+			<div key={node.path}>
+				<div
+					className={cn(
+						"group flex items-center gap-1.5 py-1 px-2 rounded-md hover:bg-gray-100 cursor-pointer text-sm",
+						"transition-colors"
+					)}
+					style={{ paddingLeft: `${paddingLeft + 8}px` }}
+					onClick={() => isDir && toggleFolder(node.path)}
+				>
+					{isDir ? (
+						<>
+							{isExpanded ? (
+								<ChevronDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+							) : (
+								<ChevronRight className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+							)}
+							<Folder className="h-4 w-4 text-amber-500 shrink-0" />
+						</>
+					) : (
+						<>
+							<span className="w-3.5" />
+							<File className="h-4 w-4 text-gray-400 shrink-0" />
+						</>
+					)}
+					<span className="flex-1 truncate text-gray-700">{node.name}</span>
+
+					{/* Action buttons */}
+					<div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5">
+						{!isDir && (
+							<Button
+								variant="ghost"
+								size="smallIcon"
+								icon={<Download className="h-3.5 w-3.5" />}
+								className="h-6 w-6 text-gray-400 hover:text-gray-700"
+								onClick={(e) => {
+									e.stopPropagation();
+									downloadFile(node.path);
+								}}
+								aria-label={`Download ${node.name}`}
+							/>
+						)}
+						<Button
+							variant="ghost"
+							size="smallIcon"
+							icon={<Trash2 className="h-3.5 w-3.5" />}
+							className="h-6 w-6 text-gray-400 hover:text-red-500"
+							onClick={(e) => {
+								e.stopPropagation();
+								if (
+									window.confirm(
+										`Delete ${isDir ? "folder" : "file"} "${node.name}"?`
+									)
+								) {
+									deleteFile(node.path, node.type);
+								}
+							}}
+							aria-label={`Delete ${node.name}`}
+						/>
+					</div>
+				</div>
+				{isDir && isExpanded && node.children.length > 0 && (
+					<div>
+						{node.children.map((child) => renderTreeItem(child, depth + 1))}
+					</div>
+				)}
+			</div>
+		);
+	};
+
+	const filesContent = (
+		<div className="space-y-3">
+			{/* Toolbar */}
+			<div className="flex items-center gap-2">
+				<input
+					type="file"
+					ref={fileInputRef}
+					className="hidden"
+					multiple
+					onChange={(e) => {
+						if (e.target.files) {
+							uploadFiles(e.target.files);
+							e.target.value = "";
+						}
+					}}
+				/>
+				<input
+					type="file"
+					ref={folderInputRef}
+					className="hidden"
+					// @ts-expect-error webkitdirectory is not in the types
+					webkitdirectory=""
+					directory=""
+					multiple
+					onChange={(e) => {
+						if (e.target.files) {
+							uploadFiles(e.target.files);
+							e.target.value = "";
+						}
+					}}
+				/>
+				<Button
+					variant="outline"
+					size="sm"
+					className="h-7 text-xs"
+					onClick={() => fileInputRef.current?.click()}
+					disabled={uploadingFiles || sandboxStatus !== "connected"}
+				>
+					<Upload className="h-3.5 w-3.5 mr-1" />
+					Files
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					className="h-7 text-xs"
+					onClick={() => folderInputRef.current?.click()}
+					disabled={uploadingFiles || sandboxStatus !== "connected"}
+				>
+					<FolderUp className="h-3.5 w-3.5 mr-1" />
+					Folder
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					className="h-7 text-xs"
+					onClick={createFolder}
+					disabled={uploadingFiles || sandboxStatus !== "connected"}
+				>
+					<FolderPlus className="h-3.5 w-3.5 mr-1" />
+					New
+				</Button>
+				<div className="flex-1" />
+				<Button
+					variant="ghost"
+					size="smallIcon"
+					icon={
+						filesLoading ? (
+							<Loader2 className="h-3.5 w-3.5 animate-spin" />
+						) : (
+							<RefreshCw className="h-3.5 w-3.5" />
+						)
+					}
+					className="h-7 w-7 text-gray-400 hover:text-gray-700"
+					onClick={fetchFiles}
+					disabled={filesLoading || sandboxStatus !== "connected"}
+					aria-label="Refresh files"
+				/>
+			</div>
+
+			{/* Drop zone / file tree */}
+			<div
+				className={cn(
+					"min-h-[200px] rounded-lg border-2 border-dashed transition-colors",
+					isDraggingOver
+						? "border-burgundy-400 bg-burgundy-50"
+						: "border-gray-200 bg-gray-50/50",
+					uploadingFiles && "opacity-50 pointer-events-none"
+				)}
+				onDragOver={handleDragOver}
+				onDragLeave={handleDragLeave}
+				onDrop={handleDrop}
+			>
+				{filesLoading && files.length === 0 ? (
+					<div className="flex items-center justify-center h-[200px]">
+						<Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+					</div>
+				) : fileTree.length === 0 ? (
+					<div className="flex flex-col items-center justify-center h-[200px] text-center px-4">
+						<Upload className="h-8 w-8 text-gray-300 mb-2" />
+						<p className="text-sm text-gray-500 mb-1">
+							Drop files here or use the buttons above
+						</p>
+						<p className="text-xs text-gray-400">
+							Files sync with your project workspace
+						</p>
+					</div>
+				) : (
+					<div className="p-2">
+						{fileTree.map((node) => renderTreeItem(node, 0))}
+					</div>
+				)}
+
+				{uploadingFiles && (
+					<div className="flex items-center justify-center py-4">
+						<Loader2 className="h-4 w-4 animate-spin text-burgundy-500 mr-2" />
+						<span className="text-sm text-gray-600">Uploading…</span>
+					</div>
+				)}
+			</div>
+		</div>
+	);
+
 	return (
 		<div className="h-dvh flex flex-col">
 			{/* Header */}
@@ -450,22 +1021,41 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 							variant="ghost"
 							size="smallIcon"
 							className="lg:hidden text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-							aria-label="Open research context"
+							aria-label="Open panel"
 							icon={<PanelRight className="h-4 w-4" />}
 						/>
 					</DialogTrigger>
 					<DialogContent className="p-0 overflow-hidden max-w-lg">
 						<DialogHeader className="px-4 py-3 border-b border-gray-200">
 							<DialogTitle className="text-sm font-medium text-gray-900">
-								Research Context
+								Project Panel
 							</DialogTitle>
 							<DialogDescription className="sr-only">
-								Research objective and recent artefacts for this project.
+								Research context and files for this project.
 							</DialogDescription>
 						</DialogHeader>
-						<ScrollArea className="max-h-[70vh] p-4">
-							{contextContent}
-						</ScrollArea>
+						<Tabs
+							value={activeTab}
+							onValueChange={(v) => setActiveTab(v as "context" | "files")}
+							className="flex flex-col"
+						>
+							<TabsList className="mx-4 mt-2 grid w-auto grid-cols-2">
+								<TabsTrigger value="context" className="text-xs">
+									Context
+								</TabsTrigger>
+								<TabsTrigger value="files" className="text-xs">
+									Files
+								</TabsTrigger>
+							</TabsList>
+							<ScrollArea className="max-h-[60vh]">
+								<TabsContent value="context" className="p-4 mt-0">
+									{contextContent}
+								</TabsContent>
+								<TabsContent value="files" className="p-4 mt-0">
+									{filesContent}
+								</TabsContent>
+							</ScrollArea>
+						</Tabs>
 					</DialogContent>
 				</Dialog>
 				<Button
@@ -647,15 +1237,37 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 					</div>
 				</div>
 
-				{/* Context panel */}
+				{/* Right panel with tabs */}
 				{showContext && (
 					<div className="w-80 border-l border-gray-200 hidden lg:flex flex-col bg-white">
-						<div className="h-12 px-4 border-b border-gray-200 flex items-center">
-							<h2 className="text-sm font-medium text-gray-900">
-								Research Context
-							</h2>
-						</div>
-						<ScrollArea className="flex-1 p-4">{contextContent}</ScrollArea>
+						<Tabs
+							value={activeTab}
+							onValueChange={(v) => setActiveTab(v as "context" | "files")}
+							className="flex flex-col flex-1"
+						>
+							<div className="h-12 px-4 border-b border-gray-200 flex items-center">
+								<TabsList className="h-8 p-0.5">
+									<TabsTrigger value="context" className="text-xs h-7 px-3">
+										Context
+									</TabsTrigger>
+									<TabsTrigger value="files" className="text-xs h-7 px-3">
+										Files
+									</TabsTrigger>
+								</TabsList>
+							</div>
+							<TabsContent
+								value="context"
+								className="flex-1 mt-0 data-[state=active]:flex data-[state=active]:flex-col"
+							>
+								<ScrollArea className="flex-1 p-4">{contextContent}</ScrollArea>
+							</TabsContent>
+							<TabsContent
+								value="files"
+								className="flex-1 mt-0 data-[state=active]:flex data-[state=active]:flex-col"
+							>
+								<ScrollArea className="flex-1 p-4">{filesContent}</ScrollArea>
+							</TabsContent>
+						</Tabs>
 					</div>
 				)}
 			</div>

@@ -2,6 +2,10 @@
 # Match the npm package version (0.6.6).
 FROM docker.io/cloudflare/sandbox:0.6.6
 
+# Install inotify-tools for realtime file system watching
+RUN apt-get update && apt-get install -y --no-install-recommends inotify-tools \
+  && rm -rf /var/lib/apt/lists/*
+
 # Bake the runner + deps into the image (do NOT rely on global npm installs).
 WORKDIR /runner
 COPY runner/run_chat.ts ./run_chat.ts
