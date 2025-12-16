@@ -1,36 +1,178 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Studio
+
+Research project management with AI-powered chat, built with Next.js, Supabase, MongoDB, and Claude Agent SDK running in Cloudflare Sandbox.
+
+## Features
+
+- **Supabase Authentication**: Email/password sign up and sign in
+- **Role-based Access Control**: Admin, Editor, and Viewer roles
+- **Project Management**: Create projects with research objectives (paste text or upload PDF/DOCX)
+- **AI Chat**: Chat with Claude about your research within each project
+- **Shareable Project Links**: Each project has a unique URL for easy sharing
+- **Persistent Sandboxes**: Each project gets its own Cloudflare Sandbox instance that persists across sessions
+
+## Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Next.js App   │────▶│  Cloudflare     │────▶│    Claude       │
+│   (Frontend +   │     │  Worker +       │     │  Agent SDK      │
+│    API Routes)  │     │  Sandbox        │     │                 │
+└────────┬────────┘     └─────────────────┘     └─────────────────┘
+         │
+         ▼
+┌─────────────────┐     ┌─────────────────┐
+│    Supabase     │     │    MongoDB      │
+│    (Auth)       │     │    (Data)       │
+└─────────────────┘     └─────────────────┘
+```
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+
+- MongoDB database (e.g., MongoDB Atlas)
+- Supabase project
+- Cloudflare account (for Worker + Sandbox)
+
+### Installation
+
+1. Clone the repository and install dependencies:
+
+```bash
+npm install
+cd agent-worker && npm install && cd ..
+```
+
+2. Set up environment variables:
+
+```bash
+cp .env.example .env.local
+```
+
+Edit `.env.local` with your values:
+
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
+# MongoDB (database name: autonomous_poc)
+MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/autonomous_poc?retryWrites=true&w=majority
+
+# Optional: Bootstrap admin users
+INITIAL_ADMIN_EMAILS=admin@example.com
+
+# Agent Worker (optional - app works without this)
+AGENT_WORKER_URL=https://your-worker.workers.dev
+AGENT_WORKER_SHARED_SECRET=your-secret
+```
+
+3. Generate Prisma client:
+
+```bash
+npm run db:generate
+```
+
+4. Push database schema:
+
+```bash
+npm run db:push
+```
+
+5. Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Deploying the Cloudflare Worker
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Navigate to the worker directory:
 
-## Learn More
+```bash
+cd agent-worker
+```
 
-To learn more about Next.js, take a look at the following resources:
+2. Login to Cloudflare:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npx wrangler login
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+3. Set secrets:
 
-## Deploy on Vercel
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY
+npx wrangler secret put AGENT_WORKER_SHARED_SECRET
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+4. Deploy:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run deploy
+```
+
+5. Update your `.env.local` with the worker URL.
+
+## Project Structure
+
+```
+studio/
+├── src/
+│   ├── app/                    # Next.js App Router
+│   │   ├── (authed)/          # Authenticated routes
+│   │   │   ├── projects/      # Projects pages
+│   │   │   └── users/         # Users management
+│   │   ├── api/               # API routes
+│   │   ├── auth/              # Auth callback
+│   │   └── login/             # Login page
+│   ├── components/            # React components
+│   │   ├── layout/            # App shell
+│   │   ├── projects/          # Project components
+│   │   ├── users/             # User components
+│   │   └── ui/                # UI primitives
+│   ├── hooks/                 # Custom hooks
+│   └── lib/                   # Utilities
+│       ├── supabase/          # Supabase clients
+│       ├── auth.ts            # Auth helpers
+│       ├── db.ts              # Prisma client
+│       └── utils.ts           # General utilities
+├── prisma/
+│   └── schema.prisma          # Database schema
+└── agent-worker/              # Cloudflare Worker
+    └── src/
+        └── index.ts           # Worker entry point
+```
+
+## User Roles
+
+| Role   | Projects | Users Page | Edit Roles |
+|--------|----------|------------|------------|
+| Viewer | ✅       | ❌         | ❌         |
+| Editor | ✅       | ✅ (view)  | ❌         |
+| Admin  | ✅       | ✅         | ✅         |
+
+The first user to sign up becomes an admin automatically. You can also specify admin emails via the `INITIAL_ADMIN_EMAILS` environment variable.
+
+## Development
+
+### Running locally without the Worker
+
+The app works without the Cloudflare Worker configured. Chat will return a placeholder message indicating the Worker needs to be set up.
+
+### Database migrations
+
+After modifying `prisma/schema.prisma`:
+
+```bash
+npm run db:push
+```
+
+## License
+
+MIT
+
