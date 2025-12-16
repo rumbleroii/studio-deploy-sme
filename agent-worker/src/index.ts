@@ -32,7 +32,7 @@ const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 
 // Keep the runner script synced even for long-lived sandboxes by writing it at runtime.
 // This avoids needing every sandbox instance to restart to pick up container image changes.
-const RUN_CHAT_SCRIPT = `import { Anthropic } from "@anthropic-ai/sdk";
+const RUN_CHAT_SCRIPT = `import { unstable_v2_createSession, unstable_v2_resumeSession } from "@anthropic-ai/claude-agent-sdk";
 import fs from "fs/promises";
 import path from "path";
 
@@ -52,6 +52,8 @@ async function main() {
 \t}
 
 \tconst model = process.env.ANTHROPIC_MODEL || "${DEFAULT_ANTHROPIC_MODEL}";
+\tconst pathToClaudeCodeExecutable =
+\t\tprocess.env.CLAUDE_CODE_PATH || "/runner/node_modules/.bin/claude";
 
 \tconst projectDir = process.cwd();
 \tconst researchObjective = await readOptional(path.join(projectDir, "research_objective.md"));
@@ -60,33 +62,70 @@ async function main() {
 \t\tconsole.error("Error: .current_message.txt not found");
 \t\tprocess.exit(1);
 \t}
+\tconst sessionFilePath = path.join(projectDir, ".claude_session_id");
+\tconst existingSessionId = (await readOptional(sessionFilePath)).trim();
 
-\tlet history = [];
-\ttry {
-\t\tconst historyData = await readOptional(path.join(projectDir, ".chat_history.json"));
-\t\thistory = historyData ? JSON.parse(historyData) : [];
-\t} catch {
-\t\thistory = [];
-\t}
-
-\tconst client = new Anthropic({ apiKey });
-
-\tconst systemPrompt = \`You are a research assistant. Context:\\n\${researchObjective}\`;
-\tconst messages = history.map((m) => ({ role: m.role, content: m.content }));
-\tmessages.push({ role: "user", content: userMessage });
-
-\tconst stream = await client.messages.create({
+\tconst sessionOptions = {
 \t\tmodel,
-\t\tmax_tokens: 1024,
-\t\tsystem: systemPrompt,
-\t\tmessages,
-\t\tstream: true,
-\t});
+\t\tpathToClaudeCodeExecutable,
+\t\tenv: {
+\t\t\t...process.env,
+\t\t\tANTHROPIC_API_KEY: apiKey,
+\t\t},
+\t};
 
-\tfor await (const chunk of stream) {
-\t\tif (chunk.type === "content_block_delta") {
-\t\t\tprocess.stdout.write(chunk.delta.text);
+\tconst isNewSession = !existingSessionId;
+\tlet promptPrefix =
+\t\t"You are a research assistant. Do not use tools unless explicitly asked.\\n\\n";
+\tif (researchObjective && isNewSession) {
+\t\tpromptPrefix =
+\t\t\t"You are a research assistant. Use the following context. Do not use tools unless explicitly asked.\\n\\nContext:\\n" +
+\t\t\tresearchObjective +
+\t\t\t"\\n\\n";
+\t}
+\tconst messageToSend = isNewSession ? promptPrefix + userMessage : userMessage;
+
+\tconst session = existingSessionId
+\t\t? unstable_v2_resumeSession(existingSessionId, sessionOptions)
+\t\t: unstable_v2_createSession(sessionOptions);
+
+\ttry {
+\t\tawait session.send(messageToSend);
+
+\t\tlet wroteAnyText = false;
+\t\tlet observedSessionId = existingSessionId;
+
+\t\tfor await (const msg of session.receive()) {
+\t\t\tif (!observedSessionId && msg && typeof msg === "object" && "session_id" in msg) {
+\t\t\t\tobservedSessionId = String(msg.session_id || "");
+\t\t\t}
+
+\t\t\tif (msg.type === "stream_event") {
+\t\t\t\tconst ev = msg.event;
+\t\t\t\tif (ev && ev.type === "content_block_delta" && ev.delta && typeof ev.delta.text === "string") {
+\t\t\t\t\tprocess.stdout.write(ev.delta.text);
+\t\t\t\t\twroteAnyText = true;
+\t\t\t\t}
+\t\t\t}
+
+\t\t\tif (!wroteAnyText && msg.type === "assistant" && msg.message && Array.isArray(msg.message.content)) {
+\t\t\t\tconst text = msg.message.content
+\t\t\t\t\t.filter((b) => b && b.type === "text")
+\t\t\t\t\t.map((b) => b.text)
+\t\t\t\t\t.join(\"\");
+\t\t\t\tif (text) {
+\t\t\t\t\tprocess.stdout.write(text);
+\t\t\t\t\twroteAnyText = true;
+\t\t\t\t}
+\t\t\t}
 \t\t}
+
+\t\tconst finalSessionId = observedSessionId || (session && session.sessionId) || \"\";
+\t\tif (finalSessionId) {
+\t\t\tawait fs.writeFile(sessionFilePath, finalSessionId, \"utf-8\");
+\t\t}
+\t} finally {
+\t\tsession.close();
 \t}
 }
 
