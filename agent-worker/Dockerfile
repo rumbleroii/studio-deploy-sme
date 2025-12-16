@@ -4,8 +4,10 @@ FROM docker.io/cloudflare/sandbox:0.6.6
 
 # Bake the runner + deps into the image (do NOT rely on global npm installs).
 WORKDIR /runner
+# Copy all source files
 COPY runner/run_chat.ts ./run_chat.ts
-COPY runner/.claude ./working_directory/.claude
+COPY src/hello-world.mjs ./hello-world.mjs
+# Install dependencies and build
 RUN npm init -y \
   && npm pkg set type=module \
   && npm install @anthropic-ai/claude-agent-sdk@0.1.70 @anthropic-ai/claude-code@2.0.70 esbuild \
@@ -16,3 +18,4 @@ RUN chmod +x ./run_chat.js
 
 # The Sandbox runtime listens on 3000 (internal control plane).
 EXPOSE 3000
+EXPOSE 3001

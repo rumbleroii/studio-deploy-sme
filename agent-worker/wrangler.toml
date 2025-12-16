@@ -1,6 +1,7 @@
 name = "studio-agent-worker"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
+account_id = "573d1b2ea922ae79ad5277bfa9df4aa7"  # Arjun's paid account
 
 # Sandbox binding
 [[durable_objects.bindings]]

@@ -148,8 +148,8 @@ export function NewProjectDialog() {
 					<ChevronDown className="h-4 w-4" />
 				</Button>
 			</DialogTrigger>
-			<DialogContent className="sm:max-w-lg bg-white border-gray-200 rounded-lg p-0 gap-0">
-				<form onSubmit={handleSubmit}>
+			<DialogContent className="sm:max-w-lg bg-white border-gray-200 rounded-lg p-0 gap-0 overflow-hidden">
+				<form onSubmit={handleSubmit} className="overflow-hidden">
 					<DialogHeader className="px-6 pt-6 pb-4 border-b border-gray-200">
 						<DialogTitle className="text-base font-semibold text-gray-900">
 							Create New Project
