@@ -6,6 +6,8 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
 	Dialog,
 	DialogContent,
@@ -39,6 +41,112 @@ interface ProjectViewProps {
 		researchObjectiveText: string;
 	};
 	initialMessages: Message[];
+}
+
+function MarkdownMessage({
+	content,
+	className,
+}: {
+	content: string;
+	className?: string;
+}) {
+	return (
+		<div className={cn("text-sm leading-7 text-gray-900", className)}>
+			<ReactMarkdown
+				remarkPlugins={[remarkGfm]}
+				components={{
+					p: ({ children }: any) => (
+						<p className="my-2 first:mt-0 last:mb-0 whitespace-pre-wrap">
+							{children}
+						</p>
+					),
+					a: ({ children, href }: any) => (
+						<a
+							href={href}
+							target="_blank"
+							rel="noreferrer"
+							className="text-burgundy-500 underline underline-offset-2 hover:text-burgundy-400"
+						>
+							{children}
+						</a>
+					),
+					strong: ({ children }: any) => (
+						<strong className="font-semibold">{children}</strong>
+					),
+					em: ({ children }: any) => <em className="italic">{children}</em>,
+					h1: ({ children }: any) => (
+						<h1 className="mt-4 mb-2 text-base font-semibold leading-6">
+							{children}
+						</h1>
+					),
+					h2: ({ children }: any) => (
+						<h2 className="mt-4 mb-2 text-sm font-semibold tracking-tight">
+							{children}
+						</h2>
+					),
+					h3: ({ children }: any) => (
+						<h3 className="mt-3 mb-1 text-sm font-semibold">{children}</h3>
+					),
+					ul: ({ children }: any) => (
+						<ul className="my-2 pl-5 list-disc space-y-1">{children}</ul>
+					),
+					ol: ({ children }: any) => (
+						<ol className="my-2 pl-5 list-decimal space-y-1">{children}</ol>
+					),
+					li: ({ children }: any) => (
+						<li className="leading-7 whitespace-pre-wrap">{children}</li>
+					),
+					hr: () => <hr className="my-4 border-gray-200" />,
+					blockquote: ({ children }: any) => (
+						<blockquote className="my-3 border-l-2 border-gray-200 pl-4 text-gray-700">
+							{children}
+						</blockquote>
+					),
+					code: ({ children, className }: any) => {
+						const isBlock =
+							typeof className === "string" && /language-/.test(className);
+						if (isBlock) {
+							// react-markdown wraps block code in <pre><code>, so style is handled by <pre>
+							return (
+								<code className={cn("font-mono text-xs", className)}>
+									{children}
+								</code>
+							);
+						}
+						return (
+							<code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs text-gray-900">
+								{children}
+							</code>
+						);
+					},
+					pre: ({ children }: any) => (
+						<pre className="my-3 overflow-x-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs leading-5">
+							{children}
+						</pre>
+					),
+					table: ({ children }: any) => (
+						<div className="my-3 overflow-x-auto">
+							<table className="w-full border-collapse text-sm">
+								{children}
+							</table>
+						</div>
+					),
+					th: ({ children }: any) => (
+						<th className="border border-gray-200 bg-gray-50 px-2 py-1 text-left font-medium">
+							{children}
+						</th>
+					),
+					td: ({ children }: any) => (
+						<td className="border border-gray-200 px-2 py-1 align-top">
+							{children}
+						</td>
+					),
+				}}
+			>
+				{content}
+			</ReactMarkdown>
+		</div>
+	);
 }
 
 export function ProjectView({ project, initialMessages }: ProjectViewProps) {
@@ -382,9 +490,9 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 			<div className="flex-1 flex overflow-hidden">
 				{/* Chat panel */}
 				<div className="flex-1 flex flex-col min-w-0 bg-gray-50 relative">
-					<ScrollArea className="flex-1 p-4">
+					<ScrollArea className="flex-1">
 						<div
-							className="max-w-2xl mx-auto space-y-4"
+							className="max-w-2xl mx-auto space-y-4 my-4"
 							role="log"
 							aria-label="Chat messages"
 							aria-live="polite"
@@ -393,7 +501,7 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 						>
 							{messages.length === 0 && !isStreaming && (
 								<div className="text-center py-16">
-									<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-burgundy-500/5 flex items-center justify-center">
+									<div className="w-12 h-12 mx-auto mb-4 rounded-full flex items-center justify-center">
 										<Image
 											src="/metaforms-logo.svg"
 											alt="AI"
@@ -407,7 +515,7 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 										Start your research
 									</h3>
 									<p className="text-sm text-gray-500 max-w-xs mx-auto">
-										Ask Claude about your research objective or request
+										Ask Metaforms about your research objective or request
 										analysis.
 									</p>
 								</div>
@@ -417,79 +525,40 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 								<div
 									key={message.id}
 									className={cn(
-										"flex gap-3",
-										message.role === "user" && "flex-row-reverse"
+										"flex",
+										message.role === "user" ? "justify-end" : "justify-start"
 									)}
 								>
-									<div
-										className={cn(
-											"w-8 h-8 rounded-full flex items-center justify-center shrink-0 border",
-											message.role === "user"
-												? "bg-burgundy-500 text-white border-burgundy-500"
-												: "bg-white border-gray-100"
-										)}
-									>
-										{message.role === "user" ? (
-											<span className="text-xs font-medium">YOU</span>
-										) : (
-											<Image
-												src="/metaforms-logo.svg"
-												alt="AI"
-												width={16}
-												height={16}
-												style={{ width: "auto", height: "auto" }}
-												className="opacity-90"
+									{message.role === "user" ? (
+										<div className="max-w-[80%] rounded-2xl border border-gray-200 bg-gray-100/60 px-4 py-2.5 text-sm leading-relaxed text-gray-900 shadow-[0_1px_0_rgba(0,0,0,0.02)]">
+											<MarkdownMessage
+												className="text-gray-900 leading-6"
+												content={message.content}
 											/>
-										)}
-									</div>
-									<div
-										className={cn(
-											"rounded-2xl px-5 py-3.5 max-w-[80%] text-sm leading-relaxed shadow-sm",
-											message.role === "user"
-												? "bg-burgundy-500 text-white rounded-tr-none"
-												: "bg-white border border-gray-100 text-gray-700 rounded-tl-none"
-										)}
-									>
-										<p className="whitespace-pre-wrap">{message.content}</p>
-									</div>
+										</div>
+									) : (
+										<div className="max-w-[70ch] py-1 text-sm leading-7 text-gray-900">
+											<MarkdownMessage content={message.content} />
+										</div>
+									)}
 								</div>
 							))}
 
 							{isStreaming && streamingContent && (
-								<div className="flex gap-4">
-									<div className="w-8 h-8 rounded-full bg-white border border-gray-100 flex items-center justify-center shrink-0">
-										<Image
-											src="/metaforms-logo.svg"
-											alt="AI"
-											width={16}
-											height={16}
-											style={{ width: "auto", height: "auto" }}
-											className="opacity-90 animate-pulse"
+								<div className="flex justify-start">
+									<div className="max-w-[70ch] py-1 text-sm leading-7 text-gray-900">
+										<MarkdownMessage
+											content={`${streamingContent}\n\n▍`}
+											className="[&_*]:!text-gray-900"
 										/>
-									</div>
-									<div className="rounded-2xl rounded-tl-none px-5 py-3.5 max-w-[80%] bg-white border border-gray-100 text-sm leading-relaxed shadow-sm">
-										<p className="whitespace-pre-wrap text-gray-700">
-											{streamingContent}
-										</p>
 									</div>
 								</div>
 							)}
 
 							{isStreaming && !streamingContent && (
-								<div className="flex gap-4">
-									<div className="w-8 h-8 rounded-full bg-white border border-gray-100 flex items-center justify-center shrink-0">
-										<Image
-											src="/metaforms-logo.svg"
-											alt="AI"
-											width={16}
-											height={16}
-											style={{ width: "auto", height: "auto" }}
-											className="opacity-90 animate-pulse"
-										/>
-									</div>
-									<div className="rounded-2xl rounded-tl-none px-5 py-3.5 bg-white border border-gray-100 shadow-sm">
-										<Loader2 className="h-4 w-4 animate-spin text-burgundy-500" />
-									</div>
+								<div className="flex items-center gap-2 py-1 text-sm text-gray-500">
+									<Loader2 className="h-4 w-4 animate-spin text-burgundy-500" />
+									<span>Thinking…</span>
 								</div>
 							)}
 							<div
@@ -538,7 +607,7 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 										}}
 										disabled={isStreaming}
 										rows={1}
-										className="flex-1 min-h-[44px] max-h-40 resize-none border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-none text-sm leading-5 px-3 py-3"
+										className="flex-1 min-h-[44px] max-h-40 resize-none border-0 bg-white shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-none text-sm leading-5 px-3 py-3"
 									/>
 									<Button
 										type="submit"
