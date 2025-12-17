@@ -395,13 +395,27 @@ async function handleEnsure(
 
 		// Create project workspace directory
 		const projectDir = `/workspace/projects/${projectId}`;
+		const workingDir = getWorkingDir(projectId);
 		await sandbox.exec(`mkdir -p ${projectDir}`);
-		await sandbox.exec(`mkdir -p ${getWorkingDir(projectId)}`);
+		await sandbox.exec(`mkdir -p ${workingDir}`);
 
-		// Start preview server (using baked-in hello-world.mjs)
-		await sandbox.exec("pkill -f hello-world.mjs || true");
-		await sandbox.exec("node /runner/hello-world.mjs &");
-		await sandbox.exec("sleep 2");
+		// Check if Next.js app already exists
+		const checkAppResult = await sandbox.exec(`test -f ${workingDir}/package.json && echo "exists" || echo "not_exists"`);
+		const appExists = checkAppResult.stdout.trim() === "exists";
+
+		if (!appExists) {
+			// Copy pre-built Next.js template (dependencies already installed in container)
+			console.log(`Setting up Next.js app for project ${projectId}...`);
+			await sandbox.exec(`cp -r /runner/nextjs-template/. ${workingDir}/`);
+		}
+
+		// Kill any existing dev server and start Next.js on port 3001
+		await sandbox.exec("pkill -f 'next dev' || true");
+		await sandbox.exec(`cd ${workingDir} && PORT=3001 npm run dev &`, {
+			timeout: 30000,
+		});
+		// Give the dev server time to start
+		await sandbox.exec("sleep 5");
 
 		// Expose port and get public URL
 		let previewUrl: string | undefined;

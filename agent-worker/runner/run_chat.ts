@@ -381,7 +381,6 @@ async function main() {
 		env: {
 			...process.env,
 			ANTHROPIC_API_KEY: apiKey,
-			CLAUDE_CONFIG_DIR: claudeConfigDir,
 		},
 		// Enable streaming partial messages so we get incremental token deltas.
 		includePartialMessages: true,
@@ -403,8 +402,8 @@ async function main() {
 			"Skill",
 		],
 		systemPrompt: { type: "preset" as const, preset: "claude_code" as const },
-		permissionMode: "bypassPermissions" as const,
-		allowDangerouslySkipPermissions: true,
+		// NOTE: Cannot use permissionMode/allowDangerouslySkipPermissions when running as root
+		// (Claude Code refuses for security reasons). Use default permission handling.
 	};
 
 	// Make the Agent SDK treat working_directory/ as the current working directory.
