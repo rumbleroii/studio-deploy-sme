@@ -17,7 +17,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 		select: {
 			id: true,
 			name: true,
-			researchObjectiveText: true,
 			createdById: true,
 			messages: {
 				orderBy: { createdAt: "asc" },
@@ -44,7 +43,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 			project={{
 				id: project.id,
 				name: project.name,
-				researchObjectiveText: project.researchObjectiveText,
 			}}
 			initialMessages={project.messages.map((m) => ({
 				id: m.id,

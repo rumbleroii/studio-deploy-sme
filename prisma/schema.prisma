@@ -25,16 +25,9 @@ model User {
   @@map("users")
 }
 
-enum ObjectiveSource {
-  text
-  upload
-}
-
 model Project {
   id                    String          @id @default(auto()) @map("_id") @db.ObjectId
   name                  String
-  researchObjectiveText String
-  objectiveSource       ObjectiveSource @default(text)
   sandboxId             String?
   claudeSessionId       String?
   createdById           String          @db.ObjectId

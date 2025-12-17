@@ -12,15 +12,41 @@ interface Env {
 	AGENT_WORKER_SHARED_SECRET: string;
 }
 
-interface EnsureRequestBody {
-	researchObjectiveText: string;
+interface EnsureRequestBody {}
+
+type TraceSource = "frontend" | "nextjs" | "worker" | "runner";
+
+interface TraceMilestone {
+	name: string;
+	source: TraceSource;
+	tsMs: number;
+	tsIso: string;
+	projectId?: string;
+	runId?: string;
+}
+
+interface TracePayload {
+	traceId: string;
+	frontendSentAtMs?: number;
+	milestones?: TraceMilestone[];
+}
+
+function dedupeTraceMilestones(milestones: TraceMilestone[]): TraceMilestone[] {
+	const seen = new Set<string>();
+	const out: TraceMilestone[] = [];
+	for (const m of milestones) {
+		const key = `${m.source}:${m.name}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(m);
+	}
+	return out;
 }
 
 interface ChatRequestBody {
 	message: string;
-	history?: Array<{ role: string; content: string }>;
-	researchObjectiveText: string;
 	claudeSessionId?: string;
+	trace?: TracePayload;
 }
 
 interface RunsCreateRequestBody extends ChatRequestBody {
@@ -76,6 +102,19 @@ const PREVIEW_PORT = 3001;
 const CUSTOM_DOMAIN = "metaforms-sandbox.com";
 const RUNS_DIR_NAME = ".runs";
 const ACTIVE_RUN_FILE_NAME = ".active_run.json";
+
+function toBase64Utf8(input: string): string {
+	// Cloudflare Workers has btoa, but it only handles Latin1 strings.
+	// Convert UTF-8 bytes -> binary string -> btoa.
+	const bytes = new TextEncoder().encode(input);
+	let binary = "";
+	const chunkSize = 0x8000;
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		const chunk = bytes.subarray(i, i + chunkSize);
+		binary += String.fromCharCode(...chunk);
+	}
+	return btoa(binary);
+}
 
 /**
  * Validate and resolve a relative path to an absolute path under workingDir.
@@ -343,7 +382,12 @@ async function handleEnsure(
 	env: Env
 ): Promise<Response> {
 	try {
-		const body = (await request.json()) as EnsureRequestBody;
+		// Body is optional for ensure; keep it tolerant.
+		try {
+			(await request.json()) as EnsureRequestBody;
+		} catch {
+			// ignore
+		}
 		const sandboxId = `project-${projectId}`;
 
 		// Get or create sandbox
@@ -352,15 +396,7 @@ async function handleEnsure(
 		// Create project workspace directory
 		const projectDir = `/workspace/projects/${projectId}`;
 		await sandbox.exec(`mkdir -p ${projectDir}`);
-
-		// Write research objective if not exists
-		const objectivePath = `${projectDir}/research_objective.md`;
-		const checkResult = await sandbox.exec(
-			`test -f ${objectivePath} && echo exists || echo missing`
-		);
-		if (checkResult.stdout.trim() === "missing") {
-			await sandbox.writeFile(objectivePath, body.researchObjectiveText);
-		}
+		await sandbox.exec(`mkdir -p ${getWorkingDir(projectId)}`);
 
 		// Start preview server (using baked-in hello-world.mjs)
 		await sandbox.exec("pkill -f hello-world.mjs || true");
@@ -428,24 +464,21 @@ async function handleChat(
 		const projectDir = `/workspace/projects/${projectId}`;
 		// Chat might be called before ensure; make sure the directory exists.
 		await sandbox.exec(`mkdir -p ${projectDir}`);
+		await sandbox.exec(`mkdir -p ${getWorkingDir(projectId)}`);
 
-		// Write the message and history to temporary files
-		const messageFile = `${projectDir}/.current_message.txt`;
-		const historyFile = `${projectDir}/.chat_history.json`;
 		const sessionFile = `${projectDir}/.claude_session_id`;
-
-		await sandbox.writeFile(messageFile, body.message);
-		await sandbox.writeFile(historyFile, JSON.stringify(body.history || []));
 
 		if (body.claudeSessionId) {
 			await sandbox.writeFile(sessionFile, body.claudeSessionId);
 		}
 
+		const messageBase64 = toBase64Utf8(body.message);
+
 		// Run the baked-in chat script
 		// Note: We use the pre-baked runner at /runner/run_chat.js (compiled from TS)
 		// We pass ANTHROPIC_API_KEY as an environment variable to the exec command
 		const stream = await sandbox.execStream(
-			`cd ${projectDir} && node /runner/run_chat.js`,
+			`cd ${projectDir} && node /runner/run_chat.js --message-base64 ${messageBase64}`,
 			{
 				env: {
 					ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
@@ -592,6 +625,10 @@ function getRunMetaPath(projectDir: string, runId: string): string {
 	return `${getRunDir(projectDir, runId)}/meta.json`;
 }
 
+function getRunTracePath(projectDir: string, runId: string): string {
+	return `${getRunDir(projectDir, runId)}/trace.json`;
+}
+
 async function readJsonViaCat<T>(
 	sandbox: SandboxInstance,
 	filePath: string
@@ -643,6 +680,7 @@ async function handleRunsCreate(
 	env: Env
 ): Promise<Response> {
 	try {
+		const workerReceivedAtMs = Date.now();
 		const body = (await request.json()) as RunsCreateRequestBody;
 		if (!body?.runId || !body?.message) {
 			return new Response(
@@ -657,16 +695,38 @@ async function handleRunsCreate(
 		const sandboxId = `project-${projectId}`;
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
 		const projectDir = getProjectDir(projectId);
-		await sandbox.exec(`mkdir -p ${projectDir}`);
 
-		// Ensure research objective exists (chat may be called before /ensure).
-		const objectivePath = `${projectDir}/research_objective.md`;
-		const checkObjective = await sandbox.exec(
-			`test -f ${objectivePath} && echo exists || echo missing`
-		);
-		if (checkObjective.stdout.trim() === "missing") {
-			await sandbox.writeFile(objectivePath, body.researchObjectiveText || "");
-		}
+		const traceId =
+			body?.trace?.traceId ||
+			(typeof crypto !== "undefined" && "randomUUID" in crypto
+				? crypto.randomUUID()
+				: `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+		const traceMilestones: TraceMilestone[] = Array.isArray(
+			body?.trace?.milestones
+		)
+			? body.trace!.milestones!.slice()
+			: [];
+		traceMilestones.push({
+			name: "worker_runs_create_received",
+			source: "worker",
+			tsMs: workerReceivedAtMs,
+			tsIso: new Date(workerReceivedAtMs).toISOString(),
+			projectId,
+			runId: body.runId,
+		});
+
+		await sandbox.exec(`mkdir -p ${projectDir}`);
+		await sandbox.exec(`mkdir -p ${getWorkingDir(projectId)}`);
+		const workerReachedSandboxAtMs = Date.now();
+		traceMilestones.push({
+			name: "worker_reached_sandbox",
+			source: "worker",
+			tsMs: workerReachedSandboxAtMs,
+			tsIso: new Date(workerReachedSandboxAtMs).toISOString(),
+			projectId,
+			runId: body.runId,
+		});
 
 		// Enforce single active run per project via .active_run.json + pid liveness.
 		const active = await getActiveRunPointer(sandbox, projectDir);
@@ -728,6 +788,7 @@ async function handleRunsCreate(
 		const runDir = getRunDir(projectDir, body.runId);
 		const eventsPath = getRunEventsPath(projectDir, body.runId);
 		const metaPath = getRunMetaPath(projectDir, body.runId);
+		const tracePath = getRunTracePath(projectDir, body.runId);
 		await sandbox.exec(`mkdir -p ${runDir}`);
 		await sandbox.exec(`touch ${eventsPath}`);
 
@@ -743,16 +804,12 @@ async function handleRunsCreate(
 		};
 		await sandbox.writeFile(metaPath, JSON.stringify(initialMeta));
 
-		// Write inputs (shared across turns, but enforced single-active-run).
-		const messageFile = `${projectDir}/.current_message.txt`;
-		const historyFile = `${projectDir}/.chat_history.json`;
 		const sessionFile = `${projectDir}/.claude_session_id`;
-
-		await sandbox.writeFile(messageFile, body.message);
-		await sandbox.writeFile(historyFile, JSON.stringify(body.history || []));
 		if (body.claudeSessionId) {
 			await sandbox.writeFile(sessionFile, body.claudeSessionId);
 		}
+
+		const messageBase64 = toBase64Utf8(body.message);
 
 		// Start runner detached and capture pid.
 		const stdoutLogPath = `${runDir}/runner.stdout.log`;
@@ -764,6 +821,7 @@ async function handleRunsCreate(
 			ANTHROPIC_MODEL: DEFAULT_ANTHROPIC_MODEL,
 			RUN_ID: body.runId,
 			PROJECT_ID: projectId,
+			TRACE_ID: traceId,
 		};
 		if (body.callbackUrl) {
 			runnerEnv.CALLBACK_URL = body.callbackUrl;
@@ -771,9 +829,12 @@ async function handleRunsCreate(
 		if (body.callbackSecret) {
 			runnerEnv.CALLBACK_SECRET = body.callbackSecret;
 		}
+		if (typeof body?.trace?.frontendSentAtMs === "number") {
+			runnerEnv.TRACE_FRONTEND_SENT_AT_MS = String(body.trace.frontendSentAtMs);
+		}
 
 		const startResult = await sandbox.exec(
-			`cd ${projectDir} && (node /runner/run_chat.js > ${stdoutLogPath} 2> ${stderrLogPath} & echo $!)`,
+			`cd ${projectDir} && (node /runner/run_chat.js --message-base64 ${messageBase64} > ${stdoutLogPath} 2> ${stderrLogPath} & echo $!)`,
 			{
 				env: runnerEnv,
 			} as any
@@ -794,6 +855,33 @@ async function handleRunsCreate(
 				headers: { "Content-Type": "application/json" },
 			});
 		}
+
+		const workerStartedRunnerAtMs = Date.now();
+		traceMilestones.push({
+			name: "worker_started_runner",
+			source: "worker",
+			tsMs: workerStartedRunnerAtMs,
+			tsIso: new Date(workerStartedRunnerAtMs).toISOString(),
+			projectId,
+			runId: body.runId,
+		});
+
+		// Persist trace (separate file so runner meta overwrites don't lose it).
+		await sandbox.writeFile(
+			tracePath,
+			JSON.stringify(
+				{
+					traceId,
+					frontendSentAtMs:
+						typeof body?.trace?.frontendSentAtMs === "number"
+							? body.trace.frontendSentAtMs
+							: undefined,
+					milestones: dedupeTraceMilestones(traceMilestones),
+				} satisfies TracePayload,
+				null,
+				2
+			)
+		);
 
 		// Persist active run pointer
 		const activePath = getActiveRunPath(projectDir);
@@ -816,9 +904,22 @@ async function handleRunsCreate(
 			} satisfies RunMeta)
 		);
 
-		return new Response(JSON.stringify({ runId: body.runId }), {
-			headers: { "Content-Type": "application/json" },
-		});
+		return new Response(
+			JSON.stringify({
+				runId: body.runId,
+				trace: {
+					traceId,
+					frontendSentAtMs:
+						typeof body?.trace?.frontendSentAtMs === "number"
+							? body.trace.frontendSentAtMs
+							: undefined,
+					milestones: dedupeTraceMilestones(traceMilestones),
+				} satisfies TracePayload,
+			}),
+			{
+				headers: { "Content-Type": "application/json" },
+			}
+		);
 	} catch (error) {
 		console.error("Runs create failed:", error);
 		return new Response(JSON.stringify({ error: "Failed to start run" }), {
@@ -947,6 +1048,7 @@ async function handleRunStream(
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
 		const projectDir = getProjectDir(projectId);
 		const eventsPath = getRunEventsPath(projectDir, runId);
+		const tracePath = getRunTracePath(projectDir, runId);
 
 		// Determine starting seq
 		const url = new URL(request.url);
@@ -959,6 +1061,9 @@ async function handleRunStream(
 		await sandbox.exec(
 			`mkdir -p ${getRunDir(projectDir, runId)} && touch ${eventsPath}`
 		);
+
+		const trace = await readJsonViaCat<TracePayload>(sandbox, tracePath);
+		const traceId = trace?.traceId;
 
 		// NOTE: @cloudflare/sandbox does not support passing AbortSignal across the DO boundary
 		// ("AbortSignal serialization is not enabled."). Do not pass `signal` to execStream.
@@ -976,6 +1081,22 @@ async function handleRunStream(
 		const writer = writable.getWriter();
 		const encoder = new TextEncoder();
 
+		const writeMilestone = async (name: string, tsMs: number) => {
+			const payload = {
+				type: "milestone",
+				name,
+				source: "worker",
+				tsMs,
+				tsIso: new Date(tsMs).toISOString(),
+				traceId,
+				projectId,
+				runId,
+			};
+			await writer.write(
+				encoder.encode(`event: milestone\ndata: ${JSON.stringify(payload)}\n\n`)
+			);
+		};
+
 		let closed = false;
 		const close = async () => {
 			if (closed) return;
@@ -991,9 +1112,31 @@ async function handleRunStream(
 			writer.write(encoder.encode(`event: ping\ndata: {}\n\n`)).catch(() => {});
 		}, 15000);
 
+		let emittedFirstDelta = false;
+
 		(async () => {
 			let buffer = "";
 			try {
+				// Emit any known trace milestones (no `id:` so Last-Event-ID remains numeric seq).
+				if (Array.isArray(trace?.milestones) && trace.milestones.length) {
+					for (const m of trace.milestones) {
+						const payload = {
+							type: "milestone",
+							...m,
+							traceId: traceId || (m as any).traceId,
+							projectId: m.projectId || projectId,
+							runId: m.runId || runId,
+						};
+						await writer.write(
+							encoder.encode(
+								`event: milestone\ndata: ${JSON.stringify(payload)}\n\n`
+							)
+						);
+					}
+				}
+
+				await writeMilestone("worker_run_stream_received", Date.now());
+
 				for await (const rawEvent of parseSSEStream(tailStream)) {
 					if (clientAborted.value) {
 						break;
@@ -1022,6 +1165,15 @@ async function handleRunStream(
 
 						const seq = Number(payload?.seq);
 						const type = String(payload?.type || "message");
+
+						if (!emittedFirstDelta && type === "delta") {
+							emittedFirstDelta = true;
+							await writeMilestone(
+								"worker_received_first_delta_from_runner",
+								Date.now()
+							);
+						}
+
 						await writer.write(
 							encoder.encode(
 								`id: ${
@@ -1031,6 +1183,10 @@ async function handleRunStream(
 						);
 
 						if (type === "done" || type === "error") {
+							await writeMilestone(
+								"worker_observed_run_terminal_event",
+								Date.now()
+							);
 							// Best-effort: release single-run lock as soon as we observe completion.
 							// This avoids a short window where the UI has received `done` but the
 							// runner process is still doing cleanup/callback work.

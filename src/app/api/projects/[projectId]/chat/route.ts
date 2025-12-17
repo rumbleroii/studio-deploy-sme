@@ -3,20 +3,74 @@ import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { randomUUID } from "crypto";
 
+type TraceSource = "frontend" | "nextjs" | "worker" | "runner";
+
+interface TraceMilestone {
+	name: string;
+	source: TraceSource;
+	tsMs: number;
+	tsIso: string;
+	projectId?: string;
+	runId?: string;
+}
+
+interface TracePayload {
+	traceId: string;
+	frontendSentAtMs?: number;
+	milestones: TraceMilestone[];
+}
+
+function dedupeMilestones(milestones: TraceMilestone[]): TraceMilestone[] {
+	const seen = new Set<string>();
+	const out: TraceMilestone[] = [];
+	for (const m of milestones) {
+		const key = `${m.source}:${m.name}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(m);
+	}
+	return out;
+}
+
 export async function POST(
 	request: NextRequest,
 	props: { params: Promise<{ projectId: string }> }
 ) {
 	const params = await props.params;
 	try {
+		const nextjsReceivedAtMs = Date.now();
 		const user = await requireAuth();
 		const { projectId } = params;
 		const body = await request.json();
-		const { message } = body;
+		const { message, trace } = body ?? {};
 
 		if (!message) {
 			return NextResponse.json({ error: "Message required" }, { status: 400 });
 		}
+
+		const traceId: string = trace?.traceId || randomUUID();
+		const incomingMilestones: TraceMilestone[] = Array.isArray(
+			trace?.milestones
+		)
+			? trace.milestones
+			: [];
+		const tracePayload: TracePayload = {
+			traceId,
+			frontendSentAtMs:
+				typeof trace?.frontendSentAtMs === "number"
+					? trace.frontendSentAtMs
+					: undefined,
+			milestones: dedupeMilestones([
+				...incomingMilestones,
+				{
+					name: "nextjs_chat_post_received",
+					source: "nextjs",
+					tsMs: nextjsReceivedAtMs,
+					tsIso: new Date(nextjsReceivedAtMs).toISOString(),
+					projectId,
+				},
+			]),
+		};
 
 		const project = await prisma.project.findUnique({
 			where: { id: projectId },
@@ -24,16 +78,7 @@ export async function POST(
 			select: {
 				id: true,
 				createdById: true,
-				researchObjectiveText: true,
 				claudeSessionId: true,
-				messages: {
-					orderBy: { createdAt: "asc" },
-					take: 20,
-					select: {
-						role: true,
-						content: true,
-					},
-				},
 			},
 		});
 
@@ -99,14 +144,10 @@ export async function POST(
 				body: JSON.stringify({
 					runId,
 					message,
-					history: project.messages.map((m) => ({
-						role: m.role,
-						content: m.content,
-					})),
-					researchObjectiveText: project.researchObjectiveText,
 					claudeSessionId: project.claudeSessionId,
 					callbackUrl,
 					callbackSecret: sharedSecret, // Reuse the shared secret for callback auth
+					trace: tracePayload,
 				}),
 			}
 		);
@@ -142,10 +183,34 @@ export async function POST(
 			return NextResponse.json({ error: "Worker Error" }, { status: 502 });
 		}
 
+		let workerJson: any = null;
+		try {
+			workerJson = await workerResponse.json();
+		} catch {
+			workerJson = null;
+		}
+
+		const mergedTrace: TracePayload = (() => {
+			const workerTrace = workerJson?.trace;
+			const workerMilestones: TraceMilestone[] = Array.isArray(
+				workerTrace?.milestones
+			)
+				? workerTrace.milestones
+				: [];
+			return {
+				...tracePayload,
+				milestones: dedupeMilestones([
+					...tracePayload.milestones,
+					...workerMilestones,
+				]),
+			};
+		})();
+
 		// 4. Return runId and assistantMessageId
 		return NextResponse.json({
 			runId,
 			assistantMessageId: assistantMessage.id,
+			trace: mergedTrace,
 		});
 	} catch (error) {
 		console.error("Chat start error:", error);

@@ -5,6 +5,7 @@ import {
 import fs from "node:fs/promises";
 import { createWriteStream, WriteStream } from "node:fs";
 import path from "node:path";
+import { Buffer } from "node:buffer";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -12,10 +13,15 @@ import path from "node:path";
 
 interface RunEvent {
 	seq: number;
-	type: "delta" | "session_id" | "done" | "error";
+	type: "delta" | "session_id" | "done" | "error" | "milestone";
 	text?: string;
 	sessionId?: string;
 	error?: string;
+	name?: string;
+	source?: "runner";
+	tsMs?: number;
+	tsIso?: string;
+	traceId?: string;
 }
 
 interface RunMeta {
@@ -100,26 +106,46 @@ class EventLogger {
 	private sessionId?: string;
 	private callbackUrl?: string;
 	private callbackSecret?: string;
+	private traceId?: string;
 
 	constructor(
 		runDir: string,
 		runId: string,
 		projectId: string,
 		callbackUrl?: string,
-		callbackSecret?: string
+		callbackSecret?: string,
+		traceId?: string
 	) {
 		this.runDir = runDir;
 		this.runId = runId;
 		this.projectId = projectId;
 		this.callbackUrl = callbackUrl;
 		this.callbackSecret = callbackSecret;
+		this.traceId = traceId;
 		this.stream = createWriteStream(path.join(runDir, "events.ndjson"), {
 			flags: "a",
 		});
 	}
 
 	private writeEvent(event: RunEvent): void {
-		this.stream.write(JSON.stringify(event) + "\n");
+		const withTrace: RunEvent =
+			this.traceId && !event.traceId
+				? { ...event, traceId: this.traceId }
+				: event;
+		this.stream.write(JSON.stringify(withTrace) + "\n");
+	}
+
+	milestone(name: string): void {
+		const tsMs = Date.now();
+		this.seq++;
+		this.writeEvent({
+			seq: this.seq,
+			type: "milestone",
+			name,
+			source: "runner",
+			tsMs,
+			tsIso: new Date(tsMs).toISOString(),
+		});
 	}
 
 	delta(text: string): void {
@@ -223,6 +249,7 @@ async function main() {
 	const projectId = process.env.PROJECT_ID || "";
 	const callbackUrl = process.env.CALLBACK_URL;
 	const callbackSecret = process.env.CALLBACK_SECRET;
+	const traceId = process.env.TRACE_ID;
 
 	// Inputs live in the project workspace directory.
 	const projectDir = process.cwd();
@@ -241,8 +268,10 @@ async function main() {
 			runId,
 			projectId,
 			callbackUrl,
-			callbackSecret
+			callbackSecret,
+			traceId
 		);
+		eventLogger.milestone("runner_started");
 
 		// Write initial meta.json with running status
 		const initialMeta: RunMeta = {
@@ -284,14 +313,36 @@ async function main() {
 		}
 	}
 
+	const args = process.argv.slice(2);
+	const messageBase64FlagIdx = args.indexOf("--message-base64");
+	const messageFlagIdx = args.indexOf("--message");
+
+	const decodeMessageBase64 = (b64: string): string => {
+		try {
+			return Buffer.from(b64, "base64").toString("utf-8");
+		} catch {
+			return "";
+		}
+	};
+
+	const messageFromArgs =
+		messageBase64FlagIdx !== -1 && args[messageBase64FlagIdx + 1]
+			? decodeMessageBase64(args[messageBase64FlagIdx + 1])
+			: messageFlagIdx !== -1 && args[messageFlagIdx + 1]
+			? args[messageFlagIdx + 1]
+			: "";
+
+	// Research objective now lives in working_directory/ via the normal Files system.
 	const researchObjective = await readOptional(
-		path.join(projectDir, "research_objective.md")
+		path.join(workingDir, "inputs", "research_objective.txt")
 	);
-	const userMessage = await readOptional(
-		path.join(projectDir, ".current_message.txt")
-	);
+
+	// Prefer CLI args; fall back to legacy `.current_message.txt` for compatibility.
+	const userMessage =
+		messageFromArgs ||
+		(await readOptional(path.join(projectDir, ".current_message.txt")));
 	if (!userMessage) {
-		const errorMsg = "Error: .current_message.txt not found";
+		const errorMsg = "Error: user message not provided";
 		if (eventLogger) {
 			await eventLogger.error(errorMsg);
 		} else {
@@ -341,9 +392,13 @@ async function main() {
 		: unstable_v2_createSession(sessionOptions);
 
 	try {
+		if (eventLogger) {
+			eventLogger.milestone("claude_sdk_send_called");
+		}
 		await session.send(messageToSend);
 
 		let wroteAnyText = false;
+		let emittedFirstTokenMilestone = false;
 		let observedSessionId = existingSessionId;
 
 		for await (const msg of session.receive()) {
@@ -378,6 +433,10 @@ async function main() {
 					ev?.type === "content_block_delta" &&
 					typeof ev?.delta?.text === "string"
 				) {
+					if (eventLogger && !emittedFirstTokenMilestone) {
+						emittedFirstTokenMilestone = true;
+						eventLogger.milestone("claude_sdk_first_token");
+					}
 					if (eventLogger) {
 						eventLogger.delta(ev.delta.text);
 					} else {
@@ -410,6 +469,9 @@ async function main() {
 
 			// A 'result' message marks the end of the current turn.
 			if (msg.type === "result") {
+				if (eventLogger) {
+					eventLogger.milestone("claude_sdk_result_received");
+				}
 				if (msg.subtype === "success") {
 					if (!wroteAnyText && typeof msg.result === "string" && msg.result) {
 						if (eventLogger) {
@@ -451,6 +513,7 @@ async function main() {
 
 		// Mark run as complete
 		if (eventLogger) {
+			eventLogger.milestone("runner_done");
 			await eventLogger.done();
 		}
 	} catch (err) {

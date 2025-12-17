@@ -4,6 +4,19 @@ import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+type TraceSource = "frontend" | "nextjs" | "worker" | "runner";
+
+interface TraceMilestoneEvent {
+	type: "milestone";
+	name: string;
+	source: TraceSource;
+	tsMs: number;
+	tsIso: string;
+	traceId?: string;
+	projectId?: string;
+	runId?: string;
+}
+
 // Batch DB updates for efficiency
 const DB_UPDATE_INTERVAL_MS = 500;
 const DB_UPDATE_EVENT_THRESHOLD = 10;
@@ -19,6 +32,7 @@ export async function GET(
 
 		const url = new URL(request.url);
 		const runId = url.searchParams.get("runId");
+		const traceId = url.searchParams.get("traceId") || undefined;
 		const lastEventIdHeader = request.headers.get("Last-Event-ID");
 		const fromSeqParam = url.searchParams.get("fromSeq");
 		const fromSeq = Number(fromSeqParam || lastEventIdHeader || "0") || 0;
@@ -73,6 +87,7 @@ export async function GET(
 		});
 
 		let workerResponse: Response;
+		const nextjsWorkerFetchStartedAtMs = Date.now();
 		try {
 			workerResponse = await fetch(
 				`${workerUrl}/v1/projects/${projectId}/runs/${runId}/stream?fromSeq=${fromSeq}`,
@@ -157,6 +172,8 @@ export async function GET(
 			return NextResponse.json({ error: "No stream body" }, { status: 502 });
 		}
 
+		const nextjsWorkerFetchHeadersAtMs = Date.now();
+
 		// State for incremental DB updates
 		let accumulatedContent = assistantMessage.content || "";
 		let lastDbUpdateSeq = assistantMessage.streamSeq || 0;
@@ -208,15 +225,52 @@ export async function GET(
 		const encoder = new TextEncoder();
 		const decoder = new TextDecoder();
 
+		let emittedFirstChunkMilestone = false;
+
+		const writeMilestone = async (name: string, tsMs: number) => {
+			const payload: TraceMilestoneEvent = {
+				type: "milestone",
+				name,
+				source: "nextjs",
+				tsMs,
+				tsIso: new Date(tsMs).toISOString(),
+				traceId,
+				projectId,
+				runId,
+			};
+			await writer.write(
+				encoder.encode(`event: milestone\ndata: ${JSON.stringify(payload)}\n\n`)
+			);
+		};
+
 		// Process the worker stream
 		(async () => {
 			const reader = workerResponse.body!.getReader();
 			let buffer = "";
 
 			try {
+				// Emit Next.js milestones before any worker bytes.
+				await writeMilestone("nextjs_stream_received", Date.now());
+				await writeMilestone(
+					"nextjs_sent_stream_request_to_worker",
+					nextjsWorkerFetchStartedAtMs
+				);
+				await writeMilestone(
+					"nextjs_received_worker_stream_headers",
+					nextjsWorkerFetchHeadersAtMs
+				);
+
 				while (true) {
 					const { done, value } = await reader.read();
 					if (done) break;
+
+					if (!emittedFirstChunkMilestone) {
+						emittedFirstChunkMilestone = true;
+						await writeMilestone(
+							"nextjs_received_first_worker_stream_chunk",
+							Date.now()
+						);
+					}
 
 					// Pass through to client
 					await writer.write(value);
@@ -284,6 +338,7 @@ export async function GET(
 				}
 			} finally {
 				try {
+					await writeMilestone("nextjs_stream_closed", Date.now());
 					await writer.close();
 				} catch {}
 			}

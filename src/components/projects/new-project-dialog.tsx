@@ -97,13 +97,28 @@ export function NewProjectDialog() {
 		setCreating(true);
 
 		try {
+			const uploadedFile =
+				inputMode === "upload" && file
+					? await (async () => {
+							const arrayBuffer = await file.arrayBuffer();
+							const bytes = new Uint8Array(arrayBuffer);
+							let binary = "";
+							for (let i = 0; i < bytes.byteLength; i++) {
+								binary += String.fromCharCode(bytes[i]);
+							}
+							const base64 = btoa(binary);
+							return { name: file.name, contentBase64: base64 };
+					  })()
+					: undefined;
+
 			const res = await fetch("/api/projects", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					name: name.trim(),
-					researchObjectiveText: objectiveText.trim(),
-					objectiveSource: inputMode,
+					inputMode,
+					objectiveText: objectiveText.trim(),
+					uploadedFile,
 				}),
 			});
 

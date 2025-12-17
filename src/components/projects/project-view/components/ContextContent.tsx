@@ -5,12 +5,12 @@ import { FileText } from "lucide-react";
 import type { Message } from "../types";
 
 interface ContextContentProps {
-	researchObjectiveText: string;
+	objectiveText?: string;
 	messages: Message[];
 }
 
 export const ContextContent = memo(function ContextContent({
-	researchObjectiveText,
+	objectiveText,
 	messages,
 }: ContextContentProps) {
 	// Extract artefacts from messages (code blocks, etc.)
@@ -37,10 +37,18 @@ export const ContextContent = memo(function ContextContent({
 						Objective
 					</span>
 				</div>
-				<p className="text-sm text-gray-600 leading-relaxed">
-					{researchObjectiveText.slice(0, 500)}
-					{researchObjectiveText.length > 500 && "..."}
-				</p>
+				{objectiveText ? (
+					<p className="text-sm text-gray-600 leading-relaxed">
+						{objectiveText.slice(0, 500)}
+						{objectiveText.length > 500 && "..."}
+					</p>
+				) : (
+					<p className="text-sm text-gray-500 leading-relaxed">
+						No objective file found yet. Create{" "}
+						<code className="text-xs">inputs/research_objective.txt</code> in
+						the Files panel.
+					</p>
+				)}
 			</div>
 
 			{artefacts.length > 0 && (

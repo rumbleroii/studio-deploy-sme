@@ -32,7 +32,6 @@ export interface ProjectViewProps {
 	project: {
 		id: string;
 		name: string;
-		researchObjectiveText: string;
 	};
 	initialMessages: Message[];
 }

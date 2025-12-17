@@ -20,6 +20,28 @@ import { MarkdownMessage } from "./MarkdownMessage";
 import type { Message } from "../types";
 import type { SandboxStatus } from "../hooks/useSandboxConnection";
 
+type TraceSource = "frontend" | "nextjs" | "worker" | "runner";
+
+type TraceMilestone = {
+	type?: "milestone";
+	name: string;
+	source: TraceSource;
+	tsMs: number;
+	tsIso: string;
+	traceId?: string;
+	projectId?: string;
+	runId?: string;
+	observedAtMs?: number;
+	observedAtPerfMs?: number;
+};
+
+function newTraceId(): string {
+	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+		return crypto.randomUUID();
+	}
+	return `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 interface MessageBubbleProps {
 	message: Message;
 	isStreaming?: boolean;
@@ -93,8 +115,54 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		const composerRef = useRef<HTMLDivElement>(null);
 		const messagesEndRef = useRef<HTMLDivElement>(null);
 		const eventSourceRef = useRef<EventSource | null>(null);
+		const traceRef = useRef<{
+			traceId: string;
+			sentAtMs: number;
+			sentAtPerfMs: number;
+			milestonesByKey: Map<string, TraceMilestone>;
+		} | null>(null);
 
 		const { toast } = useToast();
+
+		const recordMilestone = useCallback(
+			(m: TraceMilestone, defaults?: { runId?: string }) => {
+				const current = traceRef.current;
+				if (!current) return;
+				const key = `${m.source}:${m.name}`;
+				if (current.milestonesByKey.has(key)) return;
+
+				const observedAtMs = Date.now();
+				const observedAtPerfMs =
+					typeof performance !== "undefined" ? performance.now() : undefined;
+				const elapsedMs =
+					typeof observedAtPerfMs === "number"
+						? Math.round(observedAtPerfMs - current.sentAtPerfMs)
+						: Math.max(0, observedAtMs - current.sentAtMs);
+
+				const entry: TraceMilestone = {
+					...m,
+					traceId: m.traceId || current.traceId,
+					projectId: m.projectId || projectId,
+					runId: m.runId || defaults?.runId,
+					observedAtMs,
+					observedAtPerfMs,
+				};
+
+				current.milestonesByKey.set(key, entry);
+
+				console.log(
+					`[trace ${current.traceId}] ${entry.source}:${entry.name}`,
+					{
+						tsIso: entry.tsIso,
+						tsMs: entry.tsMs,
+						elapsedMs,
+						observedAtIso: new Date(observedAtMs).toISOString(),
+						observedAtMs,
+					}
+				);
+			},
+			[projectId]
+		);
 
 		useImperativeHandle(ref, () => ({
 			focusInput: () => inputRef.current?.focus(),
@@ -143,21 +211,43 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 		// Start streaming from a run
 		const startStream = useCallback(
-			(runId: string, assistantMessageId: string, fromSeq = 0) => {
+			(
+				runId: string,
+				assistantMessageId: string,
+				fromSeq = 0,
+				traceId?: string
+			) => {
 				// Close any existing EventSource
 				eventSourceRef.current?.close();
 
 				setIsStreaming(true);
 				setActiveRunId(runId);
 
-				const url = `/api/projects/${projectId}/chat/stream?runId=${runId}&fromSeq=${fromSeq}`;
+				const traceQuery = traceId
+					? `&traceId=${encodeURIComponent(traceId)}`
+					: "";
+				const url = `/api/projects/${projectId}/chat/stream?runId=${runId}&fromSeq=${fromSeq}${traceQuery}`;
 				const es = new EventSource(url);
 				eventSourceRef.current = es;
+
+				let sawAnyDelta = false;
 
 				es.addEventListener("delta", (event) => {
 					try {
 						const data = JSON.parse(event.data);
 						if (data.text) {
+							if (!sawAnyDelta) {
+								sawAnyDelta = true;
+								recordMilestone(
+									{
+										name: "frontend_received_first_delta",
+										source: "frontend",
+										tsMs: Date.now(),
+										tsIso: new Date().toISOString(),
+									},
+									{ runId }
+								);
+							}
 							onMessagesChange((prev) =>
 								prev.map((m) =>
 									m.id === assistantMessageId
@@ -169,6 +259,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 										: m
 								)
 							);
+						}
+					} catch {
+						// Ignore parse errors
+					}
+				});
+
+				es.addEventListener("milestone", (event) => {
+					try {
+						const payload = JSON.parse(
+							(event as MessageEvent).data
+						) as TraceMilestone;
+						if (
+							payload?.name &&
+							payload?.source &&
+							payload?.tsMs &&
+							payload?.tsIso
+						) {
+							recordMilestone(payload, { runId });
 						}
 					} catch {
 						// Ignore parse errors
@@ -190,6 +298,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 						)
 					);
 					inputRef.current?.focus();
+
+					// Final trace summary
+					const current = traceRef.current;
+					if (current && current.traceId) {
+						const rows = Array.from(current.milestonesByKey.values()).map(
+							(m) => ({
+								source: m.source,
+								name: m.name,
+								tsIso: m.tsIso,
+								tsMs: m.tsMs,
+								observedAtMs: m.observedAtMs,
+								elapsedMs:
+									typeof m.observedAtPerfMs === "number"
+										? Math.round(m.observedAtPerfMs - current.sentAtPerfMs)
+										: typeof m.observedAtMs === "number"
+										? Math.max(0, m.observedAtMs - current.sentAtMs)
+										: undefined,
+							})
+						);
+						console.log(`[trace ${current.traceId}] milestone summary`);
+						// eslint-disable-next-line no-console
+						console.table(rows);
+					}
 				});
 
 				es.addEventListener("error", (event) => {
@@ -322,6 +453,33 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			const userMessage = input.trim();
 			setInput("");
 
+			const traceId = newTraceId();
+			const sentAtMs = Date.now();
+			const sentAtPerfMs =
+				typeof performance !== "undefined" ? performance.now() : 0;
+			traceRef.current = {
+				traceId,
+				sentAtMs,
+				sentAtPerfMs,
+				milestonesByKey: new Map<string, TraceMilestone>(),
+			};
+			// Record the client-side send milestone immediately
+			traceRef.current.milestonesByKey.set("frontend:frontend_sent", {
+				name: "frontend_sent",
+				source: "frontend",
+				tsMs: sentAtMs,
+				tsIso: new Date(sentAtMs).toISOString(),
+				traceId,
+				projectId,
+				observedAtMs: sentAtMs,
+				observedAtPerfMs: sentAtPerfMs,
+			});
+			console.log(`[trace ${traceId}] frontend:frontend_sent`, {
+				tsIso: new Date(sentAtMs).toISOString(),
+				tsMs: sentAtMs,
+				elapsedMs: 0,
+			});
+
 			// Add user message optimistically
 			const tempUserMsg: Message = {
 				id: `temp-${Date.now()}`,
@@ -338,7 +496,23 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				const res = await fetch(`/api/projects/${projectId}/chat`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ message: userMessage }),
+					body: JSON.stringify({
+						message: userMessage,
+						trace: {
+							traceId,
+							frontendSentAtMs: sentAtMs,
+							milestones: [
+								{
+									name: "frontend_sent",
+									source: "frontend",
+									tsMs: sentAtMs,
+									tsIso: new Date(sentAtMs).toISOString(),
+									traceId,
+									projectId,
+								},
+							],
+						},
+					}),
 				});
 
 				if (!res.ok) {
@@ -362,7 +536,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					throw new Error("Chat request failed");
 				}
 
-				const { runId, assistantMessageId } = await res.json();
+				const { runId, assistantMessageId, trace } = await res.json();
+
+				// Merge any server-side trace milestones from the POST response
+				if (
+					traceRef.current &&
+					trace?.traceId &&
+					trace.traceId === traceRef.current.traceId &&
+					Array.isArray(trace.milestones)
+				) {
+					for (const m of trace.milestones as TraceMilestone[]) {
+						recordMilestone(m, { runId });
+					}
+				}
 
 				// Add assistant placeholder message
 				const assistantPlaceholder: Message = {
@@ -377,7 +563,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				onMessagesChange((prev) => [...prev, assistantPlaceholder]);
 
 				// Step 2: Start streaming
-				startStream(runId, assistantMessageId, 0);
+				startStream(runId, assistantMessageId, 0, traceId);
 			} catch (error) {
 				console.error("Chat error:", error);
 				toast({

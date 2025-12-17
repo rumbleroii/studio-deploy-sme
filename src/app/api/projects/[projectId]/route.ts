@@ -17,8 +17,6 @@ export async function GET(request: Request, { params }: RouteParams) {
 			select: {
 				id: true,
 				name: true,
-				researchObjectiveText: true,
-				objectiveSource: true,
 				sandboxId: true,
 				claudeSessionId: true,
 				createdById: true,

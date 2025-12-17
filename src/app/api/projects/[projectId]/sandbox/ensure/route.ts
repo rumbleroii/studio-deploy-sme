@@ -16,7 +16,6 @@ export async function POST(
 			// Avoid selecting fields that may be null in older docs (e.g. updatedAt).
 			select: {
 				createdById: true,
-				researchObjectiveText: true,
 			},
 		});
 
@@ -41,9 +40,7 @@ export async function POST(
 					"Content-Type": "application/json",
 					"X-Shared-Secret": sharedSecret,
 				},
-				body: JSON.stringify({
-					researchObjectiveText: project.researchObjectiveText,
-				}),
+				body: JSON.stringify({}),
 			}
 		);
 

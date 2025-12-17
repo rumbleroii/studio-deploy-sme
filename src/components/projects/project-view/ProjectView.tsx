@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -30,6 +30,7 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 		"preview"
 	);
 	const [messages, setMessages] = useState<Message[]>(initialMessages);
+	const [objectiveText, setObjectiveText] = useState<string>("");
 
 	const chatPanelRef = useRef<ChatPanelHandle>(null);
 
@@ -63,6 +64,31 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 		handleDragLeave,
 		handleDrop,
 	} = useProjectFiles(project.id, sandboxStatus);
+
+	// Load objective from the canonical file in working_directory.
+	useEffect(() => {
+		let cancelled = false;
+		(async () => {
+			try {
+				const res = await fetch(
+					`/api/projects/${project.id}/files/download?path=${encodeURIComponent(
+						"inputs/research_objective.txt"
+					)}`
+				);
+				if (!res.ok) {
+					if (!cancelled) setObjectiveText("");
+					return;
+				}
+				const text = await res.text();
+				if (!cancelled) setObjectiveText(text || "");
+			} catch {
+				if (!cancelled) setObjectiveText("");
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [project.id]);
 
 	// Memoize files content to avoid re-renders on chat input changes
 	const filesContent = useMemo(
@@ -188,7 +214,7 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 								</TabsContent>
 								<TabsContent value="context" className="p-4 mt-0">
 									<ContextContent
-										researchObjectiveText={project.researchObjectiveText}
+										objectiveText={objectiveText}
 										messages={messages}
 									/>
 								</TabsContent>
@@ -273,7 +299,7 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 						>
 							<ScrollArea className="flex-1 p-4">
 								<ContextContent
-									researchObjectiveText={project.researchObjectiveText}
+									objectiveText={objectiveText}
 									messages={messages}
 								/>
 							</ScrollArea>

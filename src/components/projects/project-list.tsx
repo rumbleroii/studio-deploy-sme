@@ -7,7 +7,6 @@ import { FolderOpen, ChevronRight } from "lucide-react";
 interface Project {
 	id: string;
 	name: string;
-	researchObjectiveText: string;
 	createdAt: Date;
 }
 
@@ -38,9 +37,8 @@ export function ProjectList({ projects }: ProjectListProps) {
 		<div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
 			{/* Table Header */}
 			<div className="grid grid-cols-12 gap-6 px-6 py-4 bg-gray-50/50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-				<div className="col-span-4">Project Name</div>
-				<div className="col-span-6">Research Objective</div>
-				<div className="col-span-2 text-right">Created</div>
+				<div className="col-span-9">Project Name</div>
+				<div className="col-span-3 text-right">Created</div>
 			</div>
 
 			{/* Table Body */}
@@ -52,7 +50,7 @@ export function ProjectList({ projects }: ProjectListProps) {
 						className="block"
 					>
 						<div className="grid grid-cols-12 gap-6 px-6 py-4 hover:bg-gray-50/80 transition-all duration-200 cursor-pointer group items-center">
-							<div className="col-span-4 flex items-center gap-3">
+							<div className="col-span-9 flex items-center gap-3">
 								<div className="w-8 h-8 rounded-full bg-[#3D1C35]/5 flex items-center justify-center text-[#3D1C35] group-hover:bg-[#3D1C35]/10 transition-colors">
 									<FolderOpen className="h-4 w-4" />
 								</div>
@@ -60,12 +58,7 @@ export function ProjectList({ projects }: ProjectListProps) {
 									{project.name}
 								</span>
 							</div>
-							<div className="col-span-6">
-								<p className="text-sm text-gray-500 truncate pr-4">
-									{project.researchObjectiveText}
-								</p>
-							</div>
-							<div className="col-span-2 text-right flex items-center justify-end gap-2">
+							<div className="col-span-3 text-right flex items-center justify-end gap-2">
 								<span className="text-sm text-gray-400">
 									{formatDistanceToNow(project.createdAt)}
 								</span>
