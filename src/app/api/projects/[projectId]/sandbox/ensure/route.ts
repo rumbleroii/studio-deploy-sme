@@ -13,6 +13,11 @@ export async function POST(
 
 		const project = await prisma.project.findUnique({
 			where: { id: projectId },
+			// Avoid selecting fields that may be null in older docs (e.g. updatedAt).
+			select: {
+				createdById: true,
+				researchObjectiveText: true,
+			},
 		});
 
 		if (!project || project.createdById !== user.id) {

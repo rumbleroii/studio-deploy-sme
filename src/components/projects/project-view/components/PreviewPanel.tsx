@@ -2,21 +2,23 @@
 
 import { memo } from "react";
 import { FileText, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface PreviewPanelProps {
 	previewUrl: string | null;
 	isLoadingPreview: boolean;
+	className?: string;
 }
 
 export const PreviewPanel = memo(function PreviewPanel({
 	previewUrl,
 	isLoadingPreview,
+	className,
 }: PreviewPanelProps) {
 	return (
-		<div className="flex-1 flex flex-col border-b border-gray-200">
-			<div className="h-12 px-4 border-b border-gray-200 flex items-center justify-between">
-				<h2 className="text-sm font-medium text-gray-900">Preview</h2>
-				{previewUrl && (
+		<div className={cn("flex-1 flex flex-col", className)}>
+			{previewUrl && (
+				<div className="h-10 px-4 border-b border-gray-200 flex items-center justify-end bg-gray-50">
 					<a
 						href={previewUrl}
 						target="_blank"
@@ -25,8 +27,8 @@ export const PreviewPanel = memo(function PreviewPanel({
 					>
 						Open in new tab ↗
 					</a>
-				)}
-			</div>
+				</div>
+			)}
 			<div className="flex-1 bg-gray-50 relative">
 				{isLoadingPreview ? (
 					<div className="absolute inset-0 flex items-center justify-center">

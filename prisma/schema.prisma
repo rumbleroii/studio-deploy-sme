@@ -51,13 +51,24 @@ enum MessageRole {
   assistant
 }
 
+enum MessageStatus {
+  streaming
+  complete
+  error
+}
+
 model ProjectMessage {
-  id        String      @id @default(auto()) @map("_id") @db.ObjectId
-  projectId String      @db.ObjectId
-  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String        @id @default(auto()) @map("_id") @db.ObjectId
+  projectId String        @db.ObjectId
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   role      MessageRole
   content   String
-  createdAt DateTime    @default(now())
+  runId     String?       // Links assistant msg to a run
+  status    MessageStatus @default(complete)
+  streamSeq Int           @default(0) // Last persisted seq for incremental updates
+  error     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   @@map("project_messages")
 }

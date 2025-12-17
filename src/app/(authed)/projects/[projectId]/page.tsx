@@ -4,40 +4,58 @@ import { requireAuth } from "@/lib/auth";
 import { ProjectView } from "@/components/projects/project-view";
 
 interface ProjectPageProps {
-  params: Promise<{ projectId: string }>;
+	params: Promise<{ projectId: string }>;
 }
 
 export default async function ProjectPage({ params }: ProjectPageProps) {
-  const { projectId } = await params;
-  const user = await requireAuth();
+	const { projectId } = await params;
+	const user = await requireAuth();
 
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    include: {
-      messages: {
-        orderBy: { createdAt: "asc" },
-      },
-    },
-  });
+	const project = await prisma.project.findUnique({
+		where: { id: projectId },
+		// Avoid selecting fields that may be null in older docs (e.g. updatedAt).
+		select: {
+			id: true,
+			name: true,
+			researchObjectiveText: true,
+			createdById: true,
+			messages: {
+				orderBy: { createdAt: "asc" },
+				select: {
+					id: true,
+					role: true,
+					content: true,
+					createdAt: true,
+					runId: true,
+					status: true,
+					streamSeq: true,
+					error: true,
+				},
+			},
+		},
+	});
 
-  if (!project || project.createdById !== user.id) {
-    notFound();
-  }
+	if (!project || project.createdById !== user.id) {
+		notFound();
+	}
 
-  return (
-    <ProjectView
-      project={{
-        id: project.id,
-        name: project.name,
-        researchObjectiveText: project.researchObjectiveText,
-      }}
-      initialMessages={project.messages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        createdAt: m.createdAt.toISOString(),
-      }))}
-    />
-  );
+	return (
+		<ProjectView
+			project={{
+				id: project.id,
+				name: project.name,
+				researchObjectiveText: project.researchObjectiveText,
+			}}
+			initialMessages={project.messages.map((m) => ({
+				id: m.id,
+				role: m.role,
+				content: m.content,
+				createdAt: m.createdAt.toISOString(),
+				runId: m.runId ?? undefined,
+				status: m.status,
+				streamSeq: m.streamSeq,
+				error: m.error ?? undefined,
+			}))}
+		/>
+	);
 }
-

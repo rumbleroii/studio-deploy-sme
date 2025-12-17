@@ -13,6 +13,8 @@ export async function GET(
 
 		const project = await prisma.project.findUnique({
 			where: { id: projectId },
+			// Avoid selecting fields that may be null in older docs (e.g. updatedAt).
+			select: { createdById: true },
 		});
 
 		if (!project || project.createdById !== user.id) {
@@ -77,4 +79,3 @@ export async function GET(
 		return new NextResponse("Internal Server Error", { status: 500 });
 	}
 }
-

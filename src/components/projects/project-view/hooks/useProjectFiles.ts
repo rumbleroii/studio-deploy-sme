@@ -9,7 +9,9 @@ interface UseProjectFilesResult {
 	files: FileInfo[];
 	filesLoading: boolean;
 	fileTree: TreeNode[];
-	expandedFolders: Set<string>;
+	currentPath: string;
+	currentItems: TreeNode[];
+	breadcrumbs: { name: string; path: string }[];
 	isDraggingOver: boolean;
 	uploadingFiles: boolean;
 	fileInputRef: React.RefObject<HTMLInputElement | null>;
@@ -19,7 +21,8 @@ interface UseProjectFilesResult {
 	deleteFile: (path: string, kind: "file" | "directory") => Promise<void>;
 	downloadFile: (path: string) => void;
 	createFolder: () => Promise<void>;
-	toggleFolder: (path: string) => void;
+	moveFile: (sourcePath: string, destinationPath: string) => Promise<void>;
+	navigateToFolder: (path: string) => void;
 	handleDragOver: (e: React.DragEvent) => void;
 	handleDragLeave: (e: React.DragEvent) => void;
 	handleDrop: (e: React.DragEvent) => Promise<void>;
@@ -27,14 +30,11 @@ interface UseProjectFilesResult {
 
 export function useProjectFiles(
 	projectId: string,
-	sandboxStatus: SandboxStatus,
-	activeTab: "context" | "files"
+	sandboxStatus: SandboxStatus
 ): UseProjectFilesResult {
 	const [files, setFiles] = useState<FileInfo[]>([]);
 	const [filesLoading, setFilesLoading] = useState(false);
-	const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
-		new Set()
-	);
+	const [currentPath, setCurrentPath] = useState("");
 	const [isDraggingOver, setIsDraggingOver] = useState(false);
 	const [uploadingFiles, setUploadingFiles] = useState(false);
 
@@ -70,9 +70,13 @@ export function useProjectFiles(
 				const filePayloads = await Promise.all(
 					filesToUpload.map(async (file) => {
 						// Use webkitRelativePath for folder uploads, or just the name
-						const relativePath =
+						let relativePath =
 							(file as File & { webkitRelativePath?: string })
 								.webkitRelativePath || file.name;
+						// Prepend current path if we're in a folder
+						if (currentPath) {
+							relativePath = `${currentPath}/${relativePath}`;
+						}
 						const arrayBuffer = await file.arrayBuffer();
 						const bytes = new Uint8Array(arrayBuffer);
 						let binary = "";
@@ -114,7 +118,7 @@ export function useProjectFiles(
 				setUploadingFiles(false);
 			}
 		},
-		[projectId, fetchFiles, toast]
+		[projectId, currentPath, fetchFiles, toast]
 	);
 
 	const deleteFile = useCallback(
@@ -166,11 +170,14 @@ export function useProjectFiles(
 		const folderName = window.prompt("Enter folder name:");
 		if (!folderName) return;
 
+		// Prepend current path if we're in a folder
+		const fullPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+
 		try {
 			const res = await fetch(`/api/projects/${projectId}/files/mkdir`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ path: folderName }),
+				body: JSON.stringify({ path: fullPath }),
 			});
 
 			if (res.ok) {
@@ -190,7 +197,42 @@ export function useProjectFiles(
 				description: "Please try again.",
 			});
 		}
-	}, [projectId, fetchFiles, toast]);
+	}, [projectId, currentPath, fetchFiles, toast]);
+
+	const moveFile = useCallback(
+		async (sourcePath: string, destinationPath: string) => {
+			try {
+				const res = await fetch(`/api/projects/${projectId}/files/move`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ sourcePath, destinationPath }),
+				});
+
+				if (res.ok) {
+					toast({
+						title: "File moved",
+						description: `Moved to ${destinationPath}`,
+					});
+					await fetchFiles();
+				} else {
+					throw new Error("Move failed");
+				}
+			} catch (error) {
+				console.error("Move error:", error);
+				toast({
+					variant: "destructive",
+					title: "Move failed",
+					description: "Could not move file. Please try again.",
+				});
+			}
+		},
+		[projectId, fetchFiles, toast]
+	);
+
+	// Navigate to a folder
+	const navigateToFolder = useCallback((path: string) => {
+		setCurrentPath(path);
+	}, []);
 
 	// Build tree from flat file list
 	const fileTree = useMemo(() => {
@@ -243,17 +285,42 @@ export function useProjectFiles(
 		return root.children;
 	}, [files]);
 
-	const toggleFolder = useCallback((path: string) => {
-		setExpandedFolders((prev) => {
-			const next = new Set(prev);
-			if (next.has(path)) {
-				next.delete(path);
+	// Get items in the current folder
+	const currentItems = useMemo(() => {
+		if (!currentPath) {
+			return fileTree;
+		}
+		// Navigate to the current path in the tree
+		const parts = currentPath.split("/");
+		let current: TreeNode[] = fileTree;
+		for (const part of parts) {
+			const found = current.find(
+				(n) => n.name === part && n.type === "directory"
+			);
+			if (found) {
+				current = found.children;
 			} else {
-				next.add(path);
+				return [];
 			}
-			return next;
-		});
-	}, []);
+		}
+		return current;
+	}, [fileTree, currentPath]);
+
+	// Build breadcrumbs from current path
+	const breadcrumbs = useMemo(() => {
+		const crumbs: { name: string; path: string }[] = [
+			{ name: "Files", path: "" },
+		];
+		if (currentPath) {
+			const parts = currentPath.split("/");
+			let pathSoFar = "";
+			for (const part of parts) {
+				pathSoFar = pathSoFar ? `${pathSoFar}/${part}` : part;
+				crumbs.push({ name: part, path: pathSoFar });
+			}
+		}
+		return crumbs;
+	}, [currentPath]);
 
 	// Drag and drop handlers
 	const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -324,17 +391,17 @@ export function useProjectFiles(
 		[uploadFiles]
 	);
 
-	// Fetch files when sandbox is connected and tab is active
+	// Fetch files once when sandbox connects
 	useEffect(() => {
-		if (sandboxStatus === "connected" && activeTab === "files") {
+		if (sandboxStatus === "connected") {
 			fetchFiles();
 		}
-	}, [sandboxStatus, activeTab, fetchFiles]);
+	}, [sandboxStatus, fetchFiles]);
 
-	// Set up EventSource for realtime file updates
+	// Set up EventSource for realtime file updates (always listening when connected)
 	useEffect(() => {
-		if (sandboxStatus !== "connected" || activeTab !== "files") {
-			// Close existing connection
+		if (sandboxStatus !== "connected") {
+			// Close existing connection when disconnected
 			if (eventSourceRef.current) {
 				eventSourceRef.current.close();
 				eventSourceRef.current = null;
@@ -375,13 +442,15 @@ export function useProjectFiles(
 				window.clearTimeout(filesRefetchTimeoutRef.current);
 			}
 		};
-	}, [sandboxStatus, activeTab, projectId, fetchFiles]);
+	}, [sandboxStatus, projectId, fetchFiles]);
 
 	return {
 		files,
 		filesLoading,
 		fileTree,
-		expandedFolders,
+		currentPath,
+		currentItems,
+		breadcrumbs,
 		isDraggingOver,
 		uploadingFiles,
 		fileInputRef,
@@ -391,7 +460,8 @@ export function useProjectFiles(
 		deleteFile,
 		downloadFile,
 		createFolder,
-		toggleFolder,
+		moveFile,
+		navigateToFolder,
 		handleDragOver,
 		handleDragLeave,
 		handleDrop,

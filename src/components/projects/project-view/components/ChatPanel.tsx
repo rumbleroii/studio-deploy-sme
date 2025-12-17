@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Loader2 } from "lucide-react";
+import { Send, Loader2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownMessage } from "./MarkdownMessage";
 import type { Message } from "../types";
@@ -22,11 +22,16 @@ import type { SandboxStatus } from "../hooks/useSandboxConnection";
 
 interface MessageBubbleProps {
 	message: Message;
+	isStreaming?: boolean;
 }
 
 const MessageBubble = memo(function MessageBubble({
 	message,
+	isStreaming,
 }: MessageBubbleProps) {
+	const showCursor = isStreaming && message.role === "assistant";
+	const content = showCursor ? `${message.content}\n\n▍` : message.content;
+
 	return (
 		<div
 			className={cn(
@@ -38,12 +43,15 @@ const MessageBubble = memo(function MessageBubble({
 				<div className="max-w-[80%] rounded-2xl border border-gray-200 bg-gray-100/60 px-4 py-2.5 text-sm leading-relaxed text-gray-900 shadow-[0_1px_0_rgba(0,0,0,0.02)]">
 					<MarkdownMessage
 						className="text-gray-900 leading-6"
-						content={message.content}
+						content={content}
 					/>
 				</div>
 			) : (
 				<div className="max-w-[70ch] py-1 text-sm leading-7 text-gray-900">
-					<MarkdownMessage content={message.content} />
+					<MarkdownMessage
+						content={content}
+						className={showCursor ? "[&_*]:!text-gray-900" : undefined}
+					/>
 				</div>
 			)}
 		</div>
@@ -77,13 +85,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 	) {
 		const [input, setInput] = useState("");
 		const [isStreaming, setIsStreaming] = useState(false);
-		const [streamingContent, setStreamingContent] = useState("");
+		const [activeRunId, setActiveRunId] = useState<string | null>(null);
 		const [composerHeight, setComposerHeight] = useState(120);
 
 		const inputRef = useRef<HTMLTextAreaElement>(null);
 		const formRef = useRef<HTMLFormElement>(null);
 		const composerRef = useRef<HTMLDivElement>(null);
 		const messagesEndRef = useRef<HTMLDivElement>(null);
+		const eventSourceRef = useRef<EventSource | null>(null);
 
 		const { toast } = useToast();
 
@@ -95,7 +104,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			const el = inputRef.current;
 			if (!el) return;
 
-			// Auto-resize to content, capped so it never takes over the screen.
 			el.style.height = "0px";
 			const next = Math.min(el.scrollHeight, 160);
 			el.style.height = `${Math.max(next, 44)}px`;
@@ -104,7 +112,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		// Auto-scroll to bottom when messages change
 		useEffect(() => {
 			messagesEndRef.current?.scrollIntoView({ block: "end" });
-		}, [messages, streamingContent]);
+		}, [messages]);
 
 		// Resize composer on input change
 		useEffect(() => {
@@ -126,6 +134,187 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			return () => ro.disconnect();
 		}, []);
 
+		// Cleanup EventSource on unmount
+		useEffect(() => {
+			return () => {
+				eventSourceRef.current?.close();
+			};
+		}, []);
+
+		// Start streaming from a run
+		const startStream = useCallback(
+			(runId: string, assistantMessageId: string, fromSeq = 0) => {
+				// Close any existing EventSource
+				eventSourceRef.current?.close();
+
+				setIsStreaming(true);
+				setActiveRunId(runId);
+
+				const url = `/api/projects/${projectId}/chat/stream?runId=${runId}&fromSeq=${fromSeq}`;
+				const es = new EventSource(url);
+				eventSourceRef.current = es;
+
+				es.addEventListener("delta", (event) => {
+					try {
+						const data = JSON.parse(event.data);
+						if (data.text) {
+							onMessagesChange((prev) =>
+								prev.map((m) =>
+									m.id === assistantMessageId
+										? {
+												...m,
+												content: m.content + data.text,
+												streamSeq: data.seq,
+										  }
+										: m
+								)
+							);
+						}
+					} catch {
+						// Ignore parse errors
+					}
+				});
+
+				es.addEventListener("session_id", () => {
+					// Session ID is handled server-side
+				});
+
+				es.addEventListener("done", () => {
+					es.close();
+					setIsStreaming(false);
+					setActiveRunId(null);
+					// Mark message as complete
+					onMessagesChange((prev) =>
+						prev.map((m) =>
+							m.id === assistantMessageId ? { ...m, status: "complete" } : m
+						)
+					);
+					inputRef.current?.focus();
+				});
+
+				es.addEventListener("error", (event) => {
+					// Check if it's a data event with error info
+					const errorEvent = event as MessageEvent;
+					let errorMsg = "Stream error";
+					if (errorEvent.data) {
+						try {
+							const data = JSON.parse(errorEvent.data);
+							errorMsg = data.error || errorMsg;
+						} catch {
+							// Use default error message
+						}
+					}
+
+					es.close();
+					setIsStreaming(false);
+					setActiveRunId(null);
+					onMessagesChange((prev) =>
+						prev.map((m) =>
+							m.id === assistantMessageId
+								? { ...m, status: "error", error: errorMsg }
+								: m
+						)
+					);
+					toast({
+						variant: "destructive",
+						title: "Stream error",
+						description: errorMsg,
+					});
+
+					// Best-effort: cancel the run to clear single-active-run lock.
+					// (If the worker is down this may fail; that's OK.)
+					fetch(`/api/projects/${projectId}/chat/cancel`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ runId }),
+					}).catch(() => {});
+				});
+
+				es.addEventListener("ping", () => {
+					// Heartbeat, ignore
+				});
+
+				let errorHandled = false;
+				es.onerror = (event) => {
+					// Connection error - EventSource will attempt to reconnect automatically
+					// Close immediately to prevent retries and show error
+					if (!errorHandled) {
+						errorHandled = true;
+						es.close();
+						setIsStreaming(false);
+						setActiveRunId(null);
+						const errorMsg =
+							"Failed to connect to stream. The worker may not be running.";
+						onMessagesChange((prev) =>
+							prev.map((m) =>
+								m.id === assistantMessageId
+									? {
+											...m,
+											status: "error",
+											error: errorMsg,
+									  }
+									: m
+							)
+						);
+						toast({
+							variant: "destructive",
+							title: "Connection failed",
+							description: errorMsg,
+						});
+
+						// Best-effort cancel to clear the active run lock.
+						fetch(`/api/projects/${projectId}/chat/cancel`, {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ runId }),
+						}).catch(() => {});
+					}
+				};
+			},
+			[projectId, onMessagesChange, toast]
+		);
+
+		// On mount, check if there's a streaming message to resume
+		useEffect(() => {
+			const streamingMsg = messages.find(
+				(m) => m.role === "assistant" && m.status === "streaming" && m.runId
+			);
+			if (streamingMsg && !isStreaming && sandboxStatus === "connected") {
+				startStream(
+					streamingMsg.runId!,
+					streamingMsg.id,
+					streamingMsg.streamSeq || 0
+				);
+			}
+		}, [messages, isStreaming, sandboxStatus, startStream]);
+
+		const handleCancel = async () => {
+			if (!activeRunId) return;
+
+			try {
+				eventSourceRef.current?.close();
+				setIsStreaming(false);
+				setActiveRunId(null);
+
+				await fetch(`/api/projects/${projectId}/chat/cancel`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ runId: activeRunId }),
+				});
+
+				// Update the streaming message to show it was cancelled
+				onMessagesChange((prev) =>
+					prev.map((m) =>
+						m.runId === activeRunId && m.status === "streaming"
+							? { ...m, status: "error", error: "Cancelled by user" }
+							: m
+					)
+				);
+			} catch (error) {
+				console.error("Cancel error:", error);
+			}
+		};
+
 		const handleSubmit = async (e: React.FormEvent) => {
 			e.preventDefault();
 			if (!input.trim() || isStreaming || sandboxStatus !== "connected") return;
@@ -139,13 +328,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				role: "user",
 				content: userMessage,
 				createdAt: new Date().toISOString(),
+				status: "complete",
 			};
 			onMessagesChange((prev) => [...prev, tempUserMsg]);
-			setIsStreaming(true);
-			setStreamingContent("");
 
 			let shouldReconnect = false;
 			try {
+				// Step 1: Start the run
 				const res = await fetch(`/api/projects/${projectId}/chat`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
@@ -154,54 +343,41 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 				if (!res.ok) {
 					shouldReconnect = [502, 503, 504].includes(res.status);
+
+					// Handle conflict (run already active)
+					if (res.status === 409) {
+						const errorData = await res.json();
+						toast({
+							variant: "destructive",
+							title: "Run already active",
+							description: "Please wait for the current response to complete.",
+						});
+						// Remove the optimistic user message
+						onMessagesChange((prev) =>
+							prev.filter((m) => m.id !== tempUserMsg.id)
+						);
+						return;
+					}
+
 					throw new Error("Chat request failed");
 				}
 
-				const reader = res.body?.getReader();
-				if (!reader) {
-					shouldReconnect = true;
-					throw new Error("No reader");
-				}
+				const { runId, assistantMessageId } = await res.json();
 
-				const decoder = new TextDecoder();
-				let assistantContent = "";
+				// Add assistant placeholder message
+				const assistantPlaceholder: Message = {
+					id: assistantMessageId,
+					role: "assistant",
+					content: "",
+					createdAt: new Date().toISOString(),
+					runId,
+					status: "streaming",
+					streamSeq: 0,
+				};
+				onMessagesChange((prev) => [...prev, assistantPlaceholder]);
 
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-
-					const chunk = decoder.decode(value, { stream: true });
-					const lines = chunk.split("\n");
-
-					for (const line of lines) {
-						if (line.startsWith("data: ")) {
-							try {
-								const data = JSON.parse(line.slice(6));
-								if (data.type === "stdout" || data.type === "content") {
-									assistantContent += data.data || data.content || "";
-									setStreamingContent(assistantContent);
-								} else if (data.type === "complete" || data.type === "done") {
-									// Stream complete
-								} else if (data.type === "error") {
-									throw new Error(data.error || "Streaming error");
-								}
-							} catch {
-								// Skip invalid JSON lines
-							}
-						}
-					}
-				}
-
-				// Add the final assistant message
-				if (assistantContent) {
-					const assistantMsg: Message = {
-						id: `msg-${Date.now()}`,
-						role: "assistant",
-						content: assistantContent,
-						createdAt: new Date().toISOString(),
-					};
-					onMessagesChange((prev) => [...prev, assistantMsg]);
-				}
+				// Step 2: Start streaming
+				startStream(runId, assistantMessageId, 0);
 			} catch (error) {
 				console.error("Chat error:", error);
 				toast({
@@ -213,12 +389,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				onMessagesChange((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
 
 				if (shouldReconnect) startEnsureLoop();
-			} finally {
-				setIsStreaming(false);
-				setStreamingContent("");
-				if (!shouldReconnect) inputRef.current?.focus();
 			}
 		};
+
+		// Find the currently streaming message for display
+		const streamingMessage = messages.find(
+			(m) => m.role === "assistant" && m.status === "streaming"
+		);
 
 		return (
 			<div className="flex-1 flex flex-col min-w-0 bg-gray-50 relative">
@@ -254,29 +431,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 						)}
 
 						{messages.map((message) => (
-							<MessageBubble key={message.id} message={message} />
+							<MessageBubble
+								key={message.id}
+								message={message}
+								isStreaming={message.id === streamingMessage?.id && isStreaming}
+							/>
 						))}
 
-						{isStreaming && streamingContent && (
-							<div className="flex justify-start">
-								<div className="max-w-[70ch] py-1 text-sm leading-7 text-gray-900">
-									<MarkdownMessage
-										content={`${streamingContent}\n\n▍`}
-										className="[&_*]:!text-gray-900"
-									/>
-								</div>
-							</div>
-						)}
-
-						{isStreaming && !streamingContent && (
+						{isStreaming && streamingMessage && !streamingMessage.content && (
 							<div className="flex items-center gap-2 py-1 text-sm text-gray-500">
 								<Loader2 className="h-4 w-4 animate-spin text-burgundy-500" />
 								<span>Thinking…</span>
 							</div>
 						)}
 						<div
-							// Leave some space so the composer can overlap/fade messages,
-							// without permanently hiding the last message.
 							style={{
 								paddingBottom: Math.max(24, Math.round(composerHeight * 0.6)),
 							}}
@@ -291,6 +459,26 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					className="absolute bottom-0 left-0 right-0 z-20 px-4 pb-4 pt-6 bg-gradient-to-t from-white via-white/95 to-transparent"
 				>
 					<div className="max-w-2xl mx-auto">
+						{/* Streaming indicator with Stop button */}
+						{isStreaming && (
+							<div className="flex items-center justify-center gap-2 mb-3">
+								<Loader2 className="h-4 w-4 animate-spin text-burgundy-500" />
+								<span className="text-sm text-gray-600">
+									Agent is responding...
+								</span>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={handleCancel}
+									className="ml-2 h-7 px-2 text-xs"
+									icon={<Square className="h-3 w-3" />}
+								>
+									Stop
+								</Button>
+							</div>
+						)}
+
 						<div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
 							<form
 								ref={formRef}
@@ -300,12 +488,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 								<Textarea
 									ref={inputRef}
 									placeholder={
-										sandboxStatus === "connected"
+										isStreaming
+											? "Wait for response to complete..."
+											: sandboxStatus === "connected"
 											? "Ask Metaforms Copilot..."
 											: "Connecting… you can type while we get things ready"
 									}
 									value={input}
 									onChange={(e) => setInput(e.target.value)}
+									onInput={(e) => {
+										// Also sync on input events (catches programmatic changes)
+										const value = (e.target as HTMLTextAreaElement).value;
+										if (value !== input) {
+											setInput(value);
+										}
+									}}
 									onKeyDown={(e) => {
 										if (
 											e.key === "Enter" &&
@@ -327,7 +524,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 									disabled={
 										isStreaming ||
 										sandboxStatus !== "connected" ||
-										!input.trim()
+										!(inputRef.current?.value.trim() || input.trim())
 									}
 									size="icon"
 									icon={
@@ -347,7 +544,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 							<span className="hidden sm:inline">
 								Enter to send • Shift+Enter for a new line
 							</span>
-							{sandboxStatus !== "connected" && (
+							{sandboxStatus !== "connected" && !isStreaming && (
 								<span className="flex items-center gap-1.5">
 									<Loader2 className="h-3 w-3 animate-spin" />
 									{hasConnectedOnce ? "Almost there…" : "Getting things ready…"}

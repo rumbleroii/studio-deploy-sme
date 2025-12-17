@@ -26,7 +26,9 @@ import type { ProjectViewProps, Message } from "./types";
 
 export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 	const [showContext, setShowContext] = useState(true);
-	const [activeTab, setActiveTab] = useState<"context" | "files">("context");
+	const [activeTab, setActiveTab] = useState<"preview" | "context" | "files">(
+		"preview"
+	);
 	const [messages, setMessages] = useState<Message[]>(initialMessages);
 
 	const chatPanelRef = useRef<ChatPanelHandle>(null);
@@ -43,10 +45,11 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 	// Files management hook
 	const {
 		fileTree,
+		currentItems,
+		breadcrumbs,
 		filesLoading,
 		uploadingFiles,
 		isDraggingOver,
-		expandedFolders,
 		fileInputRef,
 		folderInputRef,
 		fetchFiles,
@@ -54,50 +57,55 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 		deleteFile,
 		downloadFile,
 		createFolder,
-		toggleFolder,
+		moveFile,
+		navigateToFolder,
 		handleDragOver,
 		handleDragLeave,
 		handleDrop,
-	} = useProjectFiles(project.id, sandboxStatus, activeTab);
+	} = useProjectFiles(project.id, sandboxStatus);
 
 	// Memoize files content to avoid re-renders on chat input changes
 	const filesContent = useMemo(
 		() => (
 			<FilesPanel
+				currentItems={currentItems}
 				fileTree={fileTree}
+				breadcrumbs={breadcrumbs}
 				filesLoading={filesLoading}
 				uploadingFiles={uploadingFiles}
 				isDraggingOver={isDraggingOver}
-				expandedFolders={expandedFolders}
 				sandboxStatus={sandboxStatus}
 				fileInputRef={fileInputRef}
 				folderInputRef={folderInputRef}
 				onUploadFiles={uploadFiles}
 				onCreateFolder={createFolder}
 				onFetchFiles={fetchFiles}
-				onToggleFolder={toggleFolder}
+				onNavigateToFolder={navigateToFolder}
 				onDownloadFile={downloadFile}
 				onDeleteFile={deleteFile}
+				onMoveFile={moveFile}
 				onDragOver={handleDragOver}
 				onDragLeave={handleDragLeave}
 				onDrop={handleDrop}
 			/>
 		),
 		[
+			currentItems,
 			fileTree,
+			breadcrumbs,
 			filesLoading,
 			uploadingFiles,
 			isDraggingOver,
-			expandedFolders,
 			sandboxStatus,
 			fileInputRef,
 			folderInputRef,
 			uploadFiles,
 			createFolder,
 			fetchFiles,
-			toggleFolder,
+			navigateToFolder,
 			downloadFile,
 			deleteFile,
+			moveFile,
 			handleDragOver,
 			handleDragLeave,
 			handleDrop,
@@ -154,10 +162,15 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 						</DialogHeader>
 						<Tabs
 							value={activeTab}
-							onValueChange={(v) => setActiveTab(v as "context" | "files")}
+							onValueChange={(v) =>
+								setActiveTab(v as "preview" | "context" | "files")
+							}
 							className="flex flex-col"
 						>
-							<TabsList className="mx-4 mt-2 grid w-auto grid-cols-2">
+							<TabsList className="mx-4 mt-2 grid w-auto grid-cols-3">
+								<TabsTrigger value="preview" className="text-xs">
+									Preview
+								</TabsTrigger>
 								<TabsTrigger value="context" className="text-xs">
 									Context
 								</TabsTrigger>
@@ -166,13 +179,20 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 								</TabsTrigger>
 							</TabsList>
 							<ScrollArea className="max-h-[60vh]">
+								<TabsContent value="preview" className="p-4 mt-0">
+									<PreviewPanel
+										previewUrl={previewUrl}
+										isLoadingPreview={isLoadingPreview}
+										className="h-[50vh]"
+									/>
+								</TabsContent>
 								<TabsContent value="context" className="p-4 mt-0">
 									<ContextContent
 										researchObjectiveText={project.researchObjectiveText}
 										messages={messages}
 									/>
 								</TabsContent>
-								<TabsContent value="files" className="p-4 mt-0">
+								<TabsContent value="files" className="p-4 mt-0 h-[50vh]">
 									{filesContent}
 								</TabsContent>
 							</ScrollArea>
@@ -210,30 +230,62 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 					startEnsureLoop={startEnsureLoop}
 				/>
 
-				{/* Preview & Context panel */}
-				{showContext && (
-					<div className="w-1/2 border-l border-gray-200 hidden lg:flex flex-col bg-white">
-						{/* Preview section */}
-						<PreviewPanel
-							previewUrl={previewUrl}
-							isLoadingPreview={isLoadingPreview}
-						/>
-						{/* Context section */}
-						<div className="h-64 flex flex-col">
-							<div className="h-12 px-4 border-b border-gray-200 flex items-center">
-								<h2 className="text-sm font-medium text-gray-900">
-									Research Context
-								</h2>
-							</div>
+				{/* Side panel with Preview/Context/Files tabs */}
+				<div
+					className={cn(
+						"border-l border-gray-200 hidden lg:flex flex-col bg-white transition-all duration-300 ease-in-out overflow-hidden",
+						showContext ? "w-1/2 opacity-100" : "w-0 opacity-0 border-l-0"
+					)}
+				>
+					<Tabs
+						value={activeTab}
+						onValueChange={(v) =>
+							setActiveTab(v as "preview" | "context" | "files")
+						}
+						className="flex flex-col flex-1 min-w-0"
+					>
+						<div className="h-12 px-4 border-b border-gray-200 flex items-center shrink-0">
+							<TabsList className="h-8 p-0.5">
+								<TabsTrigger value="preview" className="text-xs h-7 px-3">
+									Preview
+								</TabsTrigger>
+								<TabsTrigger value="context" className="text-xs h-7 px-3">
+									Context
+								</TabsTrigger>
+								<TabsTrigger value="files" className="text-xs h-7 px-3">
+									Files
+								</TabsTrigger>
+							</TabsList>
+						</div>
+						<TabsContent
+							value="preview"
+							className="flex-1 mt-0 data-[state=active]:flex data-[state=active]:flex-col"
+						>
+							<PreviewPanel
+								previewUrl={previewUrl}
+								isLoadingPreview={isLoadingPreview}
+								className="flex-1"
+							/>
+						</TabsContent>
+						<TabsContent
+							value="context"
+							className="flex-1 mt-0 data-[state=active]:flex data-[state=active]:flex-col"
+						>
 							<ScrollArea className="flex-1 p-4">
 								<ContextContent
 									researchObjectiveText={project.researchObjectiveText}
 									messages={messages}
 								/>
 							</ScrollArea>
-						</div>
-					</div>
-				)}
+						</TabsContent>
+						<TabsContent
+							value="files"
+							className="flex-1 mt-0 p-4 data-[state=active]:flex data-[state=active]:flex-col overflow-hidden"
+						>
+							{filesContent}
+						</TabsContent>
+					</Tabs>
+				</div>
 			</div>
 		</div>
 	);

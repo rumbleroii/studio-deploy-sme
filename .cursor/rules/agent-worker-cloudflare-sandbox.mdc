@@ -8,10 +8,28 @@ alwaysApply: true
 ## Cloudflare Worker + Sandbox rules (studio/agent-worker)
 
 - **Worker vs Sandbox**: `agent-worker/src/index.ts` runs on Cloudflare Workers. It orchestrates Durable Object-backed Sandbox instances (one per project).
-- **Container deploy requires Docker**: Wrangler builds the image locally and pushes it to Cloudflare’s registry. If Docker isn’t running, deploy will fail.
+- **Container deploy/dev requires Docker**: Wrangler builds/runs the image locally via Docker. If Docker isn’t running, `wrangler dev`/deploy will fail.
 - **Use Node 20+ with Wrangler v4**: Wrangler v4 requires Node >= 20.
 - **Use `wrangler.jsonc`**: Deploy and dev should explicitly pass `--config wrangler.jsonc` to ensure v4 container syntax is used.
 - **Keep container health**: The Sandbox runtime expects the container to be reachable on port 3000; keep `EXPOSE 3000` in `agent-worker/Dockerfile` and use a recent `cloudflare/sandbox` base image.
+
+## How to run locally (recommended for development)
+
+From repo root:
+
+```bash
+cd agent-worker
+export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use 20
+
+# Local dev runs the Worker + Sandbox container on your machine.
+# Ensure Docker is running.
+#
+# Provide env vars (e.g. via agent-worker/.dev.vars or your shell):
+# - ANTHROPIC_API_KEY
+# - AGENT_WORKER_SHARED_SECRET (must match the Next.js app)
+npx wrangler dev --config wrangler.jsonc
+```
 
 ## How to deploy changes (commands)
 

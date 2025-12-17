@@ -23,6 +23,13 @@ interface ChatRequestBody {
 	claudeSessionId?: string;
 }
 
+interface RunsCreateRequestBody extends ChatRequestBody {
+	runId: string;
+	idempotencyKey?: string;
+	callbackUrl?: string;
+	callbackSecret?: string;
+}
+
 interface FileWriteRequestBody {
 	files: Array<{
 		path: string;
@@ -38,6 +45,11 @@ interface MkdirRequestBody {
 interface DeleteRequestBody {
 	path: string;
 	kind?: "file" | "directory";
+}
+
+interface MoveRequestBody {
+	sourcePath: string;
+	destinationPath: string;
 }
 
 interface FileInfo {
@@ -62,6 +74,8 @@ type SandboxInstance = ReturnType<typeof getSandbox>;
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 const PREVIEW_PORT = 3001;
 const CUSTOM_DOMAIN = "metaforms-sandbox.com";
+const RUNS_DIR_NAME = ".runs";
+const ACTIVE_RUN_FILE_NAME = ".active_run.json";
 
 /**
  * Validate and resolve a relative path to an absolute path under workingDir.
@@ -136,6 +150,16 @@ export default {
 		// Route matching
 		const ensureMatch = path.match(/^\/v1\/projects\/([^/]+)\/ensure$/);
 		const chatMatch = path.match(/^\/v1\/projects\/([^/]+)\/chat$/);
+		const runsCreateMatch = path.match(/^\/v1\/projects\/([^/]+)\/runs$/);
+		const runStreamMatch = path.match(
+			/^\/v1\/projects\/([^/]+)\/runs\/([^/]+)\/stream$/
+		);
+		const runStatusMatch = path.match(
+			/^\/v1\/projects\/([^/]+)\/runs\/([^/]+)\/status$/
+		);
+		const runCancelMatch = path.match(
+			/^\/v1\/projects\/([^/]+)\/runs\/([^/]+)\/cancel$/
+		);
 		const filesListMatch = path.match(/^\/v1\/projects\/([^/]+)\/files$/);
 		const filesWriteMatch = path.match(
 			/^\/v1\/projects\/([^/]+)\/files\/write$/
@@ -146,6 +170,7 @@ export default {
 		const filesDeleteMatch = path.match(
 			/^\/v1\/projects\/([^/]+)\/files\/delete$/
 		);
+		const filesMoveMatch = path.match(/^\/v1\/projects\/([^/]+)\/files\/move$/);
 		const filesDownloadMatch = path.match(
 			/^\/v1\/projects\/([^/]+)\/files\/download$/
 		);
@@ -155,6 +180,7 @@ export default {
 
 		const validateProjectId = (id: string): boolean =>
 			/^[a-zA-Z0-9_-]+$/.test(id);
+		const validateRunId = (id: string): boolean => /^[a-zA-Z0-9_-]+$/.test(id);
 
 		if (request.method === "POST" && ensureMatch) {
 			const projectId = ensureMatch[1];
@@ -165,6 +191,62 @@ export default {
 				});
 			}
 			return handleEnsure(projectId, request, env);
+		}
+
+		if (request.method === "POST" && runsCreateMatch) {
+			const projectId = runsCreateMatch[1];
+			if (!validateProjectId(projectId)) {
+				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			return handleRunsCreate(projectId, request, env);
+		}
+
+		if (request.method === "GET" && runStreamMatch) {
+			const projectId = runStreamMatch[1];
+			const runId = runStreamMatch[2];
+			if (!validateProjectId(projectId) || !validateRunId(runId)) {
+				return new Response(
+					JSON.stringify({ error: "Invalid projectId/runId" }),
+					{
+						status: 400,
+						headers: { "Content-Type": "application/json" },
+					}
+				);
+			}
+			return handleRunStream(projectId, runId, request, env);
+		}
+
+		if (request.method === "GET" && runStatusMatch) {
+			const projectId = runStatusMatch[1];
+			const runId = runStatusMatch[2];
+			if (!validateProjectId(projectId) || !validateRunId(runId)) {
+				return new Response(
+					JSON.stringify({ error: "Invalid projectId/runId" }),
+					{
+						status: 400,
+						headers: { "Content-Type": "application/json" },
+					}
+				);
+			}
+			return handleRunStatus(projectId, runId, env);
+		}
+
+		if (request.method === "POST" && runCancelMatch) {
+			const projectId = runCancelMatch[1];
+			const runId = runCancelMatch[2];
+			if (!validateProjectId(projectId) || !validateRunId(runId)) {
+				return new Response(
+					JSON.stringify({ error: "Invalid projectId/runId" }),
+					{
+						status: 400,
+						headers: { "Content-Type": "application/json" },
+					}
+				);
+			}
+			return handleRunCancel(projectId, runId, env);
 		}
 
 		if (request.method === "POST" && chatMatch) {
@@ -216,6 +298,16 @@ export default {
 				});
 			}
 			return handleFilesDelete(filesDeleteMatch[1], request, env);
+		}
+
+		if (request.method === "POST" && filesMoveMatch) {
+			if (!validateProjectId(filesMoveMatch[1])) {
+				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			return handleFilesMove(filesMoveMatch[1], request, env);
 		}
 
 		if (request.method === "GET" && filesDownloadMatch) {
@@ -455,6 +547,502 @@ async function handleChat(
 }
 
 // ============================================================================
+// Run-based Chat (durable/resumable)
+// ============================================================================
+
+type RunMetaStatus = "starting" | "running" | "done" | "error";
+
+interface ActiveRunPointer {
+	runId: string;
+	pid: number;
+	startedAt: string;
+}
+
+interface RunMeta {
+	runId: string;
+	status: RunMetaStatus;
+	createdAt: string;
+	updatedAt: string;
+	startedAt?: string;
+	finishedAt?: string;
+	pid?: number;
+	lastSeq?: number;
+	lastEventAt?: string;
+	sessionId?: string;
+	error?: string;
+}
+
+function getProjectDir(projectId: string): string {
+	return `/workspace/projects/${projectId}`;
+}
+
+function getActiveRunPath(projectDir: string): string {
+	return `${projectDir}/${ACTIVE_RUN_FILE_NAME}`;
+}
+
+function getRunDir(projectDir: string, runId: string): string {
+	return `${projectDir}/${RUNS_DIR_NAME}/${runId}`;
+}
+
+function getRunEventsPath(projectDir: string, runId: string): string {
+	return `${getRunDir(projectDir, runId)}/events.ndjson`;
+}
+
+function getRunMetaPath(projectDir: string, runId: string): string {
+	return `${getRunDir(projectDir, runId)}/meta.json`;
+}
+
+async function readJsonViaCat<T>(
+	sandbox: SandboxInstance,
+	filePath: string
+): Promise<T | null> {
+	const result = await sandbox.exec(
+		`test -f ${filePath} && cat ${filePath} || echo ""`
+	);
+	const raw = result.stdout.trim();
+	if (!raw) return null;
+	try {
+		return JSON.parse(raw) as T;
+	} catch {
+		return null;
+	}
+}
+
+async function isPidRunning(
+	sandbox: SandboxInstance,
+	pid: number
+): Promise<boolean> {
+	if (!pid || !Number.isFinite(pid)) return false;
+	const result = await sandbox.exec(
+		`kill -0 ${pid} 2>/dev/null && echo RUNNING || echo NOT_RUNNING`
+	);
+	return result.stdout.trim() === "RUNNING";
+}
+
+async function clearActiveRunPointer(
+	sandbox: SandboxInstance,
+	projectDir: string
+): Promise<void> {
+	const activePath = getActiveRunPath(projectDir);
+	await sandbox.exec(`rm -f ${activePath}`);
+}
+
+async function getActiveRunPointer(
+	sandbox: SandboxInstance,
+	projectDir: string
+): Promise<ActiveRunPointer | null> {
+	return await readJsonViaCat<ActiveRunPointer>(
+		sandbox,
+		getActiveRunPath(projectDir)
+	);
+}
+
+async function handleRunsCreate(
+	projectId: string,
+	request: Request,
+	env: Env
+): Promise<Response> {
+	try {
+		const body = (await request.json()) as RunsCreateRequestBody;
+		if (!body?.runId || !body?.message) {
+			return new Response(
+				JSON.stringify({ error: "runId and message are required" }),
+				{
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				}
+			);
+		}
+
+		const sandboxId = `project-${projectId}`;
+		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		const projectDir = getProjectDir(projectId);
+		await sandbox.exec(`mkdir -p ${projectDir}`);
+
+		// Ensure research objective exists (chat may be called before /ensure).
+		const objectivePath = `${projectDir}/research_objective.md`;
+		const checkObjective = await sandbox.exec(
+			`test -f ${objectivePath} && echo exists || echo missing`
+		);
+		if (checkObjective.stdout.trim() === "missing") {
+			await sandbox.writeFile(objectivePath, body.researchObjectiveText || "");
+		}
+
+		// Enforce single active run per project via .active_run.json + pid liveness.
+		const active = await getActiveRunPointer(sandbox, projectDir);
+		if (active?.pid && (await isPidRunning(sandbox, active.pid))) {
+			// Idempotency: allow repeating the same runId.
+			if (active.runId === body.runId) {
+				return new Response(JSON.stringify({ runId: body.runId }), {
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			return new Response(
+				JSON.stringify({
+					error: "Run already active",
+					activeRunId: active.runId,
+				}),
+				{
+					status: 409,
+					headers: { "Content-Type": "application/json" },
+				}
+			);
+		}
+		// Stale pointer
+		if (active) {
+			await clearActiveRunPointer(sandbox, projectDir);
+		}
+
+		// Prepare run directory + files
+		const runDir = getRunDir(projectDir, body.runId);
+		const eventsPath = getRunEventsPath(projectDir, body.runId);
+		const metaPath = getRunMetaPath(projectDir, body.runId);
+		await sandbox.exec(`mkdir -p ${runDir}`);
+		await sandbox.exec(`touch ${eventsPath}`);
+
+		const nowIso = new Date().toISOString();
+		const initialMeta: RunMeta = {
+			runId: body.runId,
+			status: "starting",
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			lastSeq: 0,
+			lastEventAt: nowIso,
+			sessionId: body.claudeSessionId,
+		};
+		await sandbox.writeFile(metaPath, JSON.stringify(initialMeta));
+
+		// Write inputs (shared across turns, but enforced single-active-run).
+		const messageFile = `${projectDir}/.current_message.txt`;
+		const historyFile = `${projectDir}/.chat_history.json`;
+		const sessionFile = `${projectDir}/.claude_session_id`;
+
+		await sandbox.writeFile(messageFile, body.message);
+		await sandbox.writeFile(historyFile, JSON.stringify(body.history || []));
+		if (body.claudeSessionId) {
+			await sandbox.writeFile(sessionFile, body.claudeSessionId);
+		}
+
+		// Start runner detached and capture pid.
+		const stdoutLogPath = `${runDir}/runner.stdout.log`;
+		const stderrLogPath = `${runDir}/runner.stderr.log`;
+
+		// Build environment for the runner
+		const runnerEnv: Record<string, string> = {
+			ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
+			ANTHROPIC_MODEL: DEFAULT_ANTHROPIC_MODEL,
+			RUN_ID: body.runId,
+			PROJECT_ID: projectId,
+		};
+		if (body.callbackUrl) {
+			runnerEnv.CALLBACK_URL = body.callbackUrl;
+		}
+		if (body.callbackSecret) {
+			runnerEnv.CALLBACK_SECRET = body.callbackSecret;
+		}
+
+		const startResult = await sandbox.exec(
+			`cd ${projectDir} && (node /runner/run_chat.js > ${stdoutLogPath} 2> ${stderrLogPath} & echo $!)`,
+			{
+				env: runnerEnv,
+			} as any
+		);
+		const pid = Number(startResult.stdout.trim());
+		if (!pid || !Number.isFinite(pid)) {
+			await sandbox.writeFile(
+				metaPath,
+				JSON.stringify({
+					...initialMeta,
+					status: "error",
+					updatedAt: new Date().toISOString(),
+					error: "Failed to start runner (no pid)",
+				} satisfies RunMeta)
+			);
+			return new Response(JSON.stringify({ error: "Failed to start run" }), {
+				status: 500,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		// Persist active run pointer
+		const activePath = getActiveRunPath(projectDir);
+		const pointer: ActiveRunPointer = {
+			runId: body.runId,
+			pid,
+			startedAt: nowIso,
+		};
+		await sandbox.writeFile(activePath, JSON.stringify(pointer));
+
+		// Update meta with pid/status
+		await sandbox.writeFile(
+			metaPath,
+			JSON.stringify({
+				...initialMeta,
+				status: "running",
+				pid,
+				startedAt: nowIso,
+				updatedAt: new Date().toISOString(),
+			} satisfies RunMeta)
+		);
+
+		return new Response(JSON.stringify({ runId: body.runId }), {
+			headers: { "Content-Type": "application/json" },
+		});
+	} catch (error) {
+		console.error("Runs create failed:", error);
+		return new Response(JSON.stringify({ error: "Failed to start run" }), {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+}
+
+async function handleRunStatus(
+	projectId: string,
+	runId: string,
+	env: Env
+): Promise<Response> {
+	try {
+		const sandboxId = `project-${projectId}`;
+		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		const projectDir = getProjectDir(projectId);
+		const metaPath = getRunMetaPath(projectDir, runId);
+		const eventsPath = getRunEventsPath(projectDir, runId);
+
+		const meta = await readJsonViaCat<RunMeta>(sandbox, metaPath);
+		if (!meta) {
+			return new Response(JSON.stringify({ error: "Run not found" }), {
+				status: 404,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		// Best-effort lastSeq (line count). If the file is missing, treat as 0.
+		const wc = await sandbox.exec(
+			`test -f ${eventsPath} && wc -l < ${eventsPath} || echo 0`
+		);
+		const lastSeq = Number(wc.stdout.trim()) || 0;
+
+		// Stale active run pointer cleanup
+		const active = await getActiveRunPointer(sandbox, projectDir);
+		if (active?.runId === runId && active.pid) {
+			const running = await isPidRunning(sandbox, active.pid);
+			if (!running && meta.status === "running") {
+				// If the pid died unexpectedly, mark as error.
+				const updatedMeta: RunMeta = {
+					...meta,
+					status: "error",
+					updatedAt: new Date().toISOString(),
+					finishedAt: new Date().toISOString(),
+					error: meta.error || "Runner exited unexpectedly",
+					lastSeq,
+				};
+				await sandbox.writeFile(metaPath, JSON.stringify(updatedMeta));
+				await clearActiveRunPointer(sandbox, projectDir);
+				return new Response(
+					JSON.stringify({
+						status: updatedMeta.status,
+						lastSeq,
+						sessionId: updatedMeta.sessionId,
+						error: updatedMeta.error,
+					}),
+					{ headers: { "Content-Type": "application/json" } }
+				);
+			}
+		}
+
+		return new Response(
+			JSON.stringify({
+				status: meta.status,
+				lastSeq,
+				sessionId: meta.sessionId,
+				error: meta.error,
+			}),
+			{ headers: { "Content-Type": "application/json" } }
+		);
+	} catch (error) {
+		console.error("Run status failed:", error);
+		return new Response(JSON.stringify({ error: "Failed to get run status" }), {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+}
+
+async function handleRunCancel(
+	projectId: string,
+	runId: string,
+	env: Env
+): Promise<Response> {
+	try {
+		const sandboxId = `project-${projectId}`;
+		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		const projectDir = getProjectDir(projectId);
+
+		const active = await getActiveRunPointer(sandbox, projectDir);
+		if (!active || active.runId !== runId) {
+			// If it's already inactive, treat as idempotent success.
+			return new Response(JSON.stringify({ ok: true }), {
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		if (active.pid && (await isPidRunning(sandbox, active.pid))) {
+			await sandbox.exec(`kill -TERM ${active.pid} 2>/dev/null || true`);
+		}
+
+		await clearActiveRunPointer(sandbox, projectDir);
+
+		return new Response(JSON.stringify({ ok: true }), {
+			headers: { "Content-Type": "application/json" },
+		});
+	} catch (error) {
+		console.error("Run cancel failed:", error);
+		return new Response(JSON.stringify({ error: "Failed to cancel run" }), {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+}
+
+async function handleRunStream(
+	projectId: string,
+	runId: string,
+	request: Request,
+	env: Env
+): Promise<Response> {
+	try {
+		const sandboxId = `project-${projectId}`;
+		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		const projectDir = getProjectDir(projectId);
+		const eventsPath = getRunEventsPath(projectDir, runId);
+
+		// Determine starting seq
+		const url = new URL(request.url);
+		const fromSeqParam = url.searchParams.get("fromSeq");
+		const lastEventIdHeader = request.headers.get("Last-Event-ID");
+		const fromSeq = Number(fromSeqParam || lastEventIdHeader || "0") || 0;
+		const startLine = Math.max(1, fromSeq + 1);
+
+		// Ensure events file exists so tail doesn't error.
+		await sandbox.exec(
+			`mkdir -p ${getRunDir(projectDir, runId)} && touch ${eventsPath}`
+		);
+
+		// NOTE: @cloudflare/sandbox does not support passing AbortSignal across the DO boundary
+		// ("AbortSignal serialization is not enabled."). Do not pass `signal` to execStream.
+		// Instead, run a bounded tail process and stop emitting to the client on disconnect.
+		const clientAborted = { value: false };
+		request.signal.addEventListener("abort", () => {
+			clientAborted.value = true;
+		});
+
+		const tailStream = await sandbox.execStream(
+			`sh -c 'tail -n +${startLine} -f ${eventsPath} & pid=$!; sleep 600; kill $pid 2>/dev/null || true'`
+		);
+
+		const { readable, writable } = new TransformStream();
+		const writer = writable.getWriter();
+		const encoder = new TextEncoder();
+
+		let closed = false;
+		const close = async () => {
+			if (closed) return;
+			closed = true;
+			try {
+				await writer.close();
+			} catch {}
+		};
+
+		// Heartbeats to keep intermediaries alive
+		const pingInterval = setInterval(() => {
+			if (closed) return;
+			writer.write(encoder.encode(`event: ping\ndata: {}\n\n`)).catch(() => {});
+		}, 15000);
+
+		(async () => {
+			let buffer = "";
+			try {
+				for await (const rawEvent of parseSSEStream(tailStream)) {
+					if (clientAborted.value) {
+						break;
+					}
+					const event = rawEvent as SSEEvent;
+					if (event.type === "stderr" && event.data) {
+						// Keep server-side only
+						console.log("run stream stderr:", event.data);
+						continue;
+					}
+					if (event.type !== "stdout" || !event.data) continue;
+
+					buffer += event.data;
+					let idx: number;
+					while ((idx = buffer.indexOf("\n")) !== -1) {
+						const line = buffer.slice(0, idx).trim();
+						buffer = buffer.slice(idx + 1);
+						if (!line) continue;
+
+						let payload: any;
+						try {
+							payload = JSON.parse(line);
+						} catch {
+							continue;
+						}
+
+						const seq = Number(payload?.seq);
+						const type = String(payload?.type || "message");
+						await writer.write(
+							encoder.encode(
+								`id: ${
+									Number.isFinite(seq) ? seq : ""
+								}\nevent: ${type}\ndata: ${JSON.stringify(payload)}\n\n`
+							)
+						);
+
+						if (type === "done" || type === "error") {
+							await close();
+							return;
+						}
+					}
+				}
+			} catch (error) {
+				if ((error as Error).name !== "AbortError") {
+					console.error("Run stream error:", error);
+					try {
+						await writer.write(
+							encoder.encode(
+								`event: error\ndata: ${JSON.stringify({
+									seq: -1,
+									type: "error",
+									error: "Stream failed",
+								})}\n\n`
+							)
+						);
+					} catch {}
+				}
+			} finally {
+				clearInterval(pingInterval);
+				await close();
+			}
+		})();
+
+		return new Response(readable, {
+			headers: {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-cache",
+				Connection: "keep-alive",
+			},
+		});
+	} catch (error) {
+		console.error("Run stream failed:", error);
+		return new Response(JSON.stringify({ error: "Failed to stream run" }), {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+}
+
+// ============================================================================
 // File Management Handlers
 // ============================================================================
 
@@ -685,6 +1273,87 @@ async function handleFilesDelete(
 	}
 }
 
+async function handleFilesMove(
+	projectId: string,
+	request: Request,
+	env: Env
+): Promise<Response> {
+	try {
+		const body = (await request.json()) as MoveRequestBody;
+		const sandboxId = `project-${projectId}`;
+		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		const workingDir = getWorkingDir(projectId);
+
+		if (!body.sourcePath || !body.destinationPath) {
+			return new Response(
+				JSON.stringify({ error: "Source and destination paths are required" }),
+				{
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				}
+			);
+		}
+
+		const absoluteSourcePath = resolveSecurePath(workingDir, body.sourcePath);
+		const absoluteDestPath = resolveSecurePath(
+			workingDir,
+			body.destinationPath
+		);
+
+		if (!absoluteSourcePath || !absoluteDestPath) {
+			return new Response(JSON.stringify({ error: "Invalid path" }), {
+				status: 400,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		// Check if source exists
+		const sourceExists = await sandbox.exists(absoluteSourcePath);
+		if (!sourceExists) {
+			return new Response(
+				JSON.stringify({ error: "Source path does not exist" }),
+				{
+					status: 404,
+					headers: { "Content-Type": "application/json" },
+				}
+			);
+		}
+
+		// Ensure destination directory exists
+		const destDir = absoluteDestPath.substring(
+			0,
+			absoluteDestPath.lastIndexOf("/")
+		);
+		if (destDir && destDir !== workingDir) {
+			await sandbox.exec(`mkdir -p "${destDir}"`);
+		}
+
+		// Move the file/directory using mv command
+		await sandbox.exec(`mv "${absoluteSourcePath}" "${absoluteDestPath}"`);
+
+		return new Response(
+			JSON.stringify({
+				success: true,
+				sourcePath: body.sourcePath,
+				destinationPath: body.destinationPath,
+			}),
+			{
+				headers: { "Content-Type": "application/json" },
+			}
+		);
+	} catch (error) {
+		console.error("Files move failed:", error);
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		return new Response(
+			JSON.stringify({ error: "Failed to move file", details: errorMessage }),
+			{
+				status: 500,
+				headers: { "Content-Type": "application/json" },
+			}
+		);
+	}
+}
+
 async function handleFilesDownload(
 	projectId: string,
 	url: URL,
@@ -769,11 +1438,10 @@ async function handleFilesEvents(
 		// -r = recursive
 		// -e = events to watch
 		// --format = output format
+		// NOTE: Do not pass AbortSignal to execStream; it is not serializable across DO boundary.
+		// Run a bounded watcher process instead.
 		const stream = await sandbox.execStream(
-			`inotifywait -m -r -e create,delete,modify,move --format '%e %w%f' "${workingDir}" 2>/dev/null || echo "WATCHER_UNAVAILABLE"`,
-			{
-				signal: request.signal,
-			}
+			`sh -c '(inotifywait -m -r -e create,delete,modify,move --format "%e %w%f" "${workingDir}" 2>/dev/null || echo "WATCHER_UNAVAILABLE") & pid=$!; sleep 600; kill $pid 2>/dev/null || true'`
 		);
 
 		// Transform the sandbox SSE stream to our fs_event format

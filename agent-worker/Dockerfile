@@ -8,9 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends inotify-tools \
 
 # Bake the runner + deps into the image (do NOT rely on global npm installs).
 WORKDIR /runner
-# Copy all source files
+# Copy runner source
 COPY runner/run_chat.ts ./run_chat.ts
-COPY src/hello-world.mjs ./hello-world.mjs
 # Install dependencies and build
 RUN npm init -y \
   && npm pkg set type=module \

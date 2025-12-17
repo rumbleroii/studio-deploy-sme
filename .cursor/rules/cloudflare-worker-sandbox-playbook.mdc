@@ -41,6 +41,32 @@ npx wrangler login
 npx wrangler deploy --config wrangler.jsonc
 ```
 
+## Local development workflow (use this instead of deploy)
+
+Run the Worker + Sandbox locally via Wrangler, and point the Next.js app at it:
+
+- Next.js env:
+  - `AGENT_WORKER_URL=http://localhost:8787`
+  - `AGENT_WORKER_SHARED_SECRET=<your-secret>`
+
+```bash
+cd agent-worker
+export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use 20
+
+# Provide required env vars for local dev (either via agent-worker/.dev.vars or your shell env)
+# - ANTHROPIC_API_KEY
+# - AGENT_WORKER_SHARED_SECRET (must match the Next.js app)
+#
+# Docker must be running (Wrangler runs the Sandbox container locally).
+npx wrangler dev --config wrangler.jsonc
+```
+
+Notes:
+
+- Wrangler persists local Durable Object state by default under `.wrangler/state` (use `--persist-to <dir>` to customize).
+- If you change container/runner code, rebuild the container from the Wrangler dev prompt (e.g. press `r`).
+
 Common deploy blockers:
 
 - **Node < 20** → Wrangler v4 fails.

@@ -26,7 +26,7 @@ End to end research platform for research managers
 - MongoDB database (e.g., MongoDB Atlas)
 - Supabase project
 - Cloudflare account (for Worker + Sandbox)
-- Docker Desktop / Docker Engine (required to build + deploy the Sandbox container image)
+- Docker Desktop / Docker Engine (required to run/build the Sandbox container image)
 
 ### Installation
 
@@ -81,7 +81,37 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### Deploying the Cloudflare Worker
+### Local development: run the Worker locally (recommended)
+
+For day-to-day development you should run the Cloudflare Worker **locally** with Wrangler and point the Next.js app at it. This avoids repeated production deploys while you iterate.
+
+1. Set your web app env to point at the local Worker:
+
+```env
+AGENT_WORKER_URL=http://localhost:8787
+AGENT_WORKER_SHARED_SECRET=your-secret
+```
+
+2. Start the Worker locally (in a separate terminal):
+
+```bash
+cd agent-worker
+export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use 20
+
+# Provide required env vars for local dev (either via .dev.vars or your shell env)
+# - ANTHROPIC_API_KEY
+# - AGENT_WORKER_SHARED_SECRET (must match the Next.js app)
+npx wrangler dev --config wrangler.jsonc
+```
+
+Notes:
+
+- Container-based Sandbox runs locally via Docker; if Docker isn’t running, `wrangler dev` will fail.
+- Wrangler persists local Durable Object state by default (under `.wrangler/state`). Use `--persist-to <dir>` if you want a custom location.
+- If you change the container/runner code and need to rebuild the container, use Wrangler’s reload/rebuild prompt (e.g. press `r` in the `wrangler dev` terminal).
+
+### Deploying the Cloudflare Worker (production)
 
 1. Navigate to the worker directory:
 
