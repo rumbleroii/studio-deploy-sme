@@ -35,12 +35,12 @@ export async function POST(request: Request) {
 			name,
 			inputMode,
 			objectiveText,
-			uploadedFile,
+			uploadedFiles,
 		}: {
 			name?: string;
 			inputMode?: "text" | "upload";
 			objectiveText?: string;
-			uploadedFile?: { name: string; contentBase64: string };
+			uploadedFiles?: Array<{ name: string; contentBase64: string }>;
 		} = body ?? {};
 
 		if (!name?.trim()) {
@@ -61,9 +61,12 @@ export async function POST(request: Request) {
 			);
 		}
 
-		if (inputMode === "upload" && !uploadedFile?.contentBase64) {
+		if (
+			inputMode === "upload" &&
+			(!uploadedFiles || uploadedFiles.length === 0)
+		) {
 			return NextResponse.json(
-				{ error: "Client brief file is required" },
+				{ error: "At least one file is required" },
 				{ status: 400 }
 			);
 		}
@@ -132,29 +135,25 @@ export async function POST(request: Request) {
 			encoding?: "base64" | "utf-8";
 		}> = [];
 
-		const objectivePath = "inputs/research_objective.txt";
-		const objectiveContent =
-			objectiveText?.trim() ||
-			(inputMode === "upload"
-				? `Client brief uploaded. See inputs/client_brief/${sanitizeFilename(
-						uploadedFile!.name
-				  )}\n`
-				: "");
-		if (objectiveContent) {
+		// If text mode, save the objective to a file
+		if (inputMode === "text" && objectiveText?.trim()) {
 			files.push({
-				path: objectivePath,
-				content: objectiveContent,
+				path: "research_objective.txt",
+				content: objectiveText.trim(),
 				encoding: "utf-8",
 			});
 		}
 
-		if (inputMode === "upload" && uploadedFile?.contentBase64) {
-			const briefName = sanitizeFilename(uploadedFile.name);
-			files.push({
-				path: `inputs/client_brief/${briefName}`,
-				content: uploadedFile.contentBase64,
-				encoding: "base64",
-			});
+		// If upload mode, save all uploaded files directly to user_files
+		if (inputMode === "upload" && uploadedFiles && uploadedFiles.length > 0) {
+			for (const uploadedFile of uploadedFiles) {
+				const fileName = sanitizeFilename(uploadedFile.name);
+				files.push({
+					path: `${fileName}`,
+					content: uploadedFile.contentBase64,
+					encoding: "base64",
+				});
+			}
 		}
 
 		if (files.length > 0) {

@@ -78,6 +78,15 @@ interface MoveRequestBody {
 	destinationPath: string;
 }
 
+interface TerminalRequestBody {
+	cols?: number;
+	rows?: number;
+}
+
+interface TerminalInputRequestBody {
+	input: string;
+}
+
 interface FileInfo {
 	name: string;
 	absolutePath: string;
@@ -217,6 +226,10 @@ export default {
 		);
 		const filesEventsMatch = path.match(
 			/^\/v1\/projects\/([^/]+)\/files\/events$/
+		);
+		const terminalMatch = path.match(/^\/v1\/projects\/([^/]+)\/terminal$/);
+		const terminalInputMatch = path.match(
+			/^\/v1\/projects\/([^/]+)\/terminal\/input$/
 		);
 
 		const validateProjectId = (id: string): boolean =>
@@ -386,6 +399,26 @@ export default {
 			return handleFilesEvents(filesEventsMatch[1], request, env);
 		}
 
+		if (request.method === "POST" && terminalMatch) {
+			if (!validateProjectId(terminalMatch[1])) {
+				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			return handleTerminal(terminalMatch[1], request, env);
+		}
+
+		if (request.method === "POST" && terminalInputMatch) {
+			if (!validateProjectId(terminalInputMatch[1])) {
+				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			return handleTerminalInput(terminalInputMatch[1], request, env);
+		}
+
 		return new Response(JSON.stringify({ error: "Not Found" }), {
 			status: 404,
 			headers: { "Content-Type": "application/json" },
@@ -413,22 +446,29 @@ async function handleEnsure(
 		// Create project workspace directory
 		const projectDir = `/workspace/projects/${projectId}`;
 		const workingDir = getWorkingDir(projectId);
+		const userFilesDir = getUserFilesDir(projectId);
+		const appDir = getAppDir(projectId);
+
 		await sandbox.exec(`mkdir -p ${projectDir}`);
 		await sandbox.exec(`mkdir -p ${workingDir}`);
+		await sandbox.exec(`mkdir -p ${userFilesDir}`);
+		await sandbox.exec(`mkdir -p ${appDir}`);
 
 		// Check if Next.js app already exists
-		const checkAppResult = await sandbox.exec(`test -f ${workingDir}/package.json && echo "exists" || echo "not_exists"`);
+		const checkAppResult = await sandbox.exec(
+			`test -f ${appDir}/package.json && echo "exists" || echo "not_exists"`
+		);
 		const appExists = checkAppResult.stdout.trim() === "exists";
 
 		if (!appExists) {
 			// Copy pre-built Next.js template (dependencies already installed in container)
 			console.log(`Setting up Next.js app for project ${projectId}...`);
-			await sandbox.exec(`cp -r /runner/nextjs-template/. ${workingDir}/`);
+			await sandbox.exec(`cp -r /runner/nextjs-template/. ${appDir}/`);
 		}
 
 		// Kill any existing dev server and start Next.js on port 3001
 		await sandbox.exec("pkill -f 'next dev' || true");
-		await sandbox.exec(`cd ${workingDir} && PORT=3001 npm run dev &`, {
+		await sandbox.exec(`cd ${appDir} && PORT=3001 npm run dev &`, {
 			timeout: 30000,
 		});
 		// Give the dev server time to start
@@ -1338,31 +1378,39 @@ function getWorkingDir(projectId: string): string {
 	return `/workspace/projects/${projectId}/working_directory`;
 }
 
+function getUserFilesDir(projectId: string): string {
+	return `/workspace/projects/${projectId}/working_directory/user_files`;
+}
+
+function getAppDir(projectId: string): string {
+	return `/workspace/projects/${projectId}/working_directory/app`;
+}
+
 async function handleFilesList(projectId: string, env: Env): Promise<Response> {
 	try {
 		const sandboxId = `project-${projectId}`;
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const workingDir = getWorkingDir(projectId);
+		const userFilesDir = getUserFilesDir(projectId);
 
 		// Ensure directory exists
-		await sandbox.exec(`mkdir -p ${workingDir}`);
+		await sandbox.exec(`mkdir -p ${userFilesDir}`);
 
-		const result = await sandbox.listFiles(workingDir, {
+		const result = await sandbox.listFiles(userFilesDir, {
 			recursive: true,
 			includeHidden: false,
 		});
 
-		// Filter out .claude directory
+		// Filter out .claude directory (though it shouldn't be in user_files)
 		const filteredFiles = filterFileList(
 			result.files as FileInfo[],
-			workingDir
+			userFilesDir
 		);
 
 		return new Response(
 			JSON.stringify({
 				files: filteredFiles,
 				count: filteredFiles.length,
-				workingDir,
+				workingDir: userFilesDir,
 			}),
 			{
 				headers: { "Content-Type": "application/json" },
@@ -1390,10 +1438,10 @@ async function handleFilesWrite(
 		const body = (await request.json()) as FileWriteRequestBody;
 		const sandboxId = `project-${projectId}`;
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const workingDir = getWorkingDir(projectId);
+		const userFilesDir = getUserFilesDir(projectId);
 
-		// Ensure working directory exists
-		await sandbox.exec(`mkdir -p ${workingDir}`);
+		// Ensure user files directory exists
+		await sandbox.exec(`mkdir -p ${userFilesDir}`);
 
 		if (!body.files || !Array.isArray(body.files) || body.files.length === 0) {
 			return new Response(JSON.stringify({ error: "No files provided" }), {
@@ -1406,7 +1454,7 @@ async function handleFilesWrite(
 			[];
 
 		for (const file of body.files) {
-			const absolutePath = resolveSecurePath(workingDir, file.path);
+			const absolutePath = resolveSecurePath(userFilesDir, file.path);
 			if (!absolutePath) {
 				results.push({
 					path: file.path,
@@ -1422,7 +1470,7 @@ async function handleFilesWrite(
 					0,
 					absolutePath.lastIndexOf("/")
 				);
-				if (parentDir && parentDir !== workingDir) {
+				if (parentDir && parentDir !== userFilesDir) {
 					await sandbox.mkdir(parentDir, { recursive: true });
 				}
 
@@ -1473,7 +1521,7 @@ async function handleFilesMkdir(
 		const body = (await request.json()) as MkdirRequestBody;
 		const sandboxId = `project-${projectId}`;
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const workingDir = getWorkingDir(projectId);
+		const userFilesDir = getUserFilesDir(projectId);
 
 		if (!body.path) {
 			return new Response(JSON.stringify({ error: "Path is required" }), {
@@ -1482,7 +1530,7 @@ async function handleFilesMkdir(
 			});
 		}
 
-		const absolutePath = resolveSecurePath(workingDir, body.path);
+		const absolutePath = resolveSecurePath(userFilesDir, body.path);
 		if (!absolutePath) {
 			return new Response(JSON.stringify({ error: "Invalid path" }), {
 				status: 400,
@@ -1520,7 +1568,7 @@ async function handleFilesDelete(
 		const body = (await request.json()) as DeleteRequestBody;
 		const sandboxId = `project-${projectId}`;
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const workingDir = getWorkingDir(projectId);
+		const userFilesDir = getUserFilesDir(projectId);
 
 		if (!body.path) {
 			return new Response(JSON.stringify({ error: "Path is required" }), {
@@ -1529,7 +1577,7 @@ async function handleFilesDelete(
 			});
 		}
 
-		const absolutePath = resolveSecurePath(workingDir, body.path);
+		const absolutePath = resolveSecurePath(userFilesDir, body.path);
 		if (!absolutePath) {
 			return new Response(JSON.stringify({ error: "Invalid path" }), {
 				status: 400,
@@ -1570,7 +1618,7 @@ async function handleFilesMove(
 		const body = (await request.json()) as MoveRequestBody;
 		const sandboxId = `project-${projectId}`;
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const workingDir = getWorkingDir(projectId);
+		const userFilesDir = getUserFilesDir(projectId);
 
 		if (!body.sourcePath || !body.destinationPath) {
 			return new Response(
@@ -1582,9 +1630,9 @@ async function handleFilesMove(
 			);
 		}
 
-		const absoluteSourcePath = resolveSecurePath(workingDir, body.sourcePath);
+		const absoluteSourcePath = resolveSecurePath(userFilesDir, body.sourcePath);
 		const absoluteDestPath = resolveSecurePath(
-			workingDir,
+			userFilesDir,
 			body.destinationPath
 		);
 
@@ -1612,7 +1660,7 @@ async function handleFilesMove(
 			0,
 			absoluteDestPath.lastIndexOf("/")
 		);
-		if (destDir && destDir !== workingDir) {
+		if (destDir && destDir !== userFilesDir) {
 			await sandbox.exec(`mkdir -p "${destDir}"`);
 		}
 
@@ -1661,9 +1709,9 @@ async function handleFilesDownload(
 
 		const sandboxId = `project-${projectId}`;
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const workingDir = getWorkingDir(projectId);
+		const userFilesDir = getUserFilesDir(projectId);
 
-		const absolutePath = resolveSecurePath(workingDir, filePath);
+		const absolutePath = resolveSecurePath(userFilesDir, filePath);
 		if (!absolutePath) {
 			return new Response(JSON.stringify({ error: "Invalid path" }), {
 				status: 400,
@@ -1716,10 +1764,10 @@ async function handleFilesEvents(
 	try {
 		const sandboxId = `project-${projectId}`;
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const workingDir = getWorkingDir(projectId);
+		const userFilesDir = getUserFilesDir(projectId);
 
 		// Ensure directory exists
-		await sandbox.exec(`mkdir -p ${workingDir}`);
+		await sandbox.exec(`mkdir -p ${userFilesDir}`);
 
 		// Start inotifywait to watch for file system events
 		// -m = monitor mode (continuous)
@@ -1729,7 +1777,7 @@ async function handleFilesEvents(
 		// NOTE: Do not pass AbortSignal to execStream; it is not serializable across DO boundary.
 		// Run a bounded watcher process instead.
 		const stream = await sandbox.execStream(
-			`sh -c '(inotifywait -m -r -e create,delete,modify,move --format "%e %w%f" "${workingDir}" 2>/dev/null || echo "WATCHER_UNAVAILABLE") & pid=$!; sleep 600; kill $pid 2>/dev/null || true'`
+			`sh -c '(inotifywait -m -r -e create,delete,modify,move --format "%e %w%f" "${userFilesDir}" 2>/dev/null || echo "WATCHER_UNAVAILABLE") & pid=$!; sleep 600; kill $pid 2>/dev/null || true'`
 		);
 
 		// Transform the sandbox SSE stream to our fs_event format
@@ -1765,11 +1813,11 @@ async function handleFilesEvents(
 							const fullPath = line.substring(spaceIndex + 1);
 
 							// Get relative path
-							const relativePath = fullPath.startsWith(workingDir + "/")
-								? fullPath.substring(workingDir.length + 1)
+							const relativePath = fullPath.startsWith(userFilesDir + "/")
+								? fullPath.substring(userFilesDir.length + 1)
 								: fullPath;
 
-							// Skip .claude directory events
+							// Skip .claude directory events (though they shouldn't be in user_files)
 							if (
 								relativePath === ".claude" ||
 								relativePath.startsWith(".claude/")
@@ -1839,6 +1887,144 @@ async function handleFilesEvents(
 		return new Response(
 			JSON.stringify({
 				error: "Failed to start file watcher",
+				details: errorMessage,
+			}),
+			{
+				status: 500,
+				headers: { "Content-Type": "application/json" },
+			}
+		);
+	}
+}
+
+// Helper function to get the terminal input FIFO path for a project
+function getTerminalInputFifo(projectId: string): string {
+	return `/runner/projects/${projectId}/.terminal_input`;
+}
+
+async function handleTerminal(
+	projectId: string,
+	request: Request,
+	env: Env
+): Promise<Response> {
+	try {
+		const body = (await request.json()) as TerminalRequestBody;
+		const sandbox = getSandbox(env.Sandbox, `project-${projectId}`);
+		const projectDir = `/runner/projects/${projectId}`;
+		const userFilesDir = getUserFilesDir(projectId);
+
+		// Ensure directories exist
+		await sandbox.exec(`mkdir -p ${projectDir}`);
+		await sandbox.exec(`mkdir -p ${userFilesDir}`);
+
+		// Create a named pipe for input
+		const inputFifo = getTerminalInputFifo(projectId);
+		await sandbox.exec(`rm -f ${inputFifo}`);
+		await sandbox.exec(`mkfifo ${inputFifo}`);
+
+		// Start bash with proper terminal settings
+		// Use a wrapper script that keeps the FIFO open and handles the PTY properly
+		const cols = body.cols || 80;
+		const rows = body.rows || 24;
+
+		// Open FIFO for writing in background to prevent blocking, then start terminal
+		// Using tail -f /dev/null keeps the writing end open
+		// Send an initial newline to trigger the prompt
+		const stream = await sandbox.execStream(
+			`cd ${userFilesDir} && (tail -f /dev/null > ${inputFifo} &) && sleep 0.1 && (echo "" > ${inputFifo} &) && TERM=xterm-256color PS1='\\[\\033[01;32m\\]\\u@sandbox\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ ' script -qfc "stty rows ${rows} cols ${cols} && exec bash --norc -i" /dev/null < ${inputFifo}`
+		);
+
+		// Create a readable stream for the client
+		const { readable, writable } = new TransformStream();
+		const writer = writable.getWriter();
+		const encoder = new TextEncoder();
+
+		(async () => {
+			try {
+				for await (const event of parseSSEStream(stream)) {
+					const sseEvent = event as SSEEvent;
+					if (sseEvent.type === "stdout" && sseEvent.data) {
+						// Forward raw terminal output
+						await writer.write(encoder.encode(sseEvent.data));
+					} else if (sseEvent.type === "stderr" && sseEvent.data) {
+						// Also forward stderr
+						await writer.write(encoder.encode(sseEvent.data));
+					} else if (sseEvent.type === "error") {
+						console.error("Terminal stream error:", sseEvent.error);
+						break;
+					} else if (sseEvent.type === "complete") {
+						break;
+					}
+				}
+			} catch (error) {
+				if ((error as Error).name !== "AbortError") {
+					console.error("Terminal stream error:", error);
+				}
+			} finally {
+				// Cleanup
+				await sandbox
+					.exec(`pkill -P $$ tail 2>/dev/null || true`)
+					.catch(() => {});
+				await sandbox.exec(`rm -f ${inputFifo}`).catch(() => {});
+				await writer.close();
+			}
+		})();
+
+		return new Response(readable, {
+			headers: {
+				"Content-Type": "application/octet-stream",
+				"Cache-Control": "no-cache",
+				Connection: "keep-alive",
+			},
+		});
+	} catch (error) {
+		console.error("Terminal failed:", error);
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		return new Response(
+			JSON.stringify({
+				error: "Failed to start terminal",
+				details: errorMessage,
+			}),
+			{
+				status: 500,
+				headers: { "Content-Type": "application/json" },
+			}
+		);
+	}
+}
+
+async function handleTerminalInput(
+	projectId: string,
+	request: Request,
+	env: Env
+): Promise<Response> {
+	try {
+		const body = (await request.json()) as TerminalInputRequestBody;
+
+		// Get a fresh sandbox instance for this request (can't reuse across requests in Workers)
+		const sandbox = getSandbox(env.Sandbox, `project-${projectId}`);
+		const inputFifo = getTerminalInputFifo(projectId);
+
+		// Write input to the FIFO using a non-blocking approach
+		// Use printf with octal escaping to handle special characters safely
+		const octalInput = Array.from(body.input)
+			.map((c) => "\\" + c.charCodeAt(0).toString(8).padStart(3, "0"))
+			.join("");
+
+		// Use printf to write to FIFO (this won't block since tail is keeping it open)
+		await sandbox.exec(`printf "${octalInput}" >> ${inputFifo}`, {
+			timeout: 5000,
+		});
+
+		return new Response(JSON.stringify({ success: true }), {
+			headers: { "Content-Type": "application/json" },
+		});
+	} catch (error) {
+		console.error("Terminal input failed:", error);
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		return new Response(
+			JSON.stringify({
+				error: "Failed to send input",
 				details: errorMessage,
 			}),
 			{

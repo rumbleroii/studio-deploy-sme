@@ -13,7 +13,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
-import { ArrowLeft, PanelRightClose, PanelRight } from "lucide-react";
+import { ArrowLeft, PanelRightClose, PanelRight, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { useSandboxConnection } from "./hooks/useSandboxConnection";
@@ -21,11 +21,18 @@ import { useProjectFiles } from "./hooks/useProjectFiles";
 import { ChatPanel, type ChatPanelHandle } from "./components/ChatPanel";
 import { FilesPanel } from "./components/FilesPanel";
 import { PreviewPanel } from "./components/PreviewPanel";
+import { TerminalPanel } from "./components/TerminalPanel";
 import type { ProjectViewProps, Message } from "./types";
 
-export function ProjectView({ project, initialMessages }: ProjectViewProps) {
+export function ProjectView({
+	project,
+	initialMessages,
+	isDevMode = false,
+}: ProjectViewProps) {
 	const [showContext, setShowContext] = useState(true);
-	const [activeTab, setActiveTab] = useState<"preview" | "files">("preview");
+	const [activeTab, setActiveTab] = useState<"preview" | "files" | "terminal">(
+		"preview"
+	);
 	const [messages, setMessages] = useState<Message[]>(initialMessages);
 	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 
@@ -174,16 +181,28 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 						</DialogHeader>
 						<Tabs
 							value={activeTab}
-							onValueChange={(v) => setActiveTab(v as "preview" | "files")}
+							onValueChange={(v) =>
+								setActiveTab(v as "preview" | "files" | "terminal")
+							}
 							className="flex flex-col"
 						>
-							<TabsList className="mx-4 mt-2 grid w-auto grid-cols-2">
+							<TabsList
+								className={cn(
+									"mx-4 mt-2 grid w-auto",
+									isDevMode ? "grid-cols-3" : "grid-cols-2"
+								)}
+							>
 								<TabsTrigger value="preview" className="text-xs">
 									Preview
 								</TabsTrigger>
 								<TabsTrigger value="files" className="text-xs">
 									Files
 								</TabsTrigger>
+								{isDevMode && (
+									<TabsTrigger value="terminal" className="text-xs">
+										Terminal
+									</TabsTrigger>
+								)}
 							</TabsList>
 							<ScrollArea className="max-h-[60vh]">
 								<TabsContent value="preview" className="p-4 mt-0">
@@ -196,6 +215,11 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 								<TabsContent value="files" className="p-4 mt-0 h-[50vh]">
 									{filesContent}
 								</TabsContent>
+								{isDevMode && (
+									<TabsContent value="terminal" className="p-0 mt-0 h-[50vh]">
+										<TerminalPanel projectId={project.id} />
+									</TabsContent>
+								)}
 							</ScrollArea>
 						</Tabs>
 					</DialogContent>
@@ -240,7 +264,9 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 				>
 					<Tabs
 						value={activeTab}
-						onValueChange={(v) => setActiveTab(v as "preview" | "files")}
+						onValueChange={(v) =>
+							setActiveTab(v as "preview" | "files" | "terminal")
+						}
 						className="flex flex-col flex-1 min-w-0"
 					>
 						<div className="h-12 px-4 border-b border-gray-200 flex items-center shrink-0">
@@ -251,6 +277,11 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 								<TabsTrigger value="files" className="text-xs h-7 px-3">
 									Files
 								</TabsTrigger>
+								{isDevMode && (
+									<TabsTrigger value="terminal" className="text-xs h-7 px-3">
+										Terminal
+									</TabsTrigger>
+								)}
 							</TabsList>
 						</div>
 						<TabsContent
@@ -269,6 +300,14 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 						>
 							{filesContent}
 						</TabsContent>
+						{isDevMode && (
+							<TabsContent
+								value="terminal"
+								className="flex-1 mt-0 data-[state=active]:flex data-[state=active]:flex-col overflow-hidden"
+							>
+								<TerminalPanel projectId={project.id} />
+							</TabsContent>
+						)}
 					</Tabs>
 				</div>
 			</div>

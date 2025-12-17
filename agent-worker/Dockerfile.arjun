@@ -20,6 +20,11 @@ RUN mkdir -p /runner
 # Bake a template .claude directory used by the runner to initialize projects.
 RUN mkdir -p /runner/working_directory
 COPY runner/.claude/ /runner/working_directory/.claude/
+
+# Copy Next.js template and pre-install dependencies
+COPY src/nextjs-template /runner/nextjs-template
+RUN cd /runner/nextjs-template && npm install
+
 # Copy runner source
 COPY runner/run_chat.ts /runner/run_chat.ts
 # Install dependencies and build (keep the base image runtime WORKDIR intact).
@@ -33,7 +38,3 @@ RUN cd /runner \
 # The Sandbox runtime listens on 3000 (internal control plane).
 EXPOSE 3000
 EXPOSE 3001
-
-# The base image entrypoint is the Bun runtime binary at /container-server/sandbox.
-# It needs a command to start the container control-plane server on port 3000.
-CMD ["run", "/container-server/dist/index.js"]

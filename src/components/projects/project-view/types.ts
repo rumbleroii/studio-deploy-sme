@@ -34,4 +34,5 @@ export interface ProjectViewProps {
 		name: string;
 	};
 	initialMessages: Message[];
+	isDevMode?: boolean;
 }

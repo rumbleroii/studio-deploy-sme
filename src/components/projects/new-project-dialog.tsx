@@ -24,72 +24,48 @@ export function NewProjectDialog() {
 	const [name, setName] = useState("");
 	const [objective, setObjective] = useState("");
 	const [inputMode, setInputMode] = useState<"text" | "upload">("text");
-	const [file, setFile] = useState<File | null>(null);
-	const [extractedText, setExtractedText] = useState("");
-	const [extracting, setExtracting] = useState(false);
+	const [files, setFiles] = useState<File[]>([]);
 	const [creating, setCreating] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const router = useRouter();
 	const { toast } = useToast();
 
 	const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-		const selectedFile = e.target.files?.[0];
-		if (!selectedFile) return;
+		const selectedFiles = Array.from(e.target.files || []);
+		if (selectedFiles.length === 0) return;
 
-		const validTypes = [
-			"application/pdf",
-			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		];
-
-		if (!validTypes.includes(selectedFile.type)) {
-			toast({
-				variant: "destructive",
-				title: "Invalid file type",
-				description: "Please upload a PDF or DOCX file.",
-			});
-			return;
-		}
-
-		setFile(selectedFile);
-		setExtracting(true);
-
-		try {
-			const formData = new FormData();
-			formData.append("file", selectedFile);
-
-			const res = await fetch("/api/extract-text", {
-				method: "POST",
-				body: formData,
-			});
-
-			if (!res.ok) {
-				throw new Error("Failed to extract text");
-			}
-
-			const data = await res.json();
-			setExtractedText(data.text);
-		} catch {
-			toast({
-				variant: "destructive",
-				title: "Extraction failed",
-				description: "Could not extract text from the file.",
-			});
-			setFile(null);
-		} finally {
-			setExtracting(false);
-		}
+		// Allow any file type for upload
+		setFiles((prev) => [...prev, ...selectedFiles]);
 	};
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 
-		const objectiveText = inputMode === "text" ? objective : extractedText;
+		const objectiveText = inputMode === "text" ? objective : "";
 
-		if (!name.trim() || !objectiveText.trim()) {
+		if (!name.trim()) {
 			toast({
 				variant: "destructive",
 				title: "Missing fields",
-				description: "Please provide a project name and research objective.",
+				description: "Please provide a project name.",
+			});
+			return;
+		}
+
+		if (inputMode === "text" && !objectiveText.trim()) {
+			toast({
+				variant: "destructive",
+				title: "Missing fields",
+				description: "Please provide a research objective.",
+			});
+			return;
+		}
+
+		if (inputMode === "upload" && files.length === 0) {
+			toast({
+				variant: "destructive",
+				title: "Missing files",
+				description: "Please upload at least one file.",
 			});
 			return;
 		}
@@ -97,18 +73,21 @@ export function NewProjectDialog() {
 		setCreating(true);
 
 		try {
-			const uploadedFile =
-				inputMode === "upload" && file
-					? await (async () => {
-							const arrayBuffer = await file.arrayBuffer();
-							const bytes = new Uint8Array(arrayBuffer);
-							let binary = "";
-							for (let i = 0; i < bytes.byteLength; i++) {
-								binary += String.fromCharCode(bytes[i]);
-							}
-							const base64 = btoa(binary);
-							return { name: file.name, contentBase64: base64 };
-					  })()
+			// Convert files to base64 for upload
+			const uploadedFiles =
+				inputMode === "upload" && files.length > 0
+					? await Promise.all(
+							files.map(async (file) => {
+								const arrayBuffer = await file.arrayBuffer();
+								const bytes = new Uint8Array(arrayBuffer);
+								let binary = "";
+								for (let i = 0; i < bytes.byteLength; i++) {
+									binary += String.fromCharCode(bytes[i]);
+								}
+								const base64 = btoa(binary);
+								return { name: file.name, contentBase64: base64 };
+							})
+					  )
 					: undefined;
 
 			const res = await fetch("/api/projects", {
@@ -117,8 +96,8 @@ export function NewProjectDialog() {
 				body: JSON.stringify({
 					name: name.trim(),
 					inputMode,
-					objectiveText: objectiveText.trim(),
-					uploadedFile,
+					objectiveText: objectiveText.trim() || undefined,
+					uploadedFiles,
 				}),
 			});
 
@@ -144,8 +123,7 @@ export function NewProjectDialog() {
 	const resetForm = () => {
 		setName("");
 		setObjective("");
-		setFile(null);
-		setExtractedText("");
+		setFiles([]);
 		setInputMode("text");
 	};
 
@@ -170,7 +148,7 @@ export function NewProjectDialog() {
 							Create New Project
 						</DialogTitle>
 						<DialogDescription className="text-sm text-gray-500">
-							Start a new research project with your objective or client brief.
+							Start a new research project with your objective or upload files.
 						</DialogDescription>
 					</DialogHeader>
 
@@ -230,65 +208,58 @@ export function NewProjectDialog() {
 								</TabsContent>
 
 								<TabsContent value="upload" className="mt-3">
-									{!file ? (
+									<div className="space-y-3">
 										<div
 											className="border border-dashed border-gray-300 rounded-md p-6 text-center cursor-pointer hover:border-gray-400 transition-colors"
 											onClick={() => fileInputRef.current?.click()}
 										>
 											<Upload className="h-6 w-6 mx-auto text-gray-400 mb-2" />
 											<p className="text-sm text-gray-500">
-												Click to upload a PDF or DOCX file
+												Click to upload files (any type)
 											</p>
 											<input
 												ref={fileInputRef}
 												type="file"
+												multiple
 												className="hidden"
-												accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 												onChange={handleFileChange}
 											/>
 										</div>
-									) : (
-										<div className="space-y-3">
-											<div className="flex items-center gap-2 p-2.5 bg-gray-50 rounded-md border border-gray-200">
-												<FileText className="h-4 w-4 text-gray-500" />
-												<span className="text-sm flex-1 truncate text-gray-700">
-													{file.name}
-												</span>
-												{!extracting && (
-													<button
-														type="button"
-														className="text-gray-400 hover:text-gray-600"
-														onClick={() => {
-															setFile(null);
-															setExtractedText("");
-														}}
-													>
-														<X className="h-4 w-4" />
-													</button>
-												)}
+										{files.length > 0 && (
+											<div className="space-y-2">
+												<Label className="text-xs text-gray-500">
+													Selected Files ({files.length})
+												</Label>
+												<div className="space-y-1 max-h-40 overflow-y-auto">
+													{files.map((file, index) => (
+														<div
+															key={index}
+															className="flex items-center gap-2 p-2.5 bg-gray-50 rounded-md border border-gray-200"
+														>
+															<FileText className="h-4 w-4 text-gray-500 flex-shrink-0" />
+															<span className="text-sm flex-1 truncate text-gray-700">
+																{file.name}
+															</span>
+															<span className="text-xs text-gray-400 flex-shrink-0">
+																{(file.size / 1024).toFixed(1)} KB
+															</span>
+															<button
+																type="button"
+																className="text-gray-400 hover:text-gray-600 flex-shrink-0"
+																onClick={() => {
+																	setFiles((prev) =>
+																		prev.filter((_, i) => i !== index)
+																	);
+																}}
+															>
+																<X className="h-4 w-4" />
+															</button>
+														</div>
+													))}
+												</div>
 											</div>
-											{extracting ? (
-												<div className="flex items-center justify-center py-4">
-													<Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-													<span className="ml-2 text-sm text-gray-500">
-														Extracting text...
-													</span>
-												</div>
-											) : extractedText ? (
-												<div className="space-y-1.5">
-													<Label className="text-xs text-gray-500">
-														Extracted Text Preview
-													</Label>
-													<Textarea
-														className="min-h-[100px] text-sm border-gray-200 focus:border-coral-500 focus:ring-0"
-														value={extractedText}
-														onChange={(e) => setExtractedText(e.target.value)}
-														disabled={creating}
-													/>
-												</div>
-											) : null}
-										</div>
-									)}
+										)}
+									</div>
 								</TabsContent>
 							</Tabs>
 						</div>
@@ -306,7 +277,7 @@ export function NewProjectDialog() {
 						</Button>
 						<Button
 							type="submit"
-							disabled={creating || extracting}
+							disabled={creating}
 							className="h-9 font-medium text-sm"
 						>
 							{creating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}

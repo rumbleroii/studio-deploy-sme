@@ -5,10 +5,16 @@ import { ProjectView } from "@/components/projects/project-view";
 
 interface ProjectPageProps {
 	params: Promise<{ projectId: string }>;
+	searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export default async function ProjectPage({ params }: ProjectPageProps) {
+export default async function ProjectPage({
+	params,
+	searchParams,
+}: ProjectPageProps) {
 	const { projectId } = await params;
+	const search = await searchParams;
+	const isDevMode = search.dev === "true";
 	const user = await requireAuth();
 
 	const project = await prisma.project.findUnique({
@@ -54,6 +60,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 				streamSeq: m.streamSeq,
 				error: m.error ?? undefined,
 			}))}
+			isDevMode={isDevMode}
 		/>
 	);
 }
