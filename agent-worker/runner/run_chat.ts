@@ -203,7 +203,7 @@ async function main() {
 		process.exit(1);
 	}
 
-	const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
+	const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
 	const pathToClaudeCodeExecutable =
 		process.env.CLAUDE_CODE_PATH || "/runner/node_modules/.bin/claude";
 
@@ -261,6 +261,8 @@ async function main() {
 	// Copy baked-in .claude into the working directory (first run only).
 	const bakedClaudeDir = "/runner/working_directory/.claude";
 	const workingClaudeDir = path.join(workingDir, ".claude");
+	
+	// Always ensure skills are present (copy/merge on each run)
 	try {
 		await fs.stat(workingClaudeDir);
 	} catch {
@@ -287,8 +289,9 @@ async function main() {
 		process.exit(1);
 	}
 
-	// Persist Claude Code state in working_directory/.claude.
-	const claudeConfigDir = workingClaudeDir;
+	// Use a SEPARATE directory for Claude Code's runtime config (debug, projects, etc.)
+	// This prevents Claude from overwriting our skills directory
+	const claudeConfigDir = path.join(projectDir, ".claude_runtime");
 	await fs.mkdir(claudeConfigDir, { recursive: true });
 
 	const sessionFilePath = path.join(projectDir, ".claude_session_id");
