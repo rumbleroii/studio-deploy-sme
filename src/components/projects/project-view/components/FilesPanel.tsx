@@ -20,6 +20,7 @@ import {
 	FileSpreadsheet,
 	FileArchive,
 	Move,
+	ArrowLeft,
 } from "lucide-react";
 import {
 	DropdownMenu,
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { MoveFileDialog } from "./MoveFileDialog";
+import { FilePreview } from "./FilePreview";
 import type { TreeNode } from "../types";
 import type { SandboxStatus } from "../hooks/useSandboxConnection";
 
@@ -40,12 +42,16 @@ interface FilesPanelProps {
 	uploadingFiles: boolean;
 	isDraggingOver: boolean;
 	sandboxStatus: SandboxStatus;
+	selectedFilePath?: string | null;
+	projectId: string;
 	fileInputRef: React.RefObject<HTMLInputElement | null>;
 	folderInputRef: React.RefObject<HTMLInputElement | null>;
 	onUploadFiles: (files: FileList | File[]) => Promise<void>;
 	onCreateFolder: () => Promise<void>;
 	onFetchFiles: () => Promise<void>;
 	onNavigateToFolder: (path: string) => void;
+	onSelectFile?: (path: string) => void;
+	onClearSelectedFile?: () => void;
 	onDownloadFile: (path: string) => void;
 	onDeleteFile: (path: string, type: "file" | "directory") => Promise<void>;
 	onMoveFile: (sourcePath: string, destinationPath: string) => Promise<void>;
@@ -109,7 +115,9 @@ function formatSize(bytes?: number): string {
 
 interface FileCardProps {
 	node: TreeNode;
+	isSelected: boolean;
 	onNavigate: (path: string) => void;
+	onSelect: (path: string) => void;
 	onDownload: (path: string) => void;
 	onDelete: (path: string, type: "file" | "directory") => void;
 	onMoveClick: (path: string, name: string) => void;
@@ -117,7 +125,9 @@ interface FileCardProps {
 
 const FileCard = memo(function FileCard({
 	node,
+	isSelected,
 	onNavigate,
+	onSelect,
 	onDownload,
 	onDelete,
 	onMoveClick,
@@ -128,8 +138,10 @@ const FileCard = memo(function FileCard({
 	const handleClick = useCallback(() => {
 		if (isDir) {
 			onNavigate(node.path);
+			return;
 		}
-	}, [isDir, node.path, onNavigate]);
+		onSelect(node.path);
+	}, [isDir, node.path, onNavigate, onSelect]);
 
 	const handleDownload = useCallback(
 		(e: React.MouseEvent) => {
@@ -163,7 +175,8 @@ const FileCard = memo(function FileCard({
 		<div
 			className={cn(
 				"group relative flex flex-col items-center p-3 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors",
-				isDir && "cursor-pointer"
+				isDir ? "cursor-pointer" : "cursor-pointer",
+				isSelected && "border-burgundy-400 bg-burgundy-50 hover:bg-burgundy-50"
 			)}
 			onClick={handleClick}
 		>
@@ -235,12 +248,16 @@ export const FilesPanel = memo(function FilesPanel({
 	uploadingFiles,
 	isDraggingOver,
 	sandboxStatus,
+	selectedFilePath,
+	projectId,
 	fileInputRef,
 	folderInputRef,
 	onUploadFiles,
 	onCreateFolder,
 	onFetchFiles,
 	onNavigateToFolder,
+	onSelectFile,
+	onClearSelectedFile,
 	onDownloadFile,
 	onDeleteFile,
 	onMoveFile,
@@ -263,6 +280,16 @@ export const FilesPanel = memo(function FilesPanel({
 		<div className="flex flex-col h-full">
 			{/* Toolbar with breadcrumbs */}
 			<div className="flex items-center gap-2 mb-3">
+				{selectedFilePath && (
+					<Button
+						variant="ghost"
+						size="smallIcon"
+						icon={<ArrowLeft className="h-3.5 w-3.5" />}
+						className="h-7 w-7 text-gray-400 hover:text-gray-700 shrink-0"
+						onClick={() => onClearSelectedFile?.()}
+						aria-label="Back to folder"
+					/>
+				)}
 				{/* Breadcrumbs - left aligned */}
 				<div className="flex items-center gap-1 text-sm text-gray-500 min-w-0 flex-1">
 					{breadcrumbs.map((crumb, index) => (
@@ -271,7 +298,10 @@ export const FilesPanel = memo(function FilesPanel({
 								<ChevronRight className="h-3.5 w-3.5 text-gray-300" />
 							)}
 							<button
-								onClick={() => onNavigateToFolder(crumb.path)}
+								onClick={() => {
+									onClearSelectedFile?.();
+									onNavigateToFolder(crumb.path);
+								}}
 								className={cn(
 									"hover:text-gray-900 transition-colors truncate",
 									index === breadcrumbs.length - 1
@@ -283,81 +313,93 @@ export const FilesPanel = memo(function FilesPanel({
 							</button>
 						</span>
 					))}
+					{selectedFilePath && (
+						<span className="flex items-center gap-1 shrink-0 min-w-0">
+							<ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+							<span className="text-gray-900 font-medium truncate">
+								{selectedFilePath.split("/").pop() || selectedFilePath}
+							</span>
+						</span>
+					)}
 				</div>
 
 				{/* Buttons - right aligned */}
-				<input
-					type="file"
-					ref={fileInputRef}
-					className="hidden"
-					multiple
-					onChange={(e) => {
-						if (e.target.files) {
-							onUploadFiles(e.target.files);
-							e.target.value = "";
-						}
-					}}
-				/>
-				<input
-					type="file"
-					ref={folderInputRef}
-					className="hidden"
-					// @ts-expect-error webkitdirectory is not in the types
-					webkitdirectory=""
-					directory=""
-					multiple
-					onChange={(e) => {
-						if (e.target.files) {
-							onUploadFiles(e.target.files);
-							e.target.value = "";
-						}
-					}}
-				/>
-				<Button
-					variant="outline"
-					size="sm"
-					className="h-7 text-xs shrink-0"
-					onClick={() => fileInputRef.current?.click()}
-					disabled={uploadingFiles || sandboxStatus !== "connected"}
-				>
-					<Upload className="h-3.5 w-3.5 mr-1" />
-					Upload
-				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					className="h-7 text-xs shrink-0"
-					onClick={() => folderInputRef.current?.click()}
-					disabled={uploadingFiles || sandboxStatus !== "connected"}
-				>
-					<FolderUp className="h-3.5 w-3.5 mr-1" />
-					Folder
-				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					className="h-7 text-xs shrink-0"
-					onClick={onCreateFolder}
-					disabled={uploadingFiles || sandboxStatus !== "connected"}
-				>
-					<FolderPlus className="h-3.5 w-3.5 mr-1" />
-					New
-				</Button>
-				<Button
-					variant="ghost"
-					size="smallIcon"
-					icon={
-						filesLoading ? (
-							<Loader2 className="h-3.5 w-3.5 animate-spin" />
-						) : (
-							<RefreshCw className="h-3.5 w-3.5" />
-						)
-					}
-					className="h-7 w-7 text-gray-400 hover:text-gray-700 shrink-0"
-					onClick={onFetchFiles}
-					disabled={filesLoading || sandboxStatus !== "connected"}
-					aria-label="Refresh files"
-				/>
+				{!selectedFilePath && (
+					<>
+						<input
+							type="file"
+							ref={fileInputRef}
+							className="hidden"
+							multiple
+							onChange={(e) => {
+								if (e.target.files) {
+									onUploadFiles(e.target.files);
+									e.target.value = "";
+								}
+							}}
+						/>
+						<input
+							type="file"
+							ref={folderInputRef}
+							className="hidden"
+							// @ts-expect-error webkitdirectory is not in the types
+							webkitdirectory=""
+							directory=""
+							multiple
+							onChange={(e) => {
+								if (e.target.files) {
+									onUploadFiles(e.target.files);
+									e.target.value = "";
+								}
+							}}
+						/>
+						<Button
+							variant="outline"
+							size="sm"
+							className="h-7 text-xs shrink-0"
+							onClick={() => fileInputRef.current?.click()}
+							disabled={uploadingFiles || sandboxStatus !== "connected"}
+						>
+							<Upload className="h-3.5 w-3.5 mr-1" />
+							Upload
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							className="h-7 text-xs shrink-0"
+							onClick={() => folderInputRef.current?.click()}
+							disabled={uploadingFiles || sandboxStatus !== "connected"}
+						>
+							<FolderUp className="h-3.5 w-3.5 mr-1" />
+							Folder
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							className="h-7 text-xs shrink-0"
+							onClick={onCreateFolder}
+							disabled={uploadingFiles || sandboxStatus !== "connected"}
+						>
+							<FolderPlus className="h-3.5 w-3.5 mr-1" />
+							New
+						</Button>
+						<Button
+							variant="ghost"
+							size="smallIcon"
+							icon={
+								filesLoading ? (
+									<Loader2 className="h-3.5 w-3.5 animate-spin" />
+								) : (
+									<RefreshCw className="h-3.5 w-3.5" />
+								)
+							}
+							className="h-7 w-7 text-gray-400 hover:text-gray-700 shrink-0"
+							onClick={onFetchFiles}
+							disabled={filesLoading || sandboxStatus !== "connected"}
+							aria-label="Refresh files"
+						/>
+					</>
+				)}
 			</div>
 
 			{/* Drop zone / file grid - extends to bottom */}
@@ -373,7 +415,16 @@ export const FilesPanel = memo(function FilesPanel({
 				onDragLeave={onDragLeave}
 				onDrop={onDrop}
 			>
-				{filesLoading && currentItems.length === 0 ? (
+				{selectedFilePath ? (
+					<div className="p-3 h-full">
+						<FilePreview
+							projectId={projectId}
+							path={selectedFilePath}
+							onClose={() => onClearSelectedFile?.()}
+							onDownload={(p) => onDownloadFile(p)}
+						/>
+					</div>
+				) : filesLoading && currentItems.length === 0 ? (
 					<div className="flex items-center justify-center h-full">
 						<Loader2 className="h-5 w-5 animate-spin text-gray-400" />
 					</div>
@@ -395,7 +446,11 @@ export const FilesPanel = memo(function FilesPanel({
 							<FileCard
 								key={node.path}
 								node={node}
+								isSelected={
+									node.type === "file" && node.path === selectedFilePath
+								}
 								onNavigate={onNavigateToFolder}
+								onSelect={(path) => onSelectFile?.(path)}
 								onDownload={onDownloadFile}
 								onDelete={onDeleteFile}
 								onMoveClick={handleMoveClick}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -20,17 +20,14 @@ import { useSandboxConnection } from "./hooks/useSandboxConnection";
 import { useProjectFiles } from "./hooks/useProjectFiles";
 import { ChatPanel, type ChatPanelHandle } from "./components/ChatPanel";
 import { FilesPanel } from "./components/FilesPanel";
-import { ContextContent } from "./components/ContextContent";
 import { PreviewPanel } from "./components/PreviewPanel";
 import type { ProjectViewProps, Message } from "./types";
 
 export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 	const [showContext, setShowContext] = useState(true);
-	const [activeTab, setActiveTab] = useState<"preview" | "context" | "files">(
-		"preview"
-	);
+	const [activeTab, setActiveTab] = useState<"preview" | "files">("preview");
 	const [messages, setMessages] = useState<Message[]>(initialMessages);
-	const [objectiveText, setObjectiveText] = useState<string>("");
+	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 
 	const chatPanelRef = useRef<ChatPanelHandle>(null);
 
@@ -65,35 +62,11 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 		handleDrop,
 	} = useProjectFiles(project.id, sandboxStatus);
 
-	// Load objective from the canonical file in working_directory.
-	useEffect(() => {
-		let cancelled = false;
-		(async () => {
-			try {
-				const res = await fetch(
-					`/api/projects/${project.id}/files/download?path=${encodeURIComponent(
-						"inputs/research_objective.txt"
-					)}`
-				);
-				if (!res.ok) {
-					if (!cancelled) setObjectiveText("");
-					return;
-				}
-				const text = await res.text();
-				if (!cancelled) setObjectiveText(text || "");
-			} catch {
-				if (!cancelled) setObjectiveText("");
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [project.id]);
-
 	// Memoize files content to avoid re-renders on chat input changes
 	const filesContent = useMemo(
 		() => (
 			<FilesPanel
+				projectId={project.id}
 				currentItems={currentItems}
 				fileTree={fileTree}
 				breadcrumbs={breadcrumbs}
@@ -101,12 +74,24 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 				uploadingFiles={uploadingFiles}
 				isDraggingOver={isDraggingOver}
 				sandboxStatus={sandboxStatus}
+				selectedFilePath={selectedFilePath}
 				fileInputRef={fileInputRef}
 				folderInputRef={folderInputRef}
 				onUploadFiles={uploadFiles}
 				onCreateFolder={createFolder}
 				onFetchFiles={fetchFiles}
-				onNavigateToFolder={navigateToFolder}
+				onNavigateToFolder={(path) => {
+					setSelectedFilePath(null);
+					navigateToFolder(path);
+				}}
+				onSelectFile={(path) => {
+					setSelectedFilePath(path);
+					// Ensure breadcrumbs match the file's folder.
+					const folderPath = path.split("/").slice(0, -1).join("/");
+					navigateToFolder(folderPath);
+					setActiveTab("files");
+				}}
+				onClearSelectedFile={() => setSelectedFilePath(null)}
 				onDownloadFile={downloadFile}
 				onDeleteFile={deleteFile}
 				onMoveFile={moveFile}
@@ -123,6 +108,7 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 			uploadingFiles,
 			isDraggingOver,
 			sandboxStatus,
+			selectedFilePath,
 			fileInputRef,
 			folderInputRef,
 			uploadFiles,
@@ -188,17 +174,12 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 						</DialogHeader>
 						<Tabs
 							value={activeTab}
-							onValueChange={(v) =>
-								setActiveTab(v as "preview" | "context" | "files")
-							}
+							onValueChange={(v) => setActiveTab(v as "preview" | "files")}
 							className="flex flex-col"
 						>
-							<TabsList className="mx-4 mt-2 grid w-auto grid-cols-3">
+							<TabsList className="mx-4 mt-2 grid w-auto grid-cols-2">
 								<TabsTrigger value="preview" className="text-xs">
 									Preview
-								</TabsTrigger>
-								<TabsTrigger value="context" className="text-xs">
-									Context
 								</TabsTrigger>
 								<TabsTrigger value="files" className="text-xs">
 									Files
@@ -210,12 +191,6 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 										previewUrl={previewUrl}
 										isLoadingPreview={isLoadingPreview}
 										className="h-[50vh]"
-									/>
-								</TabsContent>
-								<TabsContent value="context" className="p-4 mt-0">
-									<ContextContent
-										objectiveText={objectiveText}
-										messages={messages}
 									/>
 								</TabsContent>
 								<TabsContent value="files" className="p-4 mt-0 h-[50vh]">
@@ -265,18 +240,13 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 				>
 					<Tabs
 						value={activeTab}
-						onValueChange={(v) =>
-							setActiveTab(v as "preview" | "context" | "files")
-						}
+						onValueChange={(v) => setActiveTab(v as "preview" | "files")}
 						className="flex flex-col flex-1 min-w-0"
 					>
 						<div className="h-12 px-4 border-b border-gray-200 flex items-center shrink-0">
 							<TabsList className="h-8 p-0.5">
 								<TabsTrigger value="preview" className="text-xs h-7 px-3">
 									Preview
-								</TabsTrigger>
-								<TabsTrigger value="context" className="text-xs h-7 px-3">
-									Context
 								</TabsTrigger>
 								<TabsTrigger value="files" className="text-xs h-7 px-3">
 									Files
@@ -292,17 +262,6 @@ export function ProjectView({ project, initialMessages }: ProjectViewProps) {
 								isLoadingPreview={isLoadingPreview}
 								className="flex-1"
 							/>
-						</TabsContent>
-						<TabsContent
-							value="context"
-							className="flex-1 mt-0 data-[state=active]:flex data-[state=active]:flex-col"
-						>
-							<ScrollArea className="flex-1 p-4">
-								<ContextContent
-									objectiveText={objectiveText}
-									messages={messages}
-								/>
-							</ScrollArea>
 						</TabsContent>
 						<TabsContent
 							value="files"
