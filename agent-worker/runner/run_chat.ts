@@ -177,6 +177,17 @@ class EventLogger {
 			JSON.stringify(meta, null, 2)
 		);
 
+		// Release the worker-side run lock as soon as the run is complete.
+		// The Worker enforces single-active-run via `<projectDir>/.active_run.json`.
+		// We intentionally clear it here (before the optional callback) so the user
+		// can immediately start the next turn even if the callback is slow/unreachable.
+		try {
+			const projectDir = path.resolve(this.runDir, "..", "..");
+			await fs.rm(path.join(projectDir, ".active_run.json"), { force: true });
+		} catch {
+			// Best-effort; the Worker will also treat stale pointers as inactive.
+		}
+
 		// Phase 2: Make callback to persist to DB
 		if (this.callbackUrl && this.callbackSecret) {
 			const payload: CallbackPayload = {
@@ -261,7 +272,7 @@ async function main() {
 	// Copy baked-in .claude into the working directory (first run only).
 	const bakedClaudeDir = "/runner/working_directory/.claude";
 	const workingClaudeDir = path.join(workingDir, ".claude");
-	
+
 	// Always ensure skills are present (copy/merge on each run)
 	try {
 		await fs.stat(workingClaudeDir);
@@ -452,7 +463,8 @@ async function main() {
 		}
 		throw err;
 	} finally {
-		session.close();
+		// The Agent SDK may leave resources open unless close is awaited.
+		await Promise.resolve((session as any).close?.());
 	}
 }
 

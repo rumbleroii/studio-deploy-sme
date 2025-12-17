@@ -677,16 +677,47 @@ async function handleRunsCreate(
 					headers: { "Content-Type": "application/json" },
 				});
 			}
-			return new Response(
-				JSON.stringify({
-					error: "Run already active",
-					activeRunId: active.runId,
-				}),
-				{
-					status: 409,
-					headers: { "Content-Type": "application/json" },
+
+			// If the "active" pid is still alive but the run has already finished,
+			// treat the pointer as stale. This can happen if the runner process
+			// lingers (e.g. doing callbacks / cleanup) after emitting `done`.
+			try {
+				const maybeMeta = await readJsonViaCat<any>(
+					sandbox,
+					getRunMetaPath(projectDir, active.runId)
+				);
+				const status = String(maybeMeta?.status || "");
+				const hasFinishedAt = Boolean(
+					maybeMeta?.finishedAt || maybeMeta?.completedAt
+				);
+				const isFinishedStatus =
+					status && status !== "starting" && status !== "running";
+				if (isFinishedStatus || hasFinishedAt) {
+					await clearActiveRunPointer(sandbox, projectDir);
+				} else {
+					return new Response(
+						JSON.stringify({
+							error: "Run already active",
+							activeRunId: active.runId,
+						}),
+						{
+							status: 409,
+							headers: { "Content-Type": "application/json" },
+						}
+					);
 				}
-			);
+			} catch {
+				return new Response(
+					JSON.stringify({
+						error: "Run already active",
+						activeRunId: active.runId,
+					}),
+					{
+						status: 409,
+						headers: { "Content-Type": "application/json" },
+					}
+				);
+			}
 		}
 		// Stale pointer
 		if (active) {
@@ -1000,6 +1031,17 @@ async function handleRunStream(
 						);
 
 						if (type === "done" || type === "error") {
+							// Best-effort: release single-run lock as soon as we observe completion.
+							// This avoids a short window where the UI has received `done` but the
+							// runner process is still doing cleanup/callback work.
+							try {
+								const active = await getActiveRunPointer(sandbox, projectDir);
+								if (active?.runId === runId) {
+									await clearActiveRunPointer(sandbox, projectDir);
+								}
+							} catch (err) {
+								console.error("Failed to clear active run pointer:", err);
+							}
 							await close();
 							return;
 						}
