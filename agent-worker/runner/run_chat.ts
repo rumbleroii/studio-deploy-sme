@@ -373,14 +373,28 @@ async function main() {
 	// Build V1 query options.
 	// NOTE: V1 SDK requires explicit tools/systemPrompt configuration.
 	// Without these, Claude Code CLI exits with code 1.
+
+	// Capture stderr from Claude Code CLI for debugging
+	let claudeCodeStderr = "";
+	const stderrCallback = (message: string) => {
+		claudeCodeStderr += message;
+		// Log immediately to runner stderr for debugging
+		console.error(`[Claude Code CLI stderr]: ${message.trim()}`);
+	};
+
 	const queryOptions = {
 		model: "claude-sonnet-4-5-20250929",
 		fallbackModel: "claude-opus-4-20250514",
 		pathToClaudeCodeExecutable,
 		cwd: workingDir,
+		// Capture stderr output from Claude Code CLI
+		stderr: stderrCallback,
 		env: {
 			...process.env,
 			ANTHROPIC_API_KEY: apiKey,
+			CLAUDE_CONFIG_DIR: claudeConfigDir,
+			// Enable SDK debug logging
+			DEBUG_CLAUDE_AGENT_SDK: "1",
 		},
 		// Enable streaming partial messages so we get incremental token deltas.
 		includePartialMessages: true,
@@ -402,8 +416,9 @@ async function main() {
 			"Skill",
 		],
 		systemPrompt: { type: "preset" as const, preset: "claude_code" as const },
-		// NOTE: Cannot use permissionMode/allowDangerouslySkipPermissions when running as root
-		// (Claude Code refuses for security reasons). Use default permission handling.
+		// Note: Cannot use allowDangerouslySkipPermissions when running as root
+		// The bypassPermissions mode should handle this without the dangerous flag
+		persistSession: true,
 	};
 
 	// Make the Agent SDK treat working_directory/ as the current working directory.
@@ -536,9 +551,16 @@ async function main() {
 			await eventLogger.done();
 		}
 	} catch (err) {
-		const errorMsg = `Fatal error: ${
-			err instanceof Error ? err.message : String(err)
-		}`;
+		// Include captured Claude Code CLI stderr in error message
+		const stderrInfo = claudeCodeStderr
+			? `\n\nClaude Code CLI stderr:\n${claudeCodeStderr}`
+			: "";
+		const errorMsg =
+			err instanceof Error
+				? `Fatal error: ${err.message}${
+						err.stack ? `\nStack: ${err.stack}` : ""
+				  }${stderrInfo}`
+				: `Fatal error: ${String(err)}${stderrInfo}`;
 		console.error(errorMsg);
 		if (eventLogger) {
 			await eventLogger.error(errorMsg);
