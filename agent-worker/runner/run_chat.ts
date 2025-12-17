@@ -1,7 +1,4 @@
-import {
-	unstable_v2_createSession,
-	unstable_v2_resumeSession,
-} from "@anthropic-ai/claude-agent-sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import fs from "node:fs/promises";
 import { createWriteStream, WriteStream } from "node:fs";
 import path from "node:path";
@@ -240,7 +237,6 @@ async function main() {
 		process.exit(1);
 	}
 
-	const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
 	const pathToClaudeCodeExecutable =
 		process.env.CLAUDE_CODE_PATH || "/runner/node_modules/.bin/claude";
 
@@ -359,16 +355,6 @@ async function main() {
 	const sessionFilePath = path.join(projectDir, ".claude_session_id");
 	const existingSessionId = (await readOptional(sessionFilePath)).trim();
 
-	const sessionOptions = {
-		model,
-		pathToClaudeCodeExecutable,
-		env: {
-			...process.env,
-			ANTHROPIC_API_KEY: apiKey,
-			CLAUDE_CONFIG_DIR: claudeConfigDir,
-		},
-	} as const;
-
 	const isNewSession = !existingSessionId;
 
 	// First turn: include the research objective as context.
@@ -384,24 +370,58 @@ async function main() {
 		? promptPrefix + userMessage
 		: perTurnPrefix + userMessage;
 
+	// Build V1 query options.
+	// NOTE: V1 SDK requires explicit tools/systemPrompt configuration.
+	// Without these, Claude Code CLI exits with code 1.
+	const queryOptions = {
+		model: "claude-sonnet-4-5-20250929",
+		fallbackModel: "claude-opus-4-20250514",
+		pathToClaudeCodeExecutable,
+		cwd: workingDir,
+		env: {
+			...process.env,
+			ANTHROPIC_API_KEY: apiKey,
+			CLAUDE_CONFIG_DIR: claudeConfigDir,
+		},
+		// Enable streaming partial messages so we get incremental token deltas.
+		includePartialMessages: true,
+		// Resume an existing session if we have one.
+		...(existingSessionId ? { resume: existingSessionId } : {}),
+		// Use Claude Code's default toolset and system prompt.
+		allowedTools: [
+			"Read",
+			"Write",
+			"Edit",
+			"Bash",
+			"Glob",
+			"Grep",
+			"WebSearch",
+			"WebFetch",
+			"Task",
+			"NotebookEdit",
+			"TodoWrite",
+			"Skill",
+		],
+		systemPrompt: { type: "preset" as const, preset: "claude_code" as const },
+	};
+
 	// Make the Agent SDK treat working_directory/ as the current working directory.
+	// (Belt-and-suspenders: we also set cwd in queryOptions above.)
 	process.chdir(workingDir);
 
-	const session = existingSessionId
-		? unstable_v2_resumeSession(existingSessionId, sessionOptions)
-		: unstable_v2_createSession(sessionOptions);
+	// Create the V1 query generator.
+	const q = query({ prompt: messageToSend, options: queryOptions });
 
 	try {
 		if (eventLogger) {
 			eventLogger.milestone("claude_sdk_send_called");
 		}
-		await session.send(messageToSend);
 
 		let wroteAnyText = false;
 		let emittedFirstTokenMilestone = false;
 		let observedSessionId = existingSessionId;
 
-		for await (const msg of session.receive()) {
+		for await (const msg of q) {
 			if (terminated) break;
 
 			if (
@@ -493,7 +513,6 @@ async function main() {
 					console.error(errorMsg);
 					if (eventLogger) {
 						await eventLogger.error(errorMsg);
-						session.close();
 						return;
 					}
 				}
@@ -502,8 +521,7 @@ async function main() {
 		}
 
 		// Update sessionId in eventLogger if we got it later
-		const finalSessionId =
-			observedSessionId || (session as any).sessionId || "";
+		const finalSessionId = observedSessionId || "";
 		if (finalSessionId) {
 			await fs.writeFile(sessionFilePath, finalSessionId, "utf-8");
 			if (eventLogger && !eventLogger.getSessionId()) {
@@ -525,9 +543,6 @@ async function main() {
 			await eventLogger.error(errorMsg);
 		}
 		throw err;
-	} finally {
-		// The Agent SDK may leave resources open unless close is awaited.
-		await Promise.resolve((session as any).close?.());
 	}
 }
 
