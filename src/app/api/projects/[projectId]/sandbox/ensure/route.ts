@@ -2,6 +2,35 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+/**
+ * Query Docker API to get the host port mapped to a container port.
+ * Only works in local dev where Docker socket is accessible.
+ */
+async function getDockerMappedPort(containerPort: number): Promise<number | null> {
+	try {
+		const { execSync } = await import("child_process");
+		
+		// Use docker CLI to get port mapping for any sandbox container
+		const result = execSync(
+			`docker ps --format '{{.Ports}}' 2>/dev/null || true`,
+			{ encoding: "utf-8" }
+		);
+				
+		// Parse output like "0.0.0.0:55443->3001/tcp" or "55443->3001/tcp"
+		const portMatch = result.match(new RegExp(`(\\d+)->${containerPort}/tcp`));
+		if (portMatch) {
+			console.log(`[Docker port detection] Found mapped port: ${portMatch[1]}`);
+			return parseInt(portMatch[1], 10);
+		}
+		
+		console.log("[Docker port detection] No port mapping found");
+		return null;
+	} catch (error) {
+		console.error("[Docker port detection] Error:", error);
+		return null;
+	}
+}
+
 export async function POST(
 	request: NextRequest,
 	props: { params: Promise<{ projectId: string }> }
@@ -51,6 +80,25 @@ export async function POST(
 		}
 
 		const data = await response.json();
+
+		// For local dev: try to get the actual Docker-mapped port
+		const isLocalDev = process.env.NODE_ENV === "development";
+		
+		if (isLocalDev) {
+			// First check for manual override
+			const localPreviewUrl = process.env.LOCAL_PREVIEW_URL;
+			if (localPreviewUrl) {
+				data.previewUrl = localPreviewUrl;
+			} else {
+				// Try to auto-detect from Docker
+				const mappedPort = await getDockerMappedPort(3001);
+				if (mappedPort) {
+					data.previewUrl = `http://localhost:${mappedPort}`;
+					console.log("Set previewUrl from Docker:", data.previewUrl);
+				}
+			}
+		}
+
 		return NextResponse.json(data);
 	} catch (error) {
 		console.error("Ensure sandbox error:", error);
