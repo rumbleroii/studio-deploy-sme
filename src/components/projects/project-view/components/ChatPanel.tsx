@@ -121,8 +121,28 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			sentAtPerfMs: number;
 			milestonesByKey: Map<string, TraceMilestone>;
 		} | null>(null);
+		// Track the current user message being sent so we can restore it on error
+		const currentUserMessageRef = useRef<{
+			id: string;
+			content: string;
+		} | null>(null);
 
 		const { toast } = useToast();
+
+		// Helper to restore failed message to input and remove from chat
+		const restoreFailedMessage = useCallback(() => {
+			const failedMsg = currentUserMessageRef.current;
+			if (failedMsg) {
+				// Restore to input
+				setInput(failedMsg.content);
+				// Remove from messages
+				onMessagesChange((prev) => prev.filter((m) => m.id !== failedMsg.id));
+				// Clear the ref
+				currentUserMessageRef.current = null;
+				// Focus input so user can retry
+				setTimeout(() => inputRef.current?.focus(), 0);
+			}
+		}, [onMessagesChange]);
 
 		const recordMilestone = useCallback(
 			(m: TraceMilestone, defaults?: { runId?: string }) => {
@@ -297,6 +317,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 							m.id === assistantMessageId ? { ...m, status: "complete" } : m
 						)
 					);
+					// Clear the tracked user message on successful completion
+					currentUserMessageRef.current = null;
 					inputRef.current?.focus();
 
 					// Final trace summary
@@ -339,13 +361,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					es.close();
 					setIsStreaming(false);
 					setActiveRunId(null);
+
+					// Remove both user and assistant messages, restore to input
 					onMessagesChange((prev) =>
-						prev.map((m) =>
-							m.id === assistantMessageId
-								? { ...m, status: "error", error: errorMsg }
-								: m
-						)
+						prev.filter((m) => m.id !== assistantMessageId)
 					);
+					restoreFailedMessage();
+
 					toast({
 						variant: "destructive",
 						title: "Stream error",
@@ -376,17 +398,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 						setActiveRunId(null);
 						const errorMsg =
 							"Failed to connect to stream. The worker may not be running.";
+
+						// Remove both user and assistant messages, restore to input
 						onMessagesChange((prev) =>
-							prev.map((m) =>
-								m.id === assistantMessageId
-									? {
-											...m,
-											status: "error",
-											error: errorMsg,
-									  }
-									: m
-							)
+							prev.filter((m) => m.id !== assistantMessageId)
 						);
+						restoreFailedMessage();
+
 						toast({
 							variant: "destructive",
 							title: "Connection failed",
@@ -402,7 +420,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					}
 				};
 			},
-			[projectId, onMessagesChange, toast]
+			[
+				projectId,
+				onMessagesChange,
+				toast,
+				restoreFailedMessage,
+				recordMilestone,
+			]
 		);
 
 		// On mount, check if there's a streaming message to resume
@@ -433,14 +457,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					body: JSON.stringify({ runId: activeRunId }),
 				});
 
-				// Update the streaming message to show it was cancelled
+				// Remove the assistant message that was streaming
 				onMessagesChange((prev) =>
-					prev.map((m) =>
-						m.runId === activeRunId && m.status === "streaming"
-							? { ...m, status: "error", error: "Cancelled by user" }
-							: m
+					prev.filter(
+						(m) => !(m.runId === activeRunId && m.status === "streaming")
 					)
 				);
+
+				// Restore user message to input
+				restoreFailedMessage();
 			} catch (error) {
 				console.error("Cancel error:", error);
 			}
@@ -488,6 +513,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				createdAt: new Date().toISOString(),
 				status: "complete",
 			};
+			// Track this message so we can restore it on error
+			currentUserMessageRef.current = {
+				id: tempUserMsg.id,
+				content: userMessage,
+			};
 			onMessagesChange((prev) => [...prev, tempUserMsg]);
 
 			let shouldReconnect = false;
@@ -526,10 +556,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 							title: "Run already active",
 							description: "Please wait for the current response to complete.",
 						});
-						// Remove the optimistic user message
-						onMessagesChange((prev) =>
-							prev.filter((m) => m.id !== tempUserMsg.id)
-						);
+						// Remove the optimistic user message and restore to input
+						restoreFailedMessage();
 						return;
 					}
 
@@ -571,8 +599,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					title: "Chat failed",
 					description: "Could not send message. Please try again.",
 				});
-				// Remove the optimistic user message on error
-				onMessagesChange((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
+				// Remove the optimistic user message and restore to input
+				restoreFailedMessage();
 
 				if (shouldReconnect) startEnsureLoop();
 			}
