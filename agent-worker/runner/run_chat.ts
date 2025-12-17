@@ -403,6 +403,8 @@ async function main() {
 			"Skill",
 		],
 		systemPrompt: { type: "preset" as const, preset: "claude_code" as const },
+		permissionMode: "bypassPermissions" as const,
+		allowDangerouslySkipPermissions: true,
 	};
 
 	// Make the Agent SDK treat working_directory/ as the current working directory.
