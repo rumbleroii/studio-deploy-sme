@@ -97,7 +97,6 @@ interface SSEEvent {
 
 type SandboxInstance = ReturnType<typeof getSandbox>;
 
-const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 const PREVIEW_PORT = 3001;
 const CUSTOM_DOMAIN = "metaforms-sandbox.com";
 const RUNS_DIR_NAME = ".runs";
@@ -199,6 +198,9 @@ export default {
 		const runCancelMatch = path.match(
 			/^\/v1\/projects\/([^/]+)\/runs\/([^/]+)\/cancel$/
 		);
+		const runLogsMatch = path.match(
+			/^\/v1\/projects\/([^/]+)\/runs\/([^/]+)\/logs$/
+		);
 		const filesListMatch = path.match(/^\/v1\/projects\/([^/]+)\/files$/);
 		const filesWriteMatch = path.match(
 			/^\/v1\/projects\/([^/]+)\/files\/write$/
@@ -286,6 +288,21 @@ export default {
 				);
 			}
 			return handleRunCancel(projectId, runId, env);
+		}
+
+		if (request.method === "GET" && runLogsMatch) {
+			const projectId = runLogsMatch[1];
+			const runId = runLogsMatch[2];
+			if (!validateProjectId(projectId) || !validateRunId(runId)) {
+				return new Response(
+					JSON.stringify({ error: "Invalid projectId/runId" }),
+					{
+						status: 400,
+						headers: { "Content-Type": "application/json" },
+					}
+				);
+			}
+			return handleRunLogs(projectId, runId, url, env);
 		}
 
 		if (request.method === "POST" && chatMatch) {
@@ -482,7 +499,6 @@ async function handleChat(
 			{
 				env: {
 					ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
-					ANTHROPIC_MODEL: DEFAULT_ANTHROPIC_MODEL,
 				},
 			}
 		);
@@ -818,7 +834,6 @@ async function handleRunsCreate(
 		// Build environment for the runner
 		const runnerEnv: Record<string, string> = {
 			ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
-			ANTHROPIC_MODEL: DEFAULT_ANTHROPIC_MODEL,
 			RUN_ID: body.runId,
 			PROJECT_ID: projectId,
 			TRACE_ID: traceId,
@@ -1031,6 +1046,67 @@ async function handleRunCancel(
 	} catch (error) {
 		console.error("Run cancel failed:", error);
 		return new Response(JSON.stringify({ error: "Failed to cancel run" }), {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+}
+
+async function handleRunLogs(
+	projectId: string,
+	runId: string,
+	url: URL,
+	env: Env
+): Promise<Response> {
+	try {
+		const logType = url.searchParams.get("type") || "stderr";
+		if (logType !== "stdout" && logType !== "stderr") {
+			return new Response(
+				JSON.stringify({
+					error: "Invalid log type (must be stdout or stderr)",
+				}),
+				{
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				}
+			);
+		}
+
+		const sandboxId = `project-${projectId}`;
+		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		const projectDir = getProjectDir(projectId);
+		const runDir = getRunDir(projectDir, runId);
+		const logPath = `${runDir}/runner.${logType}.log`;
+
+		// Check if log file exists
+		const existsResult = await sandbox.exists(logPath);
+		if (!existsResult.exists) {
+			return new Response(
+				JSON.stringify({ error: `Log file not found: ${logPath}` }),
+				{
+					status: 404,
+					headers: { "Content-Type": "application/json" },
+				}
+			);
+		}
+
+		// Read the log file
+		const result = await sandbox.exec(`cat ${logPath}`);
+
+		return new Response(
+			JSON.stringify({
+				runId,
+				projectId,
+				logType,
+				content: result.stdout,
+			}),
+			{
+				headers: { "Content-Type": "application/json" },
+			}
+		);
+	} catch (error) {
+		console.error("Run logs failed:", error);
+		return new Response(JSON.stringify({ error: "Failed to read run logs" }), {
 			status: 500,
 			headers: { "Content-Type": "application/json" },
 		});
