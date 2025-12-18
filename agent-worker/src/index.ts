@@ -468,9 +468,13 @@ async function handleEnsure(
 
 		// Kill any existing dev server and start Next.js on port 3001
 		await sandbox.exec("pkill -f 'next dev' || true");
-		await sandbox.exec(`cd ${appDir} && PORT=3001 npm run dev &`, {
-			timeout: 30000,
-		});
+		await sandbox.exec(
+			`cd ${appDir} && HOST=0.0.0.0 npm run dev > /tmp/nextjs.log 2>&1 &`,
+			{
+				timeout: 30000,
+			}
+		);
+
 		// Give the dev server time to start
 		await sandbox.exec("sleep 5");
 
