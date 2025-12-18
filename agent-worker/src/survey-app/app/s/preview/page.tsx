@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { verizonSurvey } from '../../../data/verizon-survey';
+import { sampleSurvey } from '../../../data/sample-survey';
 import { useSurvey } from '../../../lib/survey-context';
 
 interface PageProps {
@@ -11,8 +11,8 @@ interface PageProps {
 
 export default function SurveyWelcome({ params }: PageProps) {
   const router = useRouter();
-  const { clearResponses, setSurveyStartTime } = useSurvey();
-  const survey = verizonSurvey;
+  const { clearResponses } = useSurvey();
+  const survey = sampleSurvey;
   const [surveyId, setSurveyId] = React.useState<string>('');
 
   React.useEffect(() => {
@@ -22,9 +22,6 @@ export default function SurveyWelcome({ params }: PageProps) {
   const handleStart = () => {
     // Clear any previous responses
     clearResponses();
-
-    // Set survey start time for timer
-    setSurveyStartTime(new Date());
 
     // Navigate to first question
     const firstQuestion = survey.sections[0].questions[0];
@@ -54,16 +51,6 @@ export default function SurveyWelcome({ params }: PageProps) {
                 <strong>Please note:</strong> Your responses will be kept confidential and used for research purposes only.
               </p>
             </div>
-
-            {/* Timer Warning */}
-            {survey.settings?.timeLimit && (
-              <div className="bg-orange-50 border-l-4 border-orange-500 p-4 my-4">
-                <p className="text-sm text-orange-700">
-                  <strong>Time Limit:</strong> You have {Math.floor(survey.settings.timeLimit / 60)} minutes to complete this survey.
-                  The survey will auto-submit when time expires.
-                </p>
-              </div>
-            )}
           </div>
 
           {/* Start Button */}

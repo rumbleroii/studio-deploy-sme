@@ -1,6 +1,6 @@
 # Survey Generation Guide for Claude
 
-This is the master guide for generating surveys from uploaded questionnaires using the existing Next.js application at `/survey-app` as boilerplate. Follow this guide EXACTLY every time a user uploads a questionnaire and asks you to create a survey.
+This is the master guide for generating surveys from uploaded questionnaires using the existing Next.js application at `../src/survey-app` as boilerplate. Follow this guide EXACTLY every time a user uploads a questionnaire and asks you to create a survey.
 
 ---
 
@@ -8,10 +8,10 @@ This is the master guide for generating surveys from uploaded questionnaires usi
 
 When a user uploads a questionnaire document and asks you to create a survey, you MUST:
 
-1. Work within the existing `/survey-app` application (never create from scratch)
+1. Work within the existing `../src/survey-app` application (never create from scratch)
 2. Parse the questionnaire content
 3. Extract all survey elements
-4. Create a survey schema file in `/survey-app/data/`
+4. Create a survey schema file in `../src/survey-app/data/`
 5. Update the application to use the new schema
 6. Ensure all styling remains consistent with the preserved theme
 
@@ -33,23 +33,23 @@ You MUST reference these documents for EVERY survey generation:
 
 ### Step 0: Understand the Boilerplate Application
 
-**Before starting, familiarize yourself with `/survey-app`:**
+**Before starting, familiarize yourself with `../src/survey-app`:**
 
 1. **Read existing schema files:**
-   - `/survey-app/data/sampleSurveyWithLogic.ts`
-   - `/survey-app/data/verizon-survey.ts`
+   - `../src/survey-app/data/sampleSurveyWithLogic.ts`
+   - `../src/survey-app/data/sample-survey.ts`
    - Understand the TypeScript interface and structure
 
 2. **Review existing components:**
-   - `/survey-app/components/` - All reusable UI components
+   - `../src/survey-app/components/` - All reusable UI components
    - These handle badges, questions, sections automatically
 
 3. **Check the theme:**
-   - `/survey-app/app/globals.css` - Theme already implemented
+   - `../src/survey-app/app/globals.css` - Theme already implemented
    - DO NOT modify this file
 
 4. **Review the authoring view:**
-   - `/survey-app/app/page.tsx` - Main survey display page
+   - `../src/survey-app/app/page.tsx` - Main survey display page
    - See how it imports and uses survey schemas
 
 ### Step 1: Parse Questionnaire
@@ -108,7 +108,7 @@ For each question, extract:
 
 ### Step 2: Reference Theme Specifications (Do Not Recreate)
 
-The theme is already implemented in `/survey-app/app/globals.css`. Reference specs for understanding only:
+The theme is already implemented in `../src/survey-app/app/globals.css`. Reference specs for understanding only:
 
 #### Page Header
 ```
@@ -330,7 +330,7 @@ Background: E0BFD8, Text: #FFFFFF
 **When user asks to modify/update questions, logic, or content:**
 
 1. **Locate the existing survey file:**
-   - Check `/survey-app/data/verizon-survey.ts` or other existing surveys
+   - Check `../src/survey-app/data/sample-survey.ts` or other existing surveys
    - Read the current schema
 
 2. **Make the requested changes:**
@@ -346,9 +346,9 @@ Background: E0BFD8, Text: #FFFFFF
 #### Option B: Create New Survey (Rare)
 **Only when user explicitly uploads a completely NEW questionnaire for a different project:**
 
-1. **Create new file:** `/survey-app/data/[survey-name]-survey.ts`
+1. **Create new file:** `../src/survey-app/data/[survey-name]-survey.ts`
 2. **Follow structure** from existing schemas
-3. **Update `/survey-app/app/page.tsx`** to import new survey if needed
+3. **Update `../src/survey-app/app/page.tsx`** to import new survey if needed
 
 **Default behavior:** Always update existing surveys unless explicitly told otherwise.
 
@@ -357,7 +357,7 @@ Background: E0BFD8, Text: #FFFFFF
 ### Step 4: Verify Component Compatibility
 
 1. **Check existing components:**
-   - Components in `/survey-app/components/` should handle the schema
+   - Components in `../src/survey-app/components/` should handle the schema
    - Badge.tsx, QuestionCard.tsx, QuestionRenderer.tsx, SurveySection.tsx
 
 2. **Only modify components if:**
@@ -366,7 +366,7 @@ Background: E0BFD8, Text: #FFFFFF
    - Otherwise, reuse existing components
 
 3. **Maintain theme:**
-   - Never modify `/survey-app/app/globals.css`
+   - Never modify `../src/survey-app/app/globals.css`
    - All UI elements use existing theme classes
 
 ---
@@ -430,7 +430,7 @@ Before presenting the generated survey, verify:
 
 ### ❌ DON'T:
 1. Create a new Next.js app from scratch
-2. Modify `/survey-app/app/globals.css` theme file
+2. Modify `../src/survey-app/app/globals.css` theme file
 3. Change colors, fonts, or spacing from specifications
 4. Recreate existing components unnecessarily
 5. Omit question ID or type badges in schema
@@ -441,10 +441,10 @@ Before presenting the generated survey, verify:
 10. Deviate from existing TypeScript interfaces
 
 ### ✅ DO:
-1. Always work within `/survey-app` directory
-2. Update existing survey files (like verizon-survey.ts) by default
-3. Reuse existing components from `/survey-app/components/`
-4. Preserve the theme in `/survey-app/app/globals.css`
+1. Always work within `../src/survey-app` directory
+2. Update existing survey files (like sample-survey.ts) by default
+3. Reuse existing components from `../src/survey-app/components/`
+4. Preserve the theme in `../src/survey-app/app/globals.css`
 5. Follow exact schema structure from existing surveys
 6. Include all required fields in survey schema
 7. Maintain TypeScript type consistency
@@ -462,7 +462,7 @@ User: "Update Q5 in the survey to be a matrix question and add 2 new questions."
 ```
 
 ### Process:
-1. **Read existing**: Open `/survey-app/data/verizon-survey.ts`
+1. **Read existing**: Open `../src/survey-app/data/sample-survey.ts`
 2. **Parse request**: Change Q5 type, add 2 new questions
 3. **Reference specs**: Check matrix format from `../shared/survey-question-types.md`
 4. **Update schema**: Modify Q5, add new questions
@@ -477,23 +477,23 @@ User: "Here's a customer satisfaction questionnaire. Create the survey."
 
 ### Process:
 1. **Parse**: Extract all content from uploaded questionnaire
-2. **Read boilerplate**: Study `/survey-app/data/sampleSurveyWithLogic.ts` structure
-3. **Update existing file**: Replace content in `/survey-app/data/verizon-survey.ts` OR create new file `customer-satisfaction-survey.ts`
-4. **Update page.tsx**: If new file created, import it in `/survey-app/app/page.tsx`
+2. **Read boilerplate**: Study `../src/survey-app/data/sampleSurveyWithLogic.ts` structure
+3. **Update existing file**: Replace content in `../src/survey-app/data/sample-survey.ts` OR create new file `customer-satisfaction-survey.ts`
+4. **Update page.tsx**: If new file created, import it in `../src/survey-app/app/page.tsx`
 5. **Verify**: Confirm existing components render the new schema
 6. **Output**: New survey integrated into existing boilerplate app
 
-**KEY POINT**: Whether updating or replacing, ALWAYS work within `/survey-app`. Never create a new Next.js app from scratch.
+**KEY POINT**: Whether updating or replacing, ALWAYS work within `../src/survey-app`. Never create a new Next.js app from scratch.
 
 ---
 
 ## Consistency Rules
 
 ### ALWAYS:
-1. Work within `/survey-app` directory (never create new apps)
+1. Work within `../src/survey-app` directory (never create new apps)
 2. Update existing survey schemas (default behavior)
-3. Preserve theme in `/survey-app/app/globals.css` exactly
-4. Reuse existing components from `/survey-app/components/`
+3. Preserve theme in `../src/survey-app/app/globals.css` exactly
+4. Reuse existing components from `../src/survey-app/components/`
 5. Follow exact schema structure from existing surveys
 6. Use the same colors for the same elements (per specifications)
 7. Use the same fonts and sizes (per specifications)
@@ -503,7 +503,7 @@ User: "Here's a customer satisfaction questionnaire. Create the survey."
 
 ### NEVER:
 1. Create a new Next.js application from scratch
-2. Modify `/survey-app/app/globals.css` theme
+2. Modify `../src/survey-app/app/globals.css` theme
 3. Deviate from color, font, or spacing specifications
 4. Recreate existing components unnecessarily
 5. Change the schema structure format
@@ -535,10 +535,10 @@ User: "Here's a customer satisfaction questionnaire. Create the survey."
 
 ## Final Notes
 
-1. **Use the boilerplate** - ALWAYS work within `/survey-app`, never create from scratch
+1. **Use the boilerplate** - ALWAYS work within `../src/survey-app`, never create from scratch
 2. **Update by default** - Modify existing survey files unless explicitly creating new project
-3. **Preserve theme** - Never modify `/survey-app/app/globals.css`
-4. **Reuse components** - Use existing components from `/survey-app/components/`
+3. **Preserve theme** - Never modify `../src/survey-app/app/globals.css`
+4. **Reuse components** - Use existing components from `../src/survey-app/components/`
 5. **Consistency is paramount** - Every survey must look identical (same theme, spacing, formatting)
 6. **Reference all specs** - Always check specification documents for colors, fonts, spacing
 7. **No variations** - Do not make creative changes or improvements to theme
@@ -552,7 +552,7 @@ User: "Here's a customer satisfaction questionnaire. Create the survey."
 
 1. Acknowledge receipt of questionnaire
 2. Parse the questionnaire content
-3. Update the survey schema in `/survey-app/data/`
+3. Update the survey schema in `../src/survey-app/data/`
 4. Verify compatibility with existing components
 5. Confirm theme consistency maintained
 
@@ -560,11 +560,11 @@ User: "Here's a customer satisfaction questionnaire. Create the survey."
 
 ```
 I've received your questionnaire. I'll update the survey in the existing Next.js boilerplate
-at /survey-app following all theme specifications.
+at ../src/survey-app following all theme specifications.
 
 [Reading existing schema structure...]
 [Parsing questionnaire content...]
-[Updating /survey-app/data/verizon-survey.ts with new content...]
+[Updating ../src/survey-app/data/sample-survey.ts with new content...]
 
 The survey has been updated with:
 ✓ All questions and logic from your questionnaire
@@ -573,7 +573,7 @@ The survey has been updated with:
 ✓ Existing components reused
 ✓ All badges, metadata, and notes included
 
-The updated survey is ready in the existing /survey-app boilerplate.
+The updated survey is ready in the existing ../src/survey-app boilerplate.
 ```
 
 ---

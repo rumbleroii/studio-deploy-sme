@@ -2,11 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { verizonSurvey } from '../../../../data/verizon-survey';
+import { sampleSurvey } from '../../../../data/sample-survey';
 import { useSurvey } from '../../../../lib/survey-context';
 import { QuestionRenderer } from '../../../../components/QuestionRenderer';
-import { SurveyTimer } from '../../../../components/SurveyTimer';
-import { useSurveyTimer } from '../../../../hooks/useSurveyTimer';
 import {
   getNextQuestionId,
   validateResponse,
@@ -27,42 +25,15 @@ export default function QuestionPage({ params }: PageProps) {
     params.then((p) => setSurveyId(p.surveyId));
   }, [params]);
 
-  const { responses, addVisitedQuestion, visitedQuestions, progress, setProgress, surveyStartTime } = useSurvey();
+  const { responses, addVisitedQuestion, visitedQuestions, progress, setProgress } = useSurvey();
   const [error, setError] = useState<string>('');
 
   // Get all questions from all sections
-  const allQuestions = verizonSurvey.sections.flatMap(section => section.questions);
+  const allQuestions = sampleSurvey.sections.flatMap(section => section.questions);
   const totalQuestions = allQuestions.length;
 
   // Find current question
   const currentQuestion = allQuestions.find(q => q.id === questionId);
-
-  // Timer logic
-  const hasTimeLimit = verizonSurvey.settings?.timeLimit && verizonSurvey.settings.timeLimit > 0;
-  const shouldShowTimer = hasTimeLimit && verizonSurvey.settings?.showTimer;
-
-  // Calculate remaining time based on when survey started
-  const getInitialRemainingTime = () => {
-    if (!hasTimeLimit || !surveyStartTime) {
-      return verizonSurvey.settings?.timeLimit || 0;
-    }
-    const elapsed = Math.floor((Date.now() - surveyStartTime.getTime()) / 1000);
-    const remaining = (verizonSurvey.settings?.timeLimit || 0) - elapsed;
-    return Math.max(0, remaining);
-  };
-
-  // Handle timer expiry - auto submit
-  const handleTimeUp = () => {
-    // Auto-submit the survey
-    router.push(`/s/preview/complete?timeout=true`);
-  };
-
-  // Use timer hook
-  const timerState = useSurveyTimer({
-    timeLimitSeconds: getInitialRemainingTime(),
-    onTimeUp: handleTimeUp,
-    isActive: hasTimeLimit && !!surveyStartTime
-  });
 
   useEffect(() => {
     if (questionId && !visitedQuestions.includes(questionId)) {
@@ -127,15 +98,6 @@ export default function QuestionPage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
-      {/* Timer Display */}
-      {shouldShowTimer && (
-        <SurveyTimer
-          formattedTime={timerState.formattedTime}
-          percentageRemaining={timerState.percentageRemaining}
-          isExpired={timerState.isExpired}
-        />
-      )}
-
       <div className="max-w-4xl mx-auto px-4">
         {/* Progress Bar */}
         <div className="mb-8">

@@ -2,12 +2,12 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { verizonSurvey } from '../data/verizon-survey';
+import { sampleSurvey } from '../data/sample-survey';
 import { SurveySection } from '../components/SurveySection';
 import { Question } from '../types/survey';
 
 export default function HomePage() {
-  const survey = verizonSurvey;
+  const survey = sampleSurvey;
   const [responses, setResponses] = useState<Record<string, any>>({});
 
   // Create a map of all questions for logic evaluation

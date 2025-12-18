@@ -43,7 +43,7 @@ Define the data storage patterns for surveys, covering:
 ```
 survey-app/
 ├── data/
-│   ├── verizon-survey.ts         # Survey data
+│   ├── sample-survey.ts          # Survey data
 │   ├── customer-feedback.ts      # Another survey (if needed)
 │   └── index.ts                  # Export all surveys
 ├── types/
@@ -59,13 +59,13 @@ survey-app/
 **Step 1: Create Survey Data File**
 
 ```typescript
-// data/verizon-survey.ts
+// data/sample-survey.ts
 import { Survey } from '../types/survey';
 
-export const verizonSurvey: Survey = {
-  id: 'verizon-business-wireless-2025',
+export const sampleSurvey: Survey = {
+  id: 'sample-business-wireless-2025',
   metadata: {
-    title: 'Verizon Business Wireless Add-On Services Study',
+    title: 'Sample Business Wireless Add-On Services Study',
     description: 'Understanding preferences for business wireless add-on services',
     objectives: [
       'Evaluate interest in new add-on service offerings',
@@ -118,11 +118,11 @@ export const verizonSurvey: Survey = {
 
 ```typescript
 // app/page.tsx (Authoring/Design View)
-import { verizonSurvey } from '../data/verizon-survey';
+import { sampleSurvey } from '../data/sample-survey';
 import { SurveySection } from '../components/SurveySection';
 
 export default function HomePage() {
-  const survey = verizonSurvey; // Direct import
+  const survey = sampleSurvey; // Direct import
   
   return (
     <div>
@@ -140,11 +140,11 @@ export default function HomePage() {
 
 ```typescript
 // app/s/[surveyId]/page.tsx (Hosted Survey)
-import { verizonSurvey } from '../../../data/verizon-survey';
+import { sampleSurvey } from '../../../data/sample-survey';
 import { WelcomeScreen } from '../../../components/WelcomeScreen';
 
 export default function SurveyWelcomePage() {
-  const survey = verizonSurvey; // Same direct import
+  const survey = sampleSurvey; // Same direct import
   
   return <WelcomeScreen survey={survey} />;
 }
@@ -155,7 +155,7 @@ export default function SurveyWelcomePage() {
 **Key Principle:** One file updates both views automatically
 
 ```
-data/verizon-survey.ts (SINGLE SOURCE)
+data/sample-survey.ts (SINGLE SOURCE)
         ↓                    ↓
 Authoring View          Hosted Survey
 (Design Mode)           (Respondent Experience)
@@ -426,11 +426,11 @@ export default async function SurveyWelcomePage({
 
 ```typescript
 // scripts/migrate-survey.ts
-import { verizonSurvey } from '../data/verizon-survey';
+import { sampleSurvey } from '../data/sample-survey';
 import { createSurvey } from '../lib/surveys';
 
 async function migrateSurvey() {
-  await createSurvey(verizonSurvey);
+  await createSurvey(sampleSurvey);
   console.log('Survey migrated to database');
 }
 
@@ -441,12 +441,12 @@ migrateSurvey();
 
 ```typescript
 // Before
-import { verizonSurvey } from '../data/verizon-survey';
-const survey = verizonSurvey;
+import { sampleSurvey } from '../data/sample-survey';
+const survey = sampleSurvey;
 
 // After
 import { getSurvey } from '../lib/surveys';
-const survey = await getSurvey('verizon-2025');
+const survey = await getSurvey('sample-2025');
 ```
 
 **Step 3: Add Error Handling**
@@ -469,16 +469,16 @@ You can use both approaches simultaneously:
 
 ```typescript
 // lib/surveys.ts
-import { verizonSurvey } from '../data/verizon-survey';
+import { sampleSurvey } from '../data/sample-survey';
 
 export async function getSurvey(surveyId: string): Promise<Survey | null> {
   // Try database first
   const dbSurvey = await fetchFromDatabase(surveyId);
   if (dbSurvey) return dbSurvey;
-  
+
   // Fallback to TypeScript files
-  if (surveyId === 'verizon-2025') {
-    return verizonSurvey;
+  if (surveyId === 'sample-2025') {
+    return sampleSurvey;
   }
   
   return null;

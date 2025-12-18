@@ -9,7 +9,7 @@ This Next.js application successfully implements a complete survey system based 
 ## 📋 What Was Built
 
 ### 1. Survey Schema & Data Structure
-- **File**: `data/verizon-survey.ts`
+- **File**: `data/sample-survey.ts`
 - Extracted questions Q5, Q5a, Q6, Q7, Q8 from questionnaire
 - Added necessary screening questions (S11, CUSTOMER_TYPE, CONCEPT_ASSIGNMENT, Q4)
 - Implemented complete survey metadata, sections, and questions
@@ -27,7 +27,7 @@ This Next.js application successfully implements a complete survey system based 
   - Exact theme specifications from survey-ui-theme.md
 
 ### 3. Hosted Survey Experience
-- **Routes**: `/s/verizon-2025/*`
+- **Routes**: `/s/preview/*`
 - **Files**:
   - `app/s/[surveyId]/page.tsx` - Welcome screen
   - `app/s/[surveyId]/question/page.tsx` - Question screens
@@ -161,7 +161,7 @@ survey-app/
 │   ├── QuestionRenderer.tsx        # Question display (hosted)
 │   └── SurveySection.tsx           # Section container
 ├── data/
-│   └── verizon-survey.ts           # Survey data & schema
+│   └── sample-survey.ts            # Survey data & schema
 ├── lib/
 │   ├── survey-context.tsx          # State management
 │   └── logic-evaluator.ts         # Logic engine

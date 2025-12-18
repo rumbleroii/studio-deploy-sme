@@ -1,9 +1,9 @@
 import { Survey } from '../types/survey';
 
-export const verizonSurvey: Survey = {
-  id: 'verizon-business-wireless-2025',
+export const sampleSurvey: Survey = {
+  id: 'sample-survey',
   metadata: {
-    title: 'Verizon Business Wireless Add-On Services Study',
+    title: 'Sample Survey',
     description: 'Understanding preferences for business wireless add-on services',
     objectives: [
       'Evaluate interest in new add-on service offerings',

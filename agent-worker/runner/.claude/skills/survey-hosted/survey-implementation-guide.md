@@ -32,12 +32,12 @@ Before starting, ensure you have:
 
 ### Step 1: Create Route Structure
 
-**CRITICAL: Use the existing `/survey-app/app/s/preview/` route structure**
+**CRITICAL: Use the existing `../src/survey-app/app/s/preview/` route structure**
 
 The boilerplate already has these routes:
 
 ```
-/survey-app/app/s/preview/
+../src/survey-app/app/s/preview/
 ├── page.tsx                    # Welcome screen
 ├── layout.tsx                  # Survey layout
 ├── question/page.tsx           # Question screens (uses ?q= query param)

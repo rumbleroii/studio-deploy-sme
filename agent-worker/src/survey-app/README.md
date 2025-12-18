@@ -60,7 +60,7 @@ survey-app/
 │   ├── QuestionRenderer.tsx          # Question renderer for hosted view
 │   └── SurveySection.tsx             # Collapsible section component
 ├── data/
-│   └── verizon-survey.ts             # Survey data (SINGLE SOURCE for both views)
+│   └── sample-survey.ts              # Survey data (SINGLE SOURCE for both views)
 ├── lib/
 │   ├── survey-context.tsx            # React Context for state management
 │   └── logic-evaluator.ts            # Logic evaluation engine
@@ -74,7 +74,7 @@ survey-app/
 **Important:** This application uses a **single TypeScript file** for survey data:
 
 ```
-data/verizon-survey.ts (SINGLE SOURCE)
+data/sample-survey.ts (SINGLE SOURCE)
         ↓                    ↓
 Authoring View          Hosted Survey
 (Design/Preview)        (Respondent Experience)
@@ -199,7 +199,7 @@ The app follows **exact specifications** from survey-ui-theme.md:
 
 ### Adding New Questions
 
-Edit `data/verizon-survey.ts`:
+Edit `data/sample-survey.ts`:
 
 ```typescript
 {
