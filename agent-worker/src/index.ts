@@ -603,46 +603,33 @@ async function handleChat(
 	env: Env
 ): Promise<Response> {
 	try {
-		const sandboxId = `project-${projectId}`;
-		
-		// Get the sandbox instance
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
-
-		// Directory where the Next.js app lives inside the container
-		const appDir = `/workspace/projects/${projectId}`;
-
-		// Ensure app directory exists
-		await sandbox.exec(`mkdir -p ${appDir}`);
-
-		// Kill any existing Next.js dev server
-		await sandbox.exec("pkill -f 'next dev' || true");
-
-		const projectDir = `/workspace/projects/${projectId}`;
-		// Chat might be called before ensure; make sure the directory exists.
-		await sandbox.exec(`mkdir -p ${projectDir}`);
-		await sandbox.exec(`mkdir -p ${getWorkingDir(projectId)}`);
-
-		const sessionFile = `${projectDir}/.claude_session_id`;
-
-		if (body.claudeSessionId) {
-			await sandbox.writeFile(sessionFile, body.claudeSessionId);
+		const body = await request.json() as { message: string; claudeSessionId?: string };
+		if (!body.message) {
+			return new Response(JSON.stringify({ error: "Message required" }), {
+				status: 400,
+				headers: { "Content-Type": "application/json" },
+			});
 		}
 
-		const messageBase64 = toBase64Utf8(body.message);
+		const sandbox = getSandbox(env.Sandbox, `project-${projectId}`);
+		const projectDir = getProjectDir(projectId);
 
-		// Run the baked-in chat script
-		// Note: We use the pre-baked runner at /runner/run_chat.js (compiled from TS)
-		// We pass ANTHROPIC_API_KEY as an environment variable to the exec command
+		// Ensure directories exist
+		await sandbox.exec(`mkdir -p ${projectDir} ${getWorkingDir(projectId)}`);
+
+		// Write session ID if provided
+		if (body.claudeSessionId) {
+			await sandbox.writeFile(`${projectDir}/.claude_session_id`, body.claudeSessionId);
+		}
+
+		// Run the chat runner
+		const messageBase64 = toBase64Utf8(body.message);
 		const stream = await sandbox.execStream(
 			`cd ${projectDir} && node /runner/run_chat.js --message-base64 ${messageBase64}`,
-			{
-				env: {
-					ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
-				},
-			}
+			{ env: { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY } }
 		);
 
-		// Transform the sandbox SSE stream to our format
+		// Stream response
 		const { readable, writable } = new TransformStream();
 		const writer = writable.getWriter();
 		const encoder = new TextEncoder();
@@ -652,78 +639,33 @@ async function handleChat(
 				for await (const rawEvent of parseSSEStream(stream)) {
 					const event = rawEvent as SSEEvent;
 					if (event.type === "stdout") {
-						await writer.write(
-							encoder.encode(
-								`data: ${JSON.stringify({
-									type: "stdout",
-									data: event.data,
-								})}\n\n`
-							)
-						);
+						await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "stdout", data: event.data })}\n\n`));
 					} else if (event.type === "stderr") {
-						// Log stderr server-side, but do not show it in the UI.
 						console.log("stderr:", event.data);
 					} else if (event.type === "complete") {
-						// Read session ID if it was updated
+						// Read session ID 
 						try {
-							const sessionResult = await sandbox.exec(
-								`cat ${sessionFile} 2>/dev/null || echo ""`
-							);
-							const sessionId = sessionResult.stdout.trim();
+							const result = await sandbox.exec(`cat ${projectDir}/.claude_session_id 2>/dev/null || echo ""`);
+							const sessionId = result.stdout.trim();
 							if (sessionId) {
-								await writer.write(
-									encoder.encode(
-										`data: ${JSON.stringify({
-											type: "session_id",
-											sessionId,
-										})}\n\n`
-									)
-								);
+								await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "session_id", sessionId })}\n\n`));
 							}
-						} catch {
-							// Session file doesn't exist, that's fine
-						}
-
-						await writer.write(
-							encoder.encode(
-								`data: ${JSON.stringify({
-									type: "complete",
-									exitCode: event.exitCode,
-								})}\n\n`
-							)
-						);
+						} catch {}
+						await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "complete", exitCode: event.exitCode })}\n\n`));
 					} else if (event.type === "error") {
-						await writer.write(
-							encoder.encode(
-								`data: ${JSON.stringify({
-									type: "error",
-									error: event.error,
-								})}\n\n`
-							)
-						);
+						await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "error", error: event.error })}\n\n`));
 					}
 				}
 			} catch (error) {
 				console.error("Stream error:", error);
-				await writer.write(
-					encoder.encode(
-						`data: ${JSON.stringify({
-							type: "error",
-							error: "Stream failed",
-						})}\n\n`
-					)
-				);
+				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "error", error: "Stream failed" })}\n\n`));
 			} finally {
 				await writer.close();
 			}
 		})();
 
 		return new Response(readable, {
-			headers: {
-				"Content-Type": "text/event-stream",
-				"Cache-Control": "no-cache",
-				Connection: "keep-alive",
-			},
+			headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
 		});
 	} catch (error) {
 		console.error("Chat failed:", error);

@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Send, Loader2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Message } from "../types";
 import { MarkdownMessage } from "./MarkdownMessage";
 import type { SandboxStatus } from "../hooks/useSandboxConnection";
 
@@ -43,20 +44,17 @@ function newTraceId(): string {
 
 interface MessageBubbleProps {
 	message: Message;
-	isStreaming?: boolean;
 }
 
 const MessageBubble = memo(function MessageBubble({
 	message,
-	isStreaming,
 }: MessageBubbleProps) {
-	const showCursor = isStreaming && message.role === "assistant";
-	const content = showCursor ? `${message.content}\n\n▍` : message.content;
+	const content = message.content;
 
 	return (
 		<div
 			className={cn(
-				"flex",
+				"flex animate-in fade-in slide-in-from-bottom-3 duration-500 ease-out fill-mode-both",
 				message.role === "user" ? "justify-end" : "justify-start"
 			)}
 		>
@@ -69,10 +67,7 @@ const MessageBubble = memo(function MessageBubble({
 				</div>
 			) : (
 				<div className="max-w-[70ch] py-1 text-sm leading-7 text-gray-900">
-					<MarkdownMessage
-						content={content}
-						className={showCursor ? "[&_*]:!text-gray-900" : undefined}
-					/>
+					<MarkdownMessage content={content} />
 				</div>
 			)}
 		</div>
@@ -108,12 +103,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		const [isStreaming, setIsStreaming] = useState(false);
 		const [activeRunId, setActiveRunId] = useState<string | null>(null);
 		const [composerHeight, setComposerHeight] = useState(120);
+		const [lastDeltaTime, setLastDeltaTime] = useState<number>(0);
+		const [isProcessing, setIsProcessing] = useState(false);
 
 		const inputRef = useRef<HTMLTextAreaElement>(null);
 		const formRef = useRef<HTMLFormElement>(null);
 		const composerRef = useRef<HTMLDivElement>(null);
 		const messagesEndRef = useRef<HTMLDivElement>(null);
 		const eventSourceRef = useRef<EventSource | null>(null);
+		const wasStreamingRef = useRef(false);
 		const traceRef = useRef<{
 			traceId: string;
 			sentAtMs: number;
@@ -198,7 +196,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 		// Auto-scroll to bottom when messages change
 		useEffect(() => {
-			messagesEndRef.current?.scrollIntoView({ block: "end" });
+			messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
 		}, [messages]);
 
 		// Resize composer on input change
@@ -228,6 +226,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			};
 		}, []);
 
+		// Play chime when chat becomes ready after streaming
+		useEffect(() => {
+			const isReady = sandboxStatus === "connected" && !isStreaming;
+			const wasStreaming = wasStreamingRef.current;
+			
+			if (isReady && wasStreaming) {
+				// Play notification chime
+				const audio = new Audio("/sounds/chime.mp3");
+				audio.volume = 0.4;
+				audio.play().catch(() => {});
+			}
+			
+			wasStreamingRef.current = isStreaming;
+		}, [sandboxStatus, isStreaming]);
+
+		// Show "Agent is processing" after 1.5s of no text during streaming
+		useEffect(() => {
+			if (!isStreaming) return setIsProcessing(false);
+			
+			const timeout = setTimeout(() => setIsProcessing(true), 1500);
+			return () => clearTimeout(timeout);
+		}, [isStreaming, lastDeltaTime]);
+
 		// Start streaming from a run
 		const startStream = useCallback(
 			(
@@ -255,6 +276,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					try {
 						const data = JSON.parse(event.data);
 						if (data.text) {
+							setLastDeltaTime(Date.now());
+							setIsProcessing(false);
 							if (!sawAnyDelta) {
 								sawAnyDelta = true;
 								recordMilestone(
@@ -302,23 +325,24 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					}
 				});
 
-				es.addEventListener("session_id", () => {
-					// Session ID is handled server-side
-				});
+			es.addEventListener("session_id", () => {
+				// Session ID is handled server-side
+			});
 
-				es.addEventListener("done", () => {
-					es.close();
-					setIsStreaming(false);
-					setActiveRunId(null);
-					// Mark message as complete
-					onMessagesChange((prev) =>
-						prev.map((m) =>
-							m.id === assistantMessageId ? { ...m, status: "complete" } : m
-						)
-					);
-					// Clear the tracked user message on successful completion
-					currentUserMessageRef.current = null;
-					inputRef.current?.focus();
+			es.addEventListener("done", () => {
+				es.close();
+				setIsStreaming(false);
+				setActiveRunId(null);
+				setIsProcessing(false);
+				// Mark message as complete
+				onMessagesChange((prev) =>
+					prev.map((m) =>
+						m.id === assistantMessageId ? { ...m, status: "complete" } : m
+					)
+				);
+				// Clear the tracked user message on successful completion
+				currentUserMessageRef.current = null;
+				inputRef.current?.focus();
 
 					// Final trace summary
 					const current = traceRef.current;
@@ -360,6 +384,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					es.close();
 					setIsStreaming(false);
 					setActiveRunId(null);
+					setIsProcessing(false);
 
 					// Remove both user and assistant messages, restore to input
 					onMessagesChange((prev) =>
@@ -392,9 +417,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					// Close immediately to prevent retries and show error
 					if (!errorHandled) {
 						errorHandled = true;
-						es.close();
-						setIsStreaming(false);
-						setActiveRunId(null);
+					es.close();
+					setIsStreaming(false);
+					setActiveRunId(null);
+					setIsProcessing(false);
 						const errorMsg =
 							"Failed to connect to stream. The worker may not be running.";
 
@@ -449,6 +475,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				eventSourceRef.current?.close();
 				setIsStreaming(false);
 				setActiveRunId(null);
+				setIsProcessing(false);
 
 				await fetch(`/api/projects/${projectId}/chat/cancel`, {
 					method: "POST",
@@ -476,6 +503,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 			const userMessage = input.trim();
 			setInput("");
+			setIsStreaming(true); // Set immediately for responsive UI
 
 			const traceId = newTraceId();
 			const sentAtMs = Date.now();
@@ -549,13 +577,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 					// Handle conflict (run already active)
 					if (res.status === 409) {
-						const errorData = await res.json();
 						toast({
 							variant: "destructive",
 							title: "Run already active",
 							description: "Please wait for the current response to complete.",
 						});
 						// Remove the optimistic user message and restore to input
+						setIsStreaming(false);
 						restoreFailedMessage();
 						return;
 					}
@@ -593,6 +621,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				startStream(runId, assistantMessageId, 0, traceId);
 			} catch (error) {
 				console.error("Chat error:", error);
+				setIsStreaming(false);
 				toast({
 					variant: "destructive",
 					title: "Chat failed",
@@ -612,9 +641,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 		return (
 			<div className="flex-1 flex flex-col min-w-0 bg-gray-50 relative">
-				<ScrollArea className="flex-1">
+				<ScrollArea className="flex-1 scroll-smooth">
 					<div
-						className="max-w-2xl mx-auto space-y-4 my-4"
+						className="max-w-2xl mx-auto space-y-3 my-4 px-1"
 						role="log"
 						aria-label="Chat messages"
 						aria-live="polite"
@@ -644,22 +673,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 						)}
 
 						{messages.map((message) => (
-							<MessageBubble
-								key={message.id}
-								message={message}
-								isStreaming={message.id === streamingMessage?.id && isStreaming}
-							/>
+							<MessageBubble key={message.id} message={message} />
 						))}
 
-						{isStreaming && streamingMessage && !streamingMessage.content && (
-							<div className="flex items-center gap-2 py-1 text-sm text-gray-500">
-								<Loader2 className="h-4 w-4 animate-spin text-burgundy-500" />
-								<span>Thinking…</span>
+						{isProcessing && (
+							<div className="flex items-center gap-2 py-1 text-sm text-gray-400 italic animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out">
+								<Loader2 className="h-3 w-3 animate-spin text-gray-400" />
+								<span>Agent is processing</span>
 							</div>
 						)}
 						<div
 							style={{
-								paddingBottom: Math.max(24, Math.round(composerHeight * 0.6)),
+								paddingBottom: Math.max(100, composerHeight + 10),
 							}}
 						/>
 						<div ref={messagesEndRef} />
@@ -671,28 +696,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					ref={composerRef}
 					className="absolute bottom-0 left-0 right-0 z-20 px-4 pb-4 pt-6 bg-gradient-to-t from-white via-white/95 to-transparent"
 				>
-					<div className="max-w-2xl mx-auto">
-						{/* Streaming indicator with Stop button */}
-						{isStreaming && (
-							<div className="flex items-center justify-center gap-2 mb-3">
-								<Loader2 className="h-4 w-4 animate-spin text-burgundy-500" />
-								<span className="text-sm text-gray-600">
-									Agent is responding...
-								</span>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={handleCancel}
-									className="ml-2 h-7 px-2 text-xs"
-									icon={<Square className="h-3 w-3" />}
-								>
-									Stop
-								</Button>
-							</div>
-						)}
-
-						<div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+					<div className="max-w-2xl mx-auto mt-3">
+						<div className={cn(
+						"rounded-2xl border border-gray-300 bg-white shadow-sm transition-all duration-200",
+						sandboxStatus === "connected" && !isStreaming
+							? "ring-2 ring-burgundy-100 ring-offset-2"
+							: ""
+					)}>
 							<form
 								ref={formRef}
 								onSubmit={handleSubmit}
@@ -702,7 +712,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 									ref={inputRef}
 									placeholder={
 										isStreaming
-											? "Wait for response to complete..."
+											? "Agent is responding..."
 											: sandboxStatus === "connected"
 											? "Ask Metaforms Copilot..."
 											: "Connecting… you can type while we get things ready"

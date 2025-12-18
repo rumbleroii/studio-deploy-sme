@@ -407,31 +407,18 @@ async function main() {
 			"WebSearch",
 			"WebFetch",
 			"Task",
+			"Read",
+			"Write",
+			"Edit",
+			"Bash",
+			"TodoWrite",
+			"Skill",
 		],
 		systemPrompt: { type: "preset" as const, preset: "claude_code" as const },
 		// Note: Cannot use allowDangerouslySkipPermissions when running as root
 		// The bypassPermissions mode should handle this without the dangerous flag
 		settingSources: ['project'],
-		persistSession: true,
-		agents: {
-			"modify-webapp": {
-				description: "Modify the nextjs webapp in working_directory/app",
-				prompt:
-					"You are a expert nextjs webapp developer. You are given a task to modify the nextjs webapp in working_directory/app. You are to use the tools provided to you to modify the webapp.",
-				tools: [
-					"Read",
-					"Write",
-					"Edit",
-					"Bash",
-					"Glob",
-					"Grep",
-					"WebSearch",
-					"WebFetch",
-					"TodoWrite",
-					"Skill",
-				],
-			},
-		},
+		persistSession: true
 	};
 
 	// Make the Agent SDK treat working_directory/ as the current working directory.

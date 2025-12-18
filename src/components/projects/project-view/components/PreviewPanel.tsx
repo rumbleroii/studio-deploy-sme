@@ -21,8 +21,13 @@ export const PreviewPanel = memo(function PreviewPanel({
 	// Reset to default endpoint when previewUrl changes
 	useEffect(() => {
 		setPreviewEndpoint("/");
-		setIframeKey(0); // Reset iframe key when previewUrl changes
+		setIframeKey(0);
 	}, [previewUrl]);
+
+	// Force iframe reload when endpoint changes
+	useEffect(() => {
+		setIframeKey((prev) => prev + 1);
+	}, [previewEndpoint]);
 
 	const handleRefresh = () => {
 		setIframeKey((prev) => prev + 1);
@@ -41,31 +46,25 @@ export const PreviewPanel = memo(function PreviewPanel({
 		<div className={cn("flex-1 flex flex-col", className)}>
 			{previewUrl && (
 				<div className="h-10 px-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-					<div className="flex items-center gap-2">
-						<button
-							type="button"
-							onClick={() => setPreviewEndpoint("/")}
-							className={cn(
-								"px-3 py-1.5 text-xs font-medium rounded border transition-colors",
-								previewEndpoint === "/"
-									? "bg-blue-600 text-white border-blue-600"
-									: "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-							)}
-						>
-							Questionnaire Preview
-						</button>
-						<button
-							type="button"
-							onClick={() => setPreviewEndpoint("/s/preview")}
-							className={cn(
-								"px-3 py-1.5 text-xs font-medium rounded border transition-colors",
-								previewEndpoint === "/s/preview"
-									? "bg-blue-600 text-white border-blue-600"
-									: "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-							)}
-						>
-							Survey Preview
-						</button>
+					<div className="flex bg-gray-200 rounded-lg p-0.5 gap-0.5">
+						{[
+							{ label: "Questionnaire", value: "/" as const },
+							{ label: "Survey", value: "/s/preview" as const },
+						].map((tab) => (
+							<button
+								key={tab.value}
+								type="button"
+								onClick={() => setPreviewEndpoint(tab.value)}
+								className={cn(
+									"px-3 py-1 text-xs font-medium rounded-md transition-all",
+									previewEndpoint === tab.value
+										? "bg-white text-gray-900 shadow-sm"
+										: "text-gray-500 hover:text-gray-700"
+								)}
+							>
+								{tab.label}
+							</button>
+						))}
 					</div>
 					<div className="flex items-center gap-3">
 						<button
