@@ -54,6 +54,12 @@ You MUST reference these documents for EVERY survey generation:
 
 ### Step 1: Parse Questionnaire
 
+**IMPORTANT - Questionnaire Location:**
+- User-uploaded questionnaires are stored in the `user_files` directory
+- Always look for questionnaire files in `user_files/` when the user mentions they uploaded a document
+- Common file types: `.doc`, `.docx`, `.pdf`, `.txt`
+- If the user says "I uploaded a questionnaire", check `user_files/` for the most recent file
+
 Extract the following from the uploaded questionnaire:
 
 #### A. Survey Metadata
@@ -476,12 +482,13 @@ User: "Here's a customer satisfaction questionnaire. Create the survey."
 ```
 
 ### Process:
-1. **Parse**: Extract all content from uploaded questionnaire
-2. **Read boilerplate**: Study `../src/survey-app/data/sampleSurveyWithLogic.ts` structure
-3. **Update existing file**: Replace content in `../src/survey-app/data/sample-survey.ts` OR create new file `customer-satisfaction-survey.ts`
-4. **Update page.tsx**: If new file created, import it in `../src/survey-app/app/page.tsx`
-5. **Verify**: Confirm existing components render the new schema
-6. **Output**: New survey integrated into existing boilerplate app
+1. **Locate**: Check `user_files/` directory for `customer-sat.docx`
+2. **Parse**: Extract all content from uploaded questionnaire in `user_files/`
+3. **Read boilerplate**: Study `../src/survey-app/data/sampleSurveyWithLogic.ts` structure
+4. **Update existing file**: Replace content in `../src/survey-app/data/sample-survey.ts` OR create new file `customer-satisfaction-survey.ts`
+5. **Update page.tsx**: If new file created, import it in `../src/survey-app/app/page.tsx`
+6. **Verify**: Confirm existing components render the new schema
+7. **Output**: New survey integrated into existing boilerplate app
 
 **KEY POINT**: Whether updating or replacing, ALWAYS work within `../src/survey-app`. Never create a new Next.js app from scratch.
 
@@ -551,10 +558,11 @@ User: "Here's a customer satisfaction questionnaire. Create the survey."
 ### Your Response Should:
 
 1. Acknowledge receipt of questionnaire
-2. Parse the questionnaire content
-3. Update the survey schema in `../src/survey-app/data/`
-4. Verify compatibility with existing components
-5. Confirm theme consistency maintained
+2. Check `user_files/` directory for the uploaded file
+3. Parse the questionnaire content from `user_files/`
+4. Update the survey schema in `../src/survey-app/data/`
+5. Verify compatibility with existing components
+6. Confirm theme consistency maintained
 
 ### Example Response:
 
@@ -562,8 +570,9 @@ User: "Here's a customer satisfaction questionnaire. Create the survey."
 I've received your questionnaire. I'll update the survey in the existing Next.js boilerplate
 at ../src/survey-app following all theme specifications.
 
+[Checking user_files/ directory for uploaded questionnaire...]
 [Reading existing schema structure...]
-[Parsing questionnaire content...]
+[Parsing questionnaire content from user_files/...]
 [Updating ../src/survey-app/data/sample-survey.ts with new content...]
 
 The survey has been updated with:

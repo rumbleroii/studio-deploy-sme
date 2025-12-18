@@ -91,7 +91,14 @@ Reference the boilerplate structure:
 
 When user uploads a questionnaire:
 
-1. **Parse the questionnaire** to extract all elements
+**IMPORTANT - Questionnaire Location:**
+- User-uploaded questionnaires are stored in the `user_files` directory
+- Always look for questionnaire files in `user_files/` when the user mentions they uploaded a document
+- Common file types: `.doc`, `.docx`, `.pdf`, `.txt`
+- If the user says "I uploaded a questionnaire", check `user_files/` for the most recent file
+
+**Processing Steps:**
+1. **Parse the questionnaire** from `user_files/` directory to extract all elements
 2. **Read existing schema files** in `../src/survey-app/data/` for format reference
 3. **Create new survey schema file** in `../src/survey-app/data/[survey-name]-survey.ts`
 4. **Follow exact TypeScript structure** from existing schemas
@@ -155,12 +162,13 @@ From `survey-generation-guide.md`, verify:
 **User:** "I've uploaded a questionnaire. Can you generate the survey UI?"
 
 **Action:**
-1. Read the questionnaire file
-2. Parse questions, logic, and metadata
-3. Read existing schema format from `../src/survey-app/data/sampleSurveyWithLogic.ts`
-4. Create new schema file in `../src/survey-app/data/[name]-survey.ts`
-5. Update `../src/survey-app/app/page.tsx` to import and use new schema
-6. Verify theme consistency with specifications
+1. Check `user_files/` directory for the uploaded questionnaire file
+2. Read the questionnaire file (e.g., `user_files/questionnaire.docx`)
+3. Parse questions, logic, and metadata from the questionnaire
+4. Read existing schema format from `../src/survey-app/data/sampleSurveyWithLogic.ts`
+5. Create new schema file in `../src/survey-app/data/[name]-survey.ts`
+6. Update `../src/survey-app/app/page.tsx` to import and use new schema
+7. Verify theme consistency with specifications
 
 ### Example 2: User asks to update existing survey
 **User:** "Update the sample survey to add two more questions"
