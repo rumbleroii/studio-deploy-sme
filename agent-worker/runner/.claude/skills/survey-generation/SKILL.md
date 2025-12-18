@@ -1,0 +1,261 @@
+---
+name: survey-generation
+description: Generates consistent, professionally formatted survey UIs from uploaded questionnaires using the existing Next.js app at /survey-app as boilerplate. Use when the user uploads a questionnaire document (Word, PDF, text) and asks to create or generate a survey. NEVER creates apps from scratch - always modifies the existing boilerplate. Updates survey schema in /survey-app/data/, modifies components if needed, maintains exact theme specifications. After completing generation, AUTOMATICALLY triggers survey-hosted skill. Keyword triggers - questionnaire, survey generation, create survey, format survey, parse questionnaire, create survey UI, update survey.
+---
+
+# Survey Generation Skill
+
+## Purpose
+
+This skill ensures **100% consistent survey UI generation** from any uploaded questionnaire by using the existing Next.js application at `/survey-app` as boilerplate code. Every generated survey will have identical theme, structure, components, and formatting because they all use the same base application.
+
+## Boilerplate Application
+
+**CRITICAL:** Always use the existing Next.js app at `/survey-app` as the foundation:
+
+- **Location:** `/survey-app/` directory
+- **Never create from scratch:** Always modify existing files
+- **Survey data:** Add/update files in `/survey-app/data/`
+- **Components:** Reuse existing components in `/survey-app/components/`
+- **Routes:** Use existing routes in `/survey-app/app/`
+- **Theme:** Already implemented in `/survey-app/app/globals.css`
+
+## When to Use This Skill
+
+Use this skill when the user:
+- Uploads a questionnaire file (Word, PDF, text, etc.)
+- Asks to "generate a survey" or "create a survey UI"
+- Wants to "parse" or "format" a questionnaire
+- Mentions "questionnaire" and "survey" together
+- Requests a survey authoring or design view
+
+## Instructions
+
+### Step 1: Understand the Boilerplate Application
+
+**ALWAYS work with the existing `/survey-app` application:**
+
+Reference the boilerplate structure:
+```
+/survey-app/
+├── app/
+│   ├── page.tsx                    # Authoring view
+│   ├── globals.css                 # THEME (preserve exactly)
+│   └── s/preview/                  # Hosted survey routes
+├── components/                      # Reusable components
+│   ├── Badge.tsx, QuestionCard.tsx, QuestionRenderer.tsx, etc.
+├── data/                           # Survey schemas
+│   ├── sampleSurveyWithLogic.ts   # Reference this format
+│   └── verizon-survey.ts          # Reference this format
+├── lib/, types/, utils/            # Supporting code
+```
+
+### Step 2: Apply Exact Theme Specifications
+
+**CRITICAL:** Theme is implemented in `/survey-app/app/globals.css`. Never modify theme colors, fonts, or spacing.
+
+**Theme (../shared/survey-ui-theme.md):**
+- Colors: #3D1C35 (badges), #1A1A1A (text), #666666 (secondary), #E0E0E0 (borders), #E0BFD8 (notes/show conditions)
+- Fonts: 32px title, 16px section, 15px question, 14px option, 11px badge
+- Spacing: 40px page padding, 24px section padding, 20px question padding, 8px option gap
+- Components: 20px radio/checkbox, 8px border radius, 4px badge radius
+
+**Structure (survey-structure-spec.md):**
+- Page header with title (32px bold)
+- Objectives section with bullet points (14px gray)
+- Audience section with sample size and quotas
+- Collapsible sections with question counts
+- Questions with ID badges (maroon #3D1C35) and type badges (gray #F5F5F5)
+- Metadata row with logic badges (color-coded: #3D1C35 for primary, #E0BFD8 for show conditions)
+- Notes sections (light maroon background #E0BFD8, maroon border #3D1C35)
+
+**Components (../shared/survey-components-spec.md):**
+- Badge components (7 types with specific colors)
+- Input components (radio, checkbox, text, dropdown)
+- Section and question containers
+- Matrix/grid components
+
+**Question Types (../shared/survey-question-types.md):**
+- All 20+ question types with exact formats
+- Introduction screens, single choice, multiple choice, matrix, text, etc.
+- Validation rules and formatting
+
+**Logic (../shared/survey-logic-spec.md):**
+- Display logic badges (show/hide conditions)
+- Navigation logic badges (skip logic, conditional routing)
+- Randomization logic badges
+- Dynamic options badges
+- Color-coded by type
+
+### Step 3: Parse Questionnaire and Create Survey Schema
+
+When user uploads a questionnaire:
+
+1. **Parse the questionnaire** to extract all elements
+2. **Read existing schema files** in `/survey-app/data/` for format reference
+3. **Create new survey schema file** in `/survey-app/data/[survey-name]-survey.ts`
+4. **Follow exact TypeScript structure** from existing schemas
+5. **Include all**: metadata, sections, questions, options, logic, notes
+
+### Step 4: Update or Create Files in /survey-app
+
+**You MAY:**
+- Create new survey schema files in `/survey-app/data/`
+- Update `/survey-app/app/page.tsx` to import and use new schema
+- Create new components if absolutely necessary (rare)
+- Add new pages/routes for different surveys
+
+**You MUST:**
+- Maintain ALL UI in sync with exact theme specifications
+- Keep colors, fonts, spacing precisely as specified
+- Never modify `/survey-app/app/globals.css` theme
+- Reuse existing components in `/survey-app/components/`
+- Follow existing patterns and structure
+
+**You MUST NOT:**
+- Change theme colors, fonts, or spacing
+- Remove or alter theme specifications
+- Create inconsistent UI elements
+- Recreate the entire application from scratch
+
+### Step 5: Verify Against Checklist
+
+From `survey-generation-guide.md`, verify:
+- [ ] Page title (32px, bold)
+- [ ] Objectives section with bullets
+- [ ] Audience section with sample size
+- [ ] Collapsible sections with question counts
+- [ ] Question ID badges (pink, 11px, uppercase)
+- [ ] Question type badges (gray, 11px)
+- [ ] Proper question formatting (15px)
+- [ ] Correct input components (20px radio/checkbox)
+- [ ] Logic badges in metadata row
+- [ ] Notes sections where applicable (yellow background)
+- [ ] Consistent spacing throughout
+- [ ] Exact colors from specification
+
+## Key Files Reference
+
+### Must Read First:
+1. **survey-generation-guide.md** - Step-by-step generation process
+2. **QUICK-REFERENCE.md** - Quick lookup cheat sheet
+
+### Skill-Specific:
+3. **survey-structure-spec.md** - Layout and hierarchy for authoring view
+
+### Shared Specifications (in ../shared/):
+4. **../shared/survey-ui-theme.md** - Colors, fonts, spacing (EXACT values)
+5. **../shared/survey-components-spec.md** - Component specifications
+6. **../shared/survey-question-types.md** - All question type formats
+7. **../shared/survey-logic-spec.md** - Logic display and badges
+
+## Examples
+
+### Example 1: User uploads Word document
+**User:** "I've uploaded a questionnaire. Can you generate the survey UI?"
+
+**Action:**
+1. Read the questionnaire file
+2. Parse questions, logic, and metadata
+3. Read existing schema format from `/survey-app/data/sampleSurveyWithLogic.ts`
+4. Create new schema file in `/survey-app/data/[name]-survey.ts`
+5. Update `/survey-app/app/page.tsx` to import and use new schema
+6. Verify theme consistency with specifications
+
+### Example 2: User asks to update existing survey
+**User:** "Update the Verizon survey to add two more questions"
+
+**Action:**
+1. Read `/survey-app/data/verizon-survey.ts`
+2. Add the new questions to the schema
+3. Maintain exact format and structure
+4. Verify all theme specifications remain intact
+5. Ensure components can render the updated schema
+
+### Example 3: User wants to modify questions
+**User:** "Change question Q5 to a matrix question instead of single choice"
+
+**Action:**
+1. Locate the survey schema in `/survey-app/data/`
+2. Find question Q5 in the schema
+3. Update question type and structure to matrix format
+4. Reference matrix format from `../shared/survey-question-types.md`
+5. Ensure QuestionRenderer component supports the change
+6. Maintain all theme specifications
+
+## Critical Requirements
+
+### Always:
+- Work within the existing `/survey-app` application
+- Use EXACT colors from specifications (no variations)
+- Use EXACT font sizes (no approximations)
+- Use EXACT spacing (no adjustments)
+- Preserve `/survey-app/app/globals.css` theme exactly
+- Reuse existing components from `/survey-app/components/`
+- Create survey schemas in `/survey-app/data/`
+- Include ALL required badges (ID, type, logic)
+- Format ALL question types correctly
+- Apply logic badges with correct colors (#3D1C35 primary, #E0BFD8 show conditions)
+- Include notes sections (light maroon background #E0BFD8, maroon border #3D1C35)
+- Use 20px radio buttons and checkboxes
+
+### Never:
+- Create applications from scratch (always use boilerplate)
+- Modify `/survey-app/app/globals.css` theme
+- Change colors, fonts, or spacing from specifications
+- Omit question ID or type badges
+- Skip metadata badges
+- Use inconsistent formatting
+- Deviate from specifications
+- Make "creative" changes to theme or structure
+
+## Success Criteria
+
+A successful survey generation means:
+- New survey schema created in `/survey-app/data/`
+- Schema follows exact format of existing schemas
+- All questions, logic, metadata properly structured
+- `/survey-app/app/page.tsx` updated (if needed)
+- Existing components reused (not recreated)
+- Theme preserved exactly (no changes to globals.css)
+- All UI elements maintain exact theme specifications
+- Looks identical to existing surveys (100% consistency)
+- All badges present and correctly colored
+- Logic displayed correctly with proper colors
+- Notes sections included with correct styling
+
+## Supporting Files
+
+This skill includes 12 supporting documentation files with ~7,000 lines of detailed specifications. Reference them as needed during generation.
+
+## Sequential Workflow
+
+**IMPORTANT:** After completing survey generation, this skill MUST automatically trigger the `survey-hosted` skill to implement the respondent experience.
+
+### Complete Workflow:
+1. **survey-generation skill** (this skill):
+   - Parse uploaded questionnaire
+   - Create survey schema in `/survey-app/data/`
+   - Update `/survey-app/app/page.tsx` to use new schema
+   - Reuse existing components from `/survey-app/components/`
+   - Verify theme consistency
+
+2. **survey-hosted skill** (auto-triggered next):
+   - Update hosted survey routes in `/survey-app/app/s/preview/`
+   - Ensure logic evaluation works with new schema
+   - Verify navigation and state management
+   - Confirm same theme applied throughout
+
+### When to Trigger Sequential Workflow:
+- User uploads questionnaire and asks to "create a survey"
+- User asks to "create a survey UI"
+- User mentions "generate survey" or "build survey"
+- User wants both authoring view and respondent experience
+
+### Example:
+**User:** "Create a survey UI from this questionnaire"
+
+**Action:**
+1. Activate survey-generation skill → Create schema in `/survey-app/data/`, update app
+2. Automatically activate survey-hosted skill → Verify hosted routes work with new schema
+3. Deliver complete system with both authoring and respondent views

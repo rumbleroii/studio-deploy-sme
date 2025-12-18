@@ -17,7 +17,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Send, Loader2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownMessage } from "./MarkdownMessage";
-import type { Message } from "../types";
 import type { SandboxStatus } from "../hooks/useSandboxConnection";
 
 type TraceSource = "frontend" | "nextjs" | "worker" | "runner";

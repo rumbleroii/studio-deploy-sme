@@ -402,22 +402,16 @@ async function main() {
 		...(existingSessionId ? { resume: existingSessionId } : {}),
 		// Use Claude Code's default toolset and system prompt.
 		allowedTools: [
-			"Read",
-			"Write",
-			"Edit",
-			"Bash",
 			"Glob",
 			"Grep",
 			"WebSearch",
 			"WebFetch",
 			"Task",
-			"NotebookEdit",
-			"TodoWrite",
-			"Skill",
 		],
 		systemPrompt: { type: "preset" as const, preset: "claude_code" as const },
 		// Note: Cannot use allowDangerouslySkipPermissions when running as root
 		// The bypassPermissions mode should handle this without the dangerous flag
+		settingSources: ['project'],
 		persistSession: true,
 		agents: {
 			"modify-webapp": {

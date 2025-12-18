@@ -454,6 +454,24 @@ async function handleEnsure(
 		await sandbox.exec(`mkdir -p ${userFilesDir}`);
 		await sandbox.exec(`mkdir -p ${appDir}`);
 
+		// Copy .claude directory (with skills) to working directory if it doesn't exist
+		const claudeDir = `${workingDir}/.claude`;
+		const checkClaudeResult = await sandbox.exec(
+			`test -d ${claudeDir} && echo "exists" || echo "not_exists"`
+		);
+		if (checkClaudeResult.stdout.trim() !== "exists") {
+			console.log(`Copying .claude directory with skills to ${claudeDir}...`);
+			const claudeCopyResult = await sandbox.exec(
+				`cp -r /runner/working_directory/.claude/. ${claudeDir}/`
+			);
+			if (claudeCopyResult.exitCode !== 0) {
+				console.error(`Failed to copy .claude directory: ${claudeCopyResult.stderr}`);
+				// Don't fail the entire ensure, just log the error
+			} else {
+				console.log(`Successfully copied .claude directory to ${claudeDir}`);
+			}
+		}
+
 		// Check if Next.js app already exists
 		const checkAppResult = await sandbox.exec(
 			`test -f ${appDir}/package.json && echo "exists" || echo "not_exists"`
@@ -463,16 +481,74 @@ async function handleEnsure(
 		if (!appExists) {
 			// Copy pre-built Next.js template (dependencies already installed in container)
 			console.log(`Setting up Next.js app for project ${projectId}...`);
-			await sandbox.exec(`cp -r /runner/nextjs-template/. ${appDir}/`);
+			
+			// Verify source directory exists before copying
+			const checkSourceResult = await sandbox.exec(
+				`test -d /runner/survey-app && echo "exists" || echo "not_exists"`
+			);
+			if (checkSourceResult.stdout.trim() !== "exists") {
+				console.error(`Source directory /runner/survey-app does not exist in container`);
+				return new Response(
+					JSON.stringify({ 
+						error: "Survey app template not found in container",
+						details: "The /runner/survey-app directory is missing. Check Dockerfile COPY command."
+					}),
+					{
+						status: 500,
+						headers: { "Content-Type": "application/json" },
+					}
+				);
+			}
+			
+			// Copy the survey-app
+			const copyResult = await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
+			if (copyResult.exitCode !== 0) {
+				console.error(`Failed to copy survey-app: ${copyResult.stderr}`);
+				return new Response(
+					JSON.stringify({ 
+						error: "Failed to copy survey app template",
+						details: copyResult.stderr || "Copy command failed"
+					}),
+					{
+						status: 500,
+						headers: { "Content-Type": "application/json" },
+					}
+				);
+			}
+			
+			// Verify copy succeeded
+			const verifyResult = await sandbox.exec(
+				`test -f ${appDir}/package.json && echo "exists" || echo "not_exists"`
+			);
+			if (verifyResult.stdout.trim() !== "exists") {
+				console.error(`Copy verification failed: package.json not found in ${appDir}`);
+				return new Response(
+					JSON.stringify({ 
+						error: "Survey app copy verification failed",
+						details: `package.json not found in ${appDir} after copy`
+					}),
+					{
+						status: 500,
+						headers: { "Content-Type": "application/json" },
+					}
+				);
+			}
+			
+			console.log(`Successfully copied survey-app to ${appDir}`);
 		}
 
 		// Kill any existing dev server and start Next.js on port 3001
 		await sandbox.exec("pkill -f 'next dev' || true");
-		await sandbox.exec(`cd ${appDir} && PORT=3001 npm run dev &`, {
+		
+		// Start Next.js dev server binding to 0.0.0.0 (all interfaces) so Cloudflare Sandbox can access it
+		// HOSTNAME=0.0.0.0 is REQUIRED in production (Cloudflare) - without it, server binds to localhost only
+		// PORT=3001 sets the port
+		await sandbox.exec(`cd ${appDir} && HOSTNAME=0.0.0.0 PORT=3001 npm run dev &`, {
 			timeout: 30000,
 		});
-		// Give the dev server time to start
-		await sandbox.exec("sleep 5");
+		
+		// Give the dev server time to start (Next.js compilation can take 10-20s with limited resources)
+		await sandbox.exec("sleep 15");
 
 		// Expose port and get public URL
 		let previewUrl: string | undefined;
@@ -527,10 +603,19 @@ async function handleChat(
 	env: Env
 ): Promise<Response> {
 	try {
-		const body = (await request.json()) as ChatRequestBody;
 		const sandboxId = `project-${projectId}`;
-
+		
+		// Get the sandbox instance
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
+
+		// Directory where the Next.js app lives inside the container
+		const appDir = `/workspace/projects/${projectId}`;
+
+		// Ensure app directory exists
+		await sandbox.exec(`mkdir -p ${appDir}`);
+
+		// Kill any existing Next.js dev server
+		await sandbox.exec("pkill -f 'next dev' || true");
 
 		const projectDir = `/workspace/projects/${projectId}`;
 		// Chat might be called before ensure; make sure the directory exists.

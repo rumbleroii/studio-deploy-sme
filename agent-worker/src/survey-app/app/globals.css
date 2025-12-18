@@ -1,0 +1,267 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Colors from survey-ui-theme.md */
+  --color-primary-text: #1A1A1A;
+  --color-secondary-text: #666666;
+  --color-tertiary-text: #999999;
+  --color-background: #FFFFFF;
+  --color-border: #E0E0E0;
+
+  /* Accent colors */
+  --color-primary-accent: #3D1C35;
+  --color-secondary-accent: #3D1C35;
+  --color-tertiary-accent: #3D1C35;
+  --color-warning-accent: #E0BFD8;
+
+  /* Badge colors */
+  --color-badge-question-id: #3D1C35;
+  --color-badge-question-type: #F5F5F5;
+  --color-badge-logic-default: #3D1C35;
+  --color-badge-logic-conditional: #3D1C35;
+  --color-badge-logic-show: #E0BFD8;
+  --color-badge-dynamic: #3D1C35;
+
+  /* Notes colors */
+  --color-notes-bg: #E0BFD8;
+  --color-notes-border: #3D1C35;
+
+  /* Component colors */
+  --color-input-border: #BDBDBD;
+  --color-input-focus: #3D1C35;
+
+  /* Interactive states */
+  --color-hover-bg: #F9F9F9;
+  --color-selected-bg: #FFF3F8;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--color-primary-text);
+  background: var(--color-background);
+}
+
+/* Typography from survey-ui-theme.md */
+.page-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--color-primary-text);
+  line-height: 1.2;
+  margin-bottom: 32px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-primary-text);
+  line-height: 1.4;
+  margin-bottom: 16px;
+}
+
+.section-description {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-secondary-text);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.question-text {
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--color-primary-text);
+  line-height: 1.5;
+}
+
+.option-text {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-primary-text);
+  line-height: 1.4;
+}
+
+.badge-text {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.note-text {
+  font-size: 13px;
+  font-weight: 400;
+  color: #333333;
+  line-height: 1.4;
+}
+
+/* Badge components from survey-components-spec.md */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  gap: 4px;
+}
+
+.badge-question-id {
+  background-color: var(--color-badge-question-id);
+  color: white;
+}
+
+.badge-question-type {
+  background-color: var(--color-badge-question-type);
+  color: var(--color-secondary-text);
+}
+
+.badge-logic-default {
+  background-color: var(--color-badge-logic-default);
+  color: white;
+}
+
+.badge-logic-conditional {
+  background-color: var(--color-badge-logic-conditional);
+  color: white;
+}
+
+.badge-logic-show {
+  background-color: transparent;
+  border: 1px solid var(--color-badge-logic-show);
+  color: var(--color-badge-logic-show);
+}
+
+.badge-dynamic {
+  background-color: var(--color-badge-dynamic);
+  color: white;
+}
+
+/* Card components */
+.card {
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.section-card {
+  background: #FAFAFA;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+/* Notes section */
+.notes-section {
+  background: var(--color-notes-bg);
+  border: 1px solid var(--color-notes-border);
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-top: 16px;
+}
+
+/* Input components */
+.radio-button {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-input-border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.radio-button:checked {
+  border-color: #1A1A1A;
+  background-color: #1A1A1A;
+}
+
+.checkbox {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-input-border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.checkbox:checked {
+  border-color: #1A1A1A;
+  background-color: #1A1A1A;
+}
+
+.text-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--color-primary-text);
+  transition: border-color 0.2s;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: var(--color-input-focus);
+}
+
+/* Button components */
+.button {
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.button-primary {
+  background-color: var(--color-primary-accent);
+  color: white;
+}
+
+.button-primary:hover {
+  background-color: #2D1528;
+}
+
+.button-secondary {
+  background-color: white;
+  color: var(--color-primary-text);
+  border: 1px solid var(--color-border);
+}
+
+.button-secondary:hover {
+  background-color: #F5F5F5;
+}
+
+/* Spacing from survey-ui-theme.md */
+.page-container {
+  padding: 32px 40px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.section-spacing {
+  margin-bottom: 24px;
+}
+
+.question-spacing {
+  margin-bottom: 20px;
+}
+
+.option-spacing {
+  margin-bottom: 8px;
+}
+
+.badge-gap {
+  gap: 8px;
+}

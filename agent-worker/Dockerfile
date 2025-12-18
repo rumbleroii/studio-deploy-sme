@@ -7,8 +7,8 @@ COPY runner/run_chat.ts /runner/run_chat.ts
 COPY runner/.claude /runner/working_directory/.claude
 
 # Copy Next.js template and pre-install dependencies
-COPY src/nextjs-template /runner/nextjs-template
-RUN cd /runner/nextjs-template && npm install
+COPY src/survey-app /runner/survey-app
+RUN cd /runner/survey-app && npm install
 
 # Install runner dependencies and build
 RUN cd /runner \
