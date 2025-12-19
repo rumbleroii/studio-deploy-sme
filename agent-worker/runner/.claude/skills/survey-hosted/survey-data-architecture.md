@@ -36,6 +36,192 @@ Define the data storage patterns for surveys, covering:
 
 ---
 
+## 📋 Survey Schema Definition
+
+### Core Types
+
+```typescript
+// types/survey.ts
+
+/** Main survey structure */
+export interface Survey {
+  id: string;
+  metadata: SurveyMetadata;
+  sections: Section[];
+}
+
+/** Survey metadata and information */
+export interface SurveyMetadata {
+  title: string;
+  description: string;
+  objectives: string[];
+  audience: {
+    description: string;
+    sampleSize: number;
+    quotas: string[];
+  };
+  version: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** Survey section grouping questions */
+export interface Section {
+  id: string;
+  title: string;
+  description?: string;
+  questions: Question[];
+}
+
+/** Question definition */
+export interface Question {
+  id: string;
+  type: QuestionType;
+  text: string;
+  required: boolean;
+  options?: Option[];
+  logic?: Logic[];
+  validation?: Validation;
+  metadata?: QuestionMetadata;
+}
+
+/** Question types supported */
+export type QuestionType =
+  | 'single_choice'
+  | 'multiple_choice'
+  | 'text'
+  | 'numeric'
+  | 'rating'
+  | 'matrix'
+  | 'rank_order';
+
+/** Option for choice questions */
+export interface Option {
+  id: number | string;
+  label: string;
+  value: string;
+  exclusive?: boolean;  // For "None of the above" options
+}
+
+/** Logic for skip/display/terminate */
+export interface Logic {
+  action: 'skip' | 'display' | 'terminate' | 'quota';
+  when: Condition;
+  destination?: string;  // Question ID or 'TERMINATE'
+}
+
+/** Condition for logic evaluation */
+export interface Condition {
+  operator: 'eq' | 'neq' | 'in' | 'nin' | 'gt' | 'gte' | 'lt' | 'lte' | 'and' | 'or';
+  left: string;  // Question ID or nested condition
+  right: any;    // Value to compare or nested condition
+}
+
+/** Validation rules */
+export interface Validation {
+  min?: number;
+  max?: number;
+  pattern?: string;  // Regex pattern
+  message?: string;  // Error message
+}
+
+/** Question metadata */
+export interface QuestionMetadata {
+  piped?: boolean;       // Text piping enabled
+  randomize?: boolean;   // Randomize options
+  anchor?: string[];     // Anchored option IDs
+}
+```
+
+### Example: Sample Survey Schema
+
+```typescript
+// data/sample-survey.ts
+import { Survey } from '../types/survey';
+
+export const sampleSurvey: Survey = {
+  id: 'sample-business-wireless-2025',
+  metadata: {
+    title: 'Sample Business Wireless Add-On Services Study',
+    description: 'Understanding preferences for business wireless add-on services',
+    objectives: [
+      'Evaluate interest in new add-on service offerings',
+      'Understand pricing sensitivity for bundled services',
+      'Identify key drivers and barriers to adoption'
+    ],
+    audience: {
+      description: 'Business decision makers with company wireless plans',
+      sampleSize: 500,
+      quotas: [
+        'Verizon customers: 250',
+        'Non-Verizon customers: 250'
+      ]
+    },
+    version: 1
+  },
+  sections: [
+    {
+      id: 'screener',
+      title: 'Screener',
+      description: 'Qualification questions',
+      questions: [
+        {
+          id: 'S1',
+          type: 'single_choice',
+          text: 'Are you involved in making decisions about your company\'s wireless service provider?',
+          required: true,
+          options: [
+            { id: 1, label: 'Yes, I am the primary decision maker', value: 'primary' },
+            { id: 2, label: 'Yes, I am involved in the decision', value: 'involved' },
+            { id: 3, label: 'No, I am not involved', value: 'not_involved' }
+          ],
+          logic: [
+            {
+              action: 'terminate',
+              when: { operator: 'eq', left: 'S1', right: 'not_involved' },
+              destination: 'TERMINATE'
+            }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'main',
+      title: 'Main Questions',
+      questions: [
+        {
+          id: 'Q1',
+          type: 'multiple_choice',
+          text: 'Which of the following services does your company currently use?',
+          required: true,
+          options: [
+            { id: 1, label: 'Mobile device management', value: 'mdm' },
+            { id: 2, label: 'Cloud storage', value: 'cloud' },
+            { id: 3, label: 'VPN service', value: 'vpn' },
+            { id: 4, label: 'None of the above', value: 'none', exclusive: true }
+          ]
+        },
+        {
+          id: 'Q2',
+          type: 'rating',
+          text: 'How satisfied are you with your current provider?',
+          required: true,
+          options: [
+            { id: 1, label: '1 - Very Dissatisfied', value: '1' },
+            { id: 2, label: '2', value: '2' },
+            { id: 3, label: '3', value: '3' },
+            { id: 4, label: '4', value: '4' },
+            { id: 5, label: '5 - Very Satisfied', value: '5' }
+          ]
+        }
+      ]
+    }
+  ]
+};
+```
+
+---
+
 ## 🔧 Approach 1: TypeScript Files
 
 ### Directory Structure
