@@ -400,14 +400,14 @@ async function handleNext() {
   if (nextQuestionId === null) {
     // Survey complete
     await markSurveyComplete();
-    router.push(`/s/${surveyId}/complete`);
+    router.push(`/s/preview/complete`);
   } else if (nextQuestionId === 'TERMINATE') {
     // Early termination
     await markSurveyTerminated();
-    router.push(`/s/${surveyId}/terminate`);
+    router.push(`/s/preview/terminate`);
   } else {
     // Next question
-    router.push(`/s/${surveyId}/question/${nextQuestionId}`);
+    router.push(`/s/preview}/question/${nextQuestionId}`);
   }
 }
 
@@ -417,10 +417,10 @@ async function handlePrevious() {
   
   // 2. Navigate back
   if (previousQuestionId) {
-    router.push(`/s/${surveyId}/question/${previousQuestionId}`);
+    router.push(`/s/preview/question/${previousQuestionId}`);
   } else {
     // Back to welcome screen
-    router.push(`/s/${surveyId}`);
+    router.push(`/s/preview`);
   }
 }
 ```

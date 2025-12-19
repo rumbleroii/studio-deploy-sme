@@ -553,7 +553,7 @@ if (response.surveyId !== surveyId) {
 ```typescript
 // Prevent accessing completed survey
 if (response.completedAt) {
-  redirect(`/s/${surveyId}/complete?responseId=${response.id}`);
+  redirect(`/s/preview/complete?responseId=${response.id}`);
 }
 ```
 

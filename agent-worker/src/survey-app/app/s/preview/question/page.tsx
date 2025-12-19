@@ -73,13 +73,13 @@ export default function QuestionPage({ params }: PageProps) {
     const nextQuestionId = getNextQuestionId(currentQuestion, responses, allQuestions);
 
     if (nextQuestionId === 'COMPLETE') {
-      router.push(`/s/${surveyId}/complete`);
+      router.push(`/s/preview/complete`);
     } else if (nextQuestionId === 'TERMINATE') {
-      router.push(`/s/${surveyId}/terminate`);
+      router.push(`/s/preview/terminate`);
     } else if (nextQuestionId) {
       router.push(`/s/preview/question?q=${nextQuestionId}`);
     } else {
-      router.push(`/s/${surveyId}/complete`);
+      router.push(`/s/preview/complete`);
     }
   };
 
