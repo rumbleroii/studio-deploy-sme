@@ -42,4 +42,5 @@ prisma/*.db
 # Cloudflare Worker
 agent-worker/.wrangler
 agent-worker/.dev.vars
-
+agent-worker/src/survey-app/.next
+agent-worker/src/survey-app/node_modules
