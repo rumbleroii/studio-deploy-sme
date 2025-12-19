@@ -24,6 +24,9 @@ const nextConfig = {
   // Production optimization
   productionBrowserSourceMaps: false,
 
+  // Turbopack configuration (required for Next.js 16+)
+  turbopack: {},
+
   // Webpack optimizations
   webpack: (config, { dev, isServer }) => {
     // Production optimizations

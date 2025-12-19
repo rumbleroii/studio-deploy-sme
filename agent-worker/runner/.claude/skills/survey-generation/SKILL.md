@@ -109,10 +109,24 @@ When user uploads a questionnaire:
 **Processing Steps:**
 
 1. **Parse the questionnaire** from `user_files/` directory to extract all elements
-2. **Read existing schema files** in `app/data/` for format reference
-3. **Create new survey schema file** in `app/data/[survey-name]-survey.ts`
-4. **Follow exact TypeScript structure** from existing schemas
-5. **Include all**: metadata, sections, questions, options, logic, notes
+2. **Detect piping patterns** - Questionnaires use various formats (see below)
+3. **Read existing schema files** in `app/data/` for format reference
+4. **Create new survey schema file** in `app/data/[survey-name]-survey.ts`
+5. **Follow exact TypeScript structure** from existing schemas
+6. **Include all**: metadata, sections, questions, options, logic, notes
+
+**CRITICAL - Piping Pattern Detection:**
+
+Questionnaires use different formats for text substitution. Detect and convert ALL to standard format:
+
+- **Detect**: `{{Q1}}`, `{Q1}`, `[Q1]`, `<Q1>`, `$Q1$`, `INSERT Q1`, `PIPE Q1`, etc.
+- **Convert to**: `[INSERT Q1]` (raw value) or `[INSERT Q1 LABEL]` (option label)
+- **Examples**:
+  - `"You said {{Q1}}"` → `"You said [INSERT Q1]"`
+  - `"You selected {Q5 option}"` → `"You selected [INSERT Q5 LABEL]"`
+  - `"Total: $Q4 sum$"` → `"Total: $[INSERT Q4.SUM]"`
+- **See**: `survey-generation-guide.md` Section C1 for complete patterns
+- **Works in**: Both questionnaire view (authoring) and respondent view automatically
 
 ### Step 4: Update or Create Files in app
 

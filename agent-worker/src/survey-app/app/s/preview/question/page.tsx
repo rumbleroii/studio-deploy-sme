@@ -136,6 +136,7 @@ export default function QuestionPage({ params }: PageProps) {
           <Suspense fallback={<QuestionLoader />}>
             <QuestionRenderer
               question={currentQuestion}
+              allQuestions={allQuestions}
               onComplete={(value) => {
                 // Response is already saved via context
               }}

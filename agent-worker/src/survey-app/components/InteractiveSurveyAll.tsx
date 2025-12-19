@@ -34,6 +34,11 @@ export const InteractiveSurveyAll: React.FC<InteractiveSurveyAllProps> = ({
     return map;
   }, [survey]);
 
+  // Convert questionMap to array for piping
+  const allQuestions = useMemo(() => {
+    return Array.from(questionMap.values());
+  }, [questionMap]);
+
   // Create ordered list of all question IDs
   const orderedQuestionIds = useMemo(() => {
     const ids: string[] = [];
@@ -136,7 +141,7 @@ export const InteractiveSurveyAll: React.FC<InteractiveSurveyAllProps> = ({
 
             {/* Section Questions */}
             {!isCollapsed && (
-              <div className="mt-4 space-y-6">
+              <div className="mt-4 space-y-6" key={Object.keys(responses).join(',')}>
                 {section.questions.map((question) => {
                   const isVisible = shouldShowQuestion(question.id, questionMap, responses, orderedQuestionIds);
 
@@ -145,21 +150,16 @@ export const InteractiveSurveyAll: React.FC<InteractiveSurveyAllProps> = ({
                   }
 
                   return (
-                    <div
+                    <QuestionCard
                       key={question.id}
-                      className="transition-all duration-300 ease-in-out"
-                      style={{
-                        animation: 'fadeIn 0.3s ease-in-out'
-                      }}
-                    >
-                      <QuestionCard
-                        question={question}
-                        value={responses[question.id]}
-                        onChange={handleResponseChange}
-                        showBadges={showBadges}
-                        showNotes={showNotes}
-                      />
-                    </div>
+                      question={question}
+                      value={responses[question.id]}
+                      onChange={handleResponseChange}
+                      showBadges={showBadges}
+                      showNotes={showNotes}
+                      responses={responses}
+                      allQuestions={allQuestions}
+                    />
                   );
                 })}
               </div>

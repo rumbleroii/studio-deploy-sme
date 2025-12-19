@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Question } from '../types/survey';
 import { Badge, BadgeGroup } from './Badge';
+import { applyPiping } from '../lib/logic-evaluator';
 
 interface QuestionCardProps {
   question: Question;
@@ -8,6 +9,8 @@ interface QuestionCardProps {
   showNotes?: boolean;
   onChange?: (questionId: string, value: any) => void;
   value?: any;
+  responses?: Record<string, any>; // For piping
+  allQuestions?: Question[]; // For piping label lookups
 }
 
 const getQuestionTypeLabel = (type: string): string => {
@@ -28,7 +31,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   showBadges = true,
   showNotes = true,
   onChange,
-  value: externalValue
+  value: externalValue,
+  responses = {},
+  allQuestions
 }) => {
   const [internalValue, setInternalValue] = useState<any>(null);
   const hasLogic = question.logic && question.logic.length > 0;
@@ -45,6 +50,13 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
     }
   };
 
+  // Apply piping to question text and description
+  // Recalculate on every render to ensure real-time updates
+  const questionText = applyPiping(question.text, responses, allQuestions);
+  const questionDescription = question.description
+    ? applyPiping(question.description, responses, allQuestions)
+    : '';
+
   return (
     <div className="card question-spacing">
       {/* Question ID and Type Badges */}
@@ -57,14 +69,14 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
 
       {/* Question Text */}
       <div className="question-text mb-4">
-        {question.text}
+        {questionText}
         {question.required && <span className="text-red-500 ml-1">*</span>}
       </div>
 
       {/* Question Description */}
       {question.description && (
         <div className="section-description mb-4">
-          {question.description}
+          {questionDescription}
         </div>
       )}
 
@@ -75,6 +87,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             const isChecked = question.type === 'single_choice'
               ? currentValue === option.value
               : Array.isArray(currentValue) && currentValue.includes(option.value);
+
+            // Apply piping to option labels
+            const optionLabel = applyPiping(option.label, responses, allQuestions);
 
             return (
               <div key={option.id} className="flex items-center option-spacing">
@@ -99,7 +114,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
                   }}
                 />
                 <label htmlFor={`${question.id}-${option.id}`} className="option-text ml-3">
-                  {option.label}
+                  {optionLabel}
                 </label>
               </div>
             );
@@ -114,21 +129,25 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             <thead>
               <tr>
                 <th className="border border-gray-300 p-2 bg-gray-50 text-left text-sm font-semibold"></th>
-                {question.matrixColumns.map((col) => (
-                  <th key={col.id} className="border border-gray-300 p-2 bg-gray-50 text-center text-xs font-medium">
-                    {col.label}
-                  </th>
-                ))}
+                {question.matrixColumns.map((col) => {
+                  const colLabel = applyPiping(col.label, responses, allQuestions);
+                  return (
+                    <th key={col.id} className="border border-gray-300 p-2 bg-gray-50 text-center text-xs font-medium">
+                      {colLabel}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
               {question.matrixRows.map((row) => {
                 const matrixValue = currentValue || {};
                 const rowValue = matrixValue[row.id];
+                const rowLabel = applyPiping(row.label, responses, allQuestions);
 
                 return (
                   <tr key={row.id}>
-                    <td className="border border-gray-300 p-2 text-sm font-medium">{row.label}</td>
+                    <td className="border border-gray-300 p-2 text-sm font-medium">{rowLabel}</td>
                     {question.matrixColumns?.map((col) => (
                       <td key={`${row.id}-${col.id}`} className="border border-gray-300 p-2 text-center">
                         <input

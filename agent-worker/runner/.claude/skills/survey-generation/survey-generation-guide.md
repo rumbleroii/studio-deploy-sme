@@ -113,6 +113,66 @@ For each question, extract:
 - [ ] Validation rules
 - [ ] Notes/comments
 
+#### C1. Piping Pattern Detection (CRITICAL)
+
+**IMPORTANT**: Questionnaires use various formats to indicate text substitution/piping. You MUST detect these patterns and convert them to the standard format.
+
+**Common Piping Patterns to Detect:**
+
+1. **Curly Braces**: `{{Q1}}`, `{Q1}`, `{{Q1 response}}`, `{{answer from Q1}}`
+2. **Square Brackets**: `[Q1]`, `[Q1 response]`, `[answer from Q1]`
+3. **Angle Brackets**: `<Q1>`, `<Q1 response>`
+4. **Dollar Signs**: `$Q1$`, `$Q1 response$`
+5. **Written Instructions**:
+   - `INSERT Q1 RESPONSE`
+   - `PIPE Q1`
+   - `INSERT RESPONSE FROM Q1`
+   - `SHOW ANSWER TO Q1`
+   - `[INSERT Q1 HERE]`
+6. **Label References**:
+   - `{{Q1 label}}`, `{Q1 option text}`, `[Q1 label]`
+   - `INSERT Q1 OPTION LABEL`
+7. **Custom Calculations**:
+   - `{{total from Q4}}`, `[sum of Q4]`, `SUM(Q4)`
+   - Any mathematical operations on previous answers
+
+**Standard Format to Use:**
+
+Convert ALL detected piping patterns to these standardized formats in the schema:
+
+- **Raw Value**: `[INSERT Q1]` or `[INSERT Q1 RESPONSE]`
+- **Option Label**: `[INSERT Q1 LABEL]`
+- **Custom (if needed)**: `[INSERT Q1.SUM]` or similar custom pattern
+
+**Examples of Conversion:**
+
+```
+Questionnaire Text → Schema Text
+─────────────────────────────────────────────────────
+"You said {{Q1}}" → "You said [INSERT Q1]"
+"You selected {Q5 option}" → "You selected [INSERT Q5 LABEL]"
+"Total: $Q4 sum$" → "Total: $[INSERT Q4.SUM]"
+"[Show Q2 answer]" → "[INSERT Q2]"
+"INSERT Q3 RESPONSE HERE" → "[INSERT Q3]"
+"{{Q1 brand selected}}" → "[INSERT Q1 LABEL]"
+```
+
+**Detection Guidelines:**
+
+1. **Scan question text** for any pattern that references another question ID
+2. **Identify the intent**:
+   - Want raw value? → Use `[INSERT Q# RESPONSE]`
+   - Want display label? → Use `[INSERT Q# LABEL]`
+   - Want calculation? → Use `[INSERT Q#.OPERATION]`
+3. **Be flexible**: Questionnaires may use inconsistent formats even within the same document
+4. **Preserve meaning**: Understand what the questionnaire author intended
+5. **Multiple references**: A single question can have multiple piping patterns
+
+**When in Doubt:**
+- If unclear whether it's a value or label, use `[INSERT Q# LABEL]` (more user-friendly)
+- Add a note in the schema about the original pattern for reference
+- Value-based piping works for text questions, label-based for choice questions
+
 #### D. Logic & Routing
 
 - [ ] Default navigation

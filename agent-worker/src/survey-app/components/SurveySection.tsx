@@ -30,6 +30,11 @@ export const SurveySection: React.FC<SurveySectionProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
+  // Convert allQuestions Map to array for piping
+  const allQuestionsArray = useMemo(() => {
+    return allQuestions ? Array.from(allQuestions.values()) : undefined;
+  }, [allQuestions]);
+
   // Filter visible questions based on logic evaluation
   const visibleQuestions = useMemo(() => {
     if (!allQuestions || !responses) {
@@ -72,23 +77,18 @@ export const SurveySection: React.FC<SurveySectionProps> = ({
 
       {/* Questions */}
       {isExpanded && (
-        <div className="px-6 space-y-4 mt-4">
+        <div className="px-6 space-y-4 mt-4" key={Object.keys(responses).join(',')}>
           {visibleQuestions.map((question) => (
-            <div
+            <QuestionCard
               key={question.id}
-              className="transition-all duration-300 ease-in-out"
-              style={{
-                animation: 'fadeIn 0.3s ease-in-out'
-              }}
-            >
-              <QuestionCard
-                question={question}
-                value={responses[question.id]}
-                onChange={onResponseChange}
-                showBadges={showBadges}
-                showNotes={showNotes}
-              />
-            </div>
+              question={question}
+              value={responses[question.id]}
+              onChange={onResponseChange}
+              showBadges={showBadges}
+              showNotes={showNotes}
+              responses={responses}
+              allQuestions={allQuestionsArray}
+            />
           ))}
         </div>
       )}

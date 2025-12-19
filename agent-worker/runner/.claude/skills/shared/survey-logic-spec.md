@@ -421,35 +421,56 @@ Randomized (anchored: 6, 99):
 
 **Purpose**: Insert previous answer into question text
 
-**Format**: `{{QuestionID}}` or `{{QuestionID.optionLabel}}`
+**Supported Formats**:
+
+1. **Raw Response Value**: `[INSERT QUESTIONID]` or `[INSERT QUESTIONID RESPONSE]`
+   - Returns the actual answer value
+   - For multiple choice: returns comma-separated values
+   - Example: `[INSERT Q1]` → `"banana"` or `[INSERT Q4 RESPONSE]` → `"option1, option2"`
+
+2. **Option Label**: `[INSERT QUESTIONID LABEL]`
+   - Returns the display label(s) of selected option(s)
+   - For single choice: returns one label
+   - For multiple choice: returns comma-separated labels
+   - Example: `[INSERT Q1 LABEL]` → `"Strongly Agree"`
+
+3. **Legacy Custom Patterns** (backward compatibility):
+   - `[INSERT Q4.SUM]` - Custom calculation (sum of selected service prices)
+   - `[INSERT CONCEPT NAME]` - Custom concept name lookup
 
 **Example in Question Text**:
-```
-You mentioned {{Q1}}. Can you elaborate on why you chose that option?
-```
+```typescript
+// Raw value piping
+text: "You mentioned [INSERT Q1]. Can you elaborate on why you chose that?"
 
-**Example with Option Label**:
-```
-You selected {{Q5.selectedOptions}}. How satisfied are you with these brands?
+// Label piping (shows "Strongly Agree" instead of value "5")
+text: "You selected [INSERT Q1 LABEL]. Can you explain why?"
+
+// Multiple choice label piping
+text: "You selected [INSERT Q4 LABEL]. Would you like to add more?"
+
+// Legacy custom piping
+text: "Would you add these services for $[INSERT Q4.SUM]/month?"
 ```
 
 **Behavior**:
-- Replace placeholder with actual answer
-- If answer is empty, may show default text or hide question
-- Update dynamically as answers change
+- Placeholders are replaced with actual answers in real-time
+- If answer is empty, shows `[No response]` or `[No selection]`
+- Updates dynamically as answers change
+- Works in both respondent view and authoring view
 
 **Implementation**:
-```json
+```typescript
+// In question schema
 {
-  "questionText": "You mentioned {{Q1}}. Can you elaborate on why you chose that option?",
-  "piping": [
-    {
-      "placeholder": "{{Q1}}",
-      "sourceQuestionId": "Q1",
-      "type": "response"
-    }
-  ]
+  id: 'Q5',
+  type: 'single_choice',
+  text: 'You selected [INSERT Q1 LABEL]. How satisfied are you with this choice?',
+  // No separate piping array needed - patterns detected automatically
 }
+
+// The applyPiping function handles this automatically:
+// applyPiping(question.text, responses, allQuestions)
 ```
 
 ---
@@ -764,18 +785,27 @@ Notes:
 ```
 
 ### 11.6 Piping
-```json
+```typescript
 {
-  "questionId": "Q20",
-  "questionText": "You mentioned {{Q1}}. Can you elaborate?",
-  "piping": [
-    {
-      "placeholder": "{{Q1}}",
-      "sourceQuestionId": "Q1",
-      "type": "response",
-      "defaultText": "your answer"
-    }
-  ]
+  id: 'Q20',
+  type: 'text',
+  text: 'You mentioned [INSERT Q1]. Can you elaborate?',
+  // Piping is automatic - no separate configuration needed
+}
+
+// Or with label piping:
+{
+  id: 'Q21',
+  type: 'text',
+  text: 'You selected [INSERT Q1 LABEL]. Can you tell us more about this choice?',
+}
+
+// Multiple patterns supported:
+{
+  id: 'Q22',
+  type: 'single_choice',
+  text: 'Based on your selection of [INSERT Q4 LABEL], would you pay $[INSERT Q4.SUM]/month?',
+  // Mix of LABEL piping and custom SUM piping
 }
 ```
 

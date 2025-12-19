@@ -196,6 +196,35 @@ Before presenting survey:
 
 ---
 
+## 🔄 Piping/Text Substitution
+
+**Detect These Patterns:**
+```
+{{Q1}}, {Q1}, [Q1], <Q1>, $Q1$
+INSERT Q1 RESPONSE
+{{Q1 label}}, {Q1 option}
+```
+
+**Convert to Standard:**
+```
+[INSERT Q1]         → Raw value
+[INSERT Q1 LABEL]   → Option label
+[INSERT Q1.SUM]     → Custom calculation
+```
+
+**Examples:**
+```
+Questionnaire → Schema
+──────────────────────────────────────────
+"You said {{Q1}}"        → "You said [INSERT Q1]"
+"You chose {Q3 option}"  → "You chose [INSERT Q3 LABEL]"
+"Total: $sum of Q4$"     → "Total: $[INSERT Q4.SUM]"
+```
+
+**Works in:** Both authoring and respondent views automatically ✅
+
+---
+
 ## 📊 Matrix Table Format
 
 ```

@@ -155,15 +155,142 @@ export function calculateSelectedServicesPrice(selectedServices: string[]): numb
 }
 
 /**
- * Apply piping to question text
+ * Apply piping to question text - Enhanced with generic patterns
+ *
+ * Supported patterns:
+ * - [INSERT Q1] or [INSERT Q1 RESPONSE] - Shows the raw answer value
+ * - [INSERT Q1 LABEL] - Shows the label/text of the selected option(s)
+ * - [INSERT Q4.SUM] - Custom calculation (legacy support)
+ *
+ * Fallback patterns (if questionnaire parsing missed conversion):
+ * - {{Q1}}, {Q1}, <Q1> - Converts to raw value
+ * - {{Q1 label}}, {Q1 option} - Converts to label
+ *
+ * @param text - The text containing piping placeholders
+ * @param responses - All survey responses
+ * @param allQuestions - Optional: All questions for label lookups
  */
 export function applyPiping(
   text: string,
-  responses: Record<string, any>
+  responses: Record<string, any>,
+  allQuestions?: Question[]
 ): string {
   let result = text;
 
-  // Replace [INSERT Q4.SUM] with calculated price
+  // Debug logging
+  if (process.env.NODE_ENV === 'development' && text.includes('[INSERT')) {
+    console.log('🔄 Piping applied to:', text.substring(0, 80), '...', 'Responses:', Object.keys(responses));
+  }
+
+  // ========================================
+  // FALLBACK PATTERNS (for missed conversions)
+  // ========================================
+
+  // Fallback 1: Handle curly braces {{Q1}} → raw value
+  const curlyBracePattern = /\{\{([A-Z0-9_]+)(?:\s+response)?\}\}|\{([A-Z0-9_]+)(?:\s+response)?\}/gi;
+  result = result.replace(curlyBracePattern, (match, id1, id2) => {
+    const questionId = id1 || id2;
+    const response = responses[questionId];
+    if (response === undefined || response === null) return '[No response]';
+    if (Array.isArray(response)) return response.join(', ');
+    return response.toString();
+  });
+
+  // Fallback 2: Handle angle brackets <Q1> → raw value
+  const angleBracketPattern = /<([A-Z0-9_]+)(?:\s+response)?>/gi;
+  result = result.replace(angleBracketPattern, (match, questionId) => {
+    const response = responses[questionId];
+    if (response === undefined || response === null) return '[No response]';
+    if (Array.isArray(response)) return response.join(', ');
+    return response.toString();
+  });
+
+  // Fallback 3: Handle curly brace labels {{Q1 label}} → label
+  const curlyBraceLabelPattern = /\{\{([A-Z0-9_]+)(?:\s+label|\s+option(?:\s+text)?)\}\}|\{([A-Z0-9_]+)(?:\s+label|\s+option(?:\s+text)?)\}/gi;
+  result = result.replace(curlyBraceLabelPattern, (match, id1, id2) => {
+    const questionId = id1 || id2;
+    const response = responses[questionId];
+    if (response === undefined || response === null || !allQuestions) return '[No response]';
+
+    const question = allQuestions.find(q => q.id === questionId);
+    if (!question || !question.options) {
+      return Array.isArray(response) ? response.join(', ') : response.toString();
+    }
+
+    if (!Array.isArray(response)) {
+      const option = question.options.find(opt => opt.value === response || opt.id === response);
+      return option ? option.label : response.toString();
+    }
+
+    const labels = response
+      .map(val => {
+        const option = question.options!.find(opt => opt.value === val || opt.id === val);
+        return option ? option.label : val.toString();
+      })
+      .filter(Boolean);
+
+    return labels.length > 0 ? labels.join(', ') : '[No selection]';
+  });
+
+  // ========================================
+  // GENERIC PIPING PATTERNS
+  // ========================================
+
+  // Pattern 1: [INSERT {QUESTION_ID}] or [INSERT {QUESTION_ID} RESPONSE]
+  // Replace with raw answer value
+  const responsePattern = /\[INSERT\s+([A-Z0-9_]+)(?:\s+RESPONSE)?\]/gi;
+  result = result.replace(responsePattern, (match, questionId) => {
+    const response = responses[questionId];
+    if (response === undefined || response === null) {
+      return '[No response]';
+    }
+
+    // Handle arrays (multiple choice)
+    if (Array.isArray(response)) {
+      return response.join(', ');
+    }
+
+    return response.toString();
+  });
+
+  // Pattern 2: [INSERT {QUESTION_ID} LABEL]
+  // Replace with the label(s) of selected option(s)
+  const labelPattern = /\[INSERT\s+([A-Z0-9_]+)\s+LABEL\]/gi;
+  result = result.replace(labelPattern, (match, questionId) => {
+    const response = responses[questionId];
+    if (response === undefined || response === null || !allQuestions) {
+      return '[No response]';
+    }
+
+    // Find the question in the survey
+    const question = allQuestions.find(q => q.id === questionId);
+    if (!question || !question.options) {
+      // If no options (e.g., text question), return raw value
+      return Array.isArray(response) ? response.join(', ') : response.toString();
+    }
+
+    // Handle single choice (response is a value)
+    if (!Array.isArray(response)) {
+      const option = question.options.find(opt => opt.value === response || opt.id === response);
+      return option ? option.label : response.toString();
+    }
+
+    // Handle multiple choice (response is an array)
+    const labels = response
+      .map(val => {
+        const option = question.options!.find(opt => opt.value === val || opt.id === val);
+        return option ? option.label : val.toString();
+      })
+      .filter(Boolean);
+
+    return labels.length > 0 ? labels.join(', ') : '[No selection]';
+  });
+
+  // ========================================
+  // LEGACY PATTERNS (Backward Compatibility)
+  // ========================================
+
+  // Legacy: Replace [INSERT Q4.SUM] with calculated price
   if (result.includes('[INSERT Q4.SUM]')) {
     const q4Response = responses['Q4'];
     if (Array.isArray(q4Response)) {
@@ -172,13 +299,7 @@ export function applyPiping(
     }
   }
 
-  // Replace [INSERT S11 RESPONSE] with number of lines
-  if (result.includes('[INSERT S11 RESPONSE]')) {
-    const s11Response = responses['S11'];
-    result = result.replace('[INSERT S11 RESPONSE]', s11Response?.toString() || '');
-  }
-
-  // Replace [INSERT CONCEPT NAME] with concept name
+  // Legacy: Replace [INSERT CONCEPT NAME] with concept name
   if (result.includes('[INSERT CONCEPT NAME]')) {
     const conceptAssignment = responses['CONCEPT_ASSIGNMENT'];
     const conceptNames: Record<string, string> = {
@@ -186,7 +307,7 @@ export function applyPiping(
       '2': 'Enhanced Network',
       '3': 'Enhanced Network Plus'
     };
-    result = result.replace('[INSERT CONCEPT NAME]', conceptNames[conceptAssignment] || '');
+    result = result.replace('[INSERT CONCEPT NAME]', conceptNames[conceptAssignment] || '[Concept not assigned]');
   }
 
   return result;

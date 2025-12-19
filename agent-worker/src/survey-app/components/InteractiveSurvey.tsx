@@ -169,6 +169,8 @@ export const InteractiveSurvey: React.FC<InteractiveSurveyProps> = ({
         onChange={handleResponseChange}
         showBadges={showBadges}
         showNotes={showNotes}
+        responses={responses}
+        allQuestions={allQuestions}
       />
 
       {/* Navigation Buttons */}

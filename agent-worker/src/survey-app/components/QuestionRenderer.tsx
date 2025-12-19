@@ -8,18 +8,20 @@ import { applyPiping } from '../lib/logic-evaluator';
 interface QuestionRendererProps {
   question: Question;
   onComplete: (value: any) => void;
+  allQuestions?: Question[]; // Optional: for piping label lookups
 }
 
 export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   question,
-  onComplete
+  onComplete,
+  allQuestions
 }) => {
   const { responses, setResponse } = useSurvey();
   const [currentValue, setCurrentValue] = useState<any>(responses[question.id] || '');
   const [error, setError] = useState<string>('');
 
   // Apply piping to question text
-  const questionText = applyPiping(question.text, responses);
+  const questionText = applyPiping(question.text, responses, allQuestions);
 
   useEffect(() => {
     // Load existing response if any

@@ -148,6 +148,15 @@ Verify real-time evaluation works:
 - Display conditions
 - Dynamic options
 - Branching flows
+- **Piping/text substitution** (displays previous answers in question text)
+
+**Piping in Respondent View:**
+- Automatically replaces `[INSERT Q#]` with answer values
+- Replaces `[INSERT Q# LABEL]` with option labels
+- Updates in real-time as user answers questions
+- Shows `[No response]` if question not yet answered
+- Works for all question types (single choice, multiple choice, text, etc.)
+- Implementation: QuestionRenderer receives `allQuestions` prop for label lookups
 
 ### Step 5: Apply Theme Consistency
 
