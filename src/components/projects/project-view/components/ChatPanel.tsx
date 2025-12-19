@@ -274,6 +274,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		const [composerHeight, setComposerHeight] = useState(120);
 		const [lastDeltaTime, setLastDeltaTime] = useState<number>(0);
 		const [isProcessing, setIsProcessing] = useState(false);
+		const [statusMessage, setStatusMessage] = useState<string | null>(null);
 		const [isQAExpanded, setIsQAExpanded] = useState(true);
 		const [isFixingExpanded, setIsFixingExpanded] = useState(true);
 
@@ -449,6 +450,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 						if (data.text) {
 							setLastDeltaTime(Date.now());
 							setIsProcessing(false);
+							setStatusMessage(null); // Clear status when text arrives
 							if (!sawAnyDelta) {
 								sawAnyDelta = true;
 								recordMilestone(
@@ -500,17 +502,32 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				// Session ID is handled server-side
 			});
 
+			es.addEventListener("status", (event) => {
+				try {
+					const data = JSON.parse(event.data);
+					if (data.message) {
+						setStatusMessage(data.message);
+						setIsProcessing(true);
+					}
+				} catch {
+					// Ignore parse errors
+				}
+			});
+
 			es.addEventListener("done", () => {
 				es.close();
 				setIsStreaming(false);
 				setActiveRunId(null);
 				setIsProcessing(false);
+				setStatusMessage(null);
 				// Mark message as complete
 				onMessagesChange((prev) =>
 					prev.map((m) =>
 						m.id === assistantMessageId ? { ...m, status: "complete" } : m
 					)
 				);
+				// Restart the preview server after chat completes
+				startEnsureLoop();
 				// Clear the tracked user message on successful completion
 				currentUserMessageRef.current = null;
 				inputRef.current?.focus();
@@ -556,6 +573,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 					setIsStreaming(false);
 					setActiveRunId(null);
 					setIsProcessing(false);
+					setStatusMessage(null);
 
 					// Remove both user and assistant messages, restore to input
 					onMessagesChange((prev) =>
@@ -647,6 +665,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				setIsStreaming(false);
 				setActiveRunId(null);
 				setIsProcessing(false);
+				setStatusMessage(null);
 
 				await fetch(`/api/projects/${projectId}/chat/cancel`, {
 					method: "POST",
@@ -868,9 +887,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				)}
 
 					{isProcessing && (
-							<div className="flex items-center gap-2 py-1 text-sm text-gray-400 italic animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out">
-								<Loader2 className="h-3 w-3 animate-spin text-gray-400 ml-2" />
-								<span>Agent is processing...</span>
+							<div className="flex items-center gap-2 pl-4 py-1 text-sm text-gray-400 italic animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out">
+								<Loader2 className="h-3 w-3 animate-spin text-gray-400" />
+								<span>{statusMessage || "Agent is processing"}</span>
+		
 							</div>
 						)}
 						<div

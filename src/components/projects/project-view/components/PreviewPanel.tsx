@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useMemo, useEffect } from "react";
+import { memo, useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { FileText, Loader2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,22 +15,61 @@ export const PreviewPanel = memo(function PreviewPanel({
 	isLoadingPreview,
 	className,
 }: PreviewPanelProps) {
-	const [previewEndpoint, setPreviewEndpoint] = useState<"/" | "/s/preview">("/");
+	const [previewEndpoint, setPreviewEndpoint] = useState<"/" | "//s/preview">("/");
 	const [iframeKey, setIframeKey] = useState(0);
+	const [iframeStatus, setIframeStatus] = useState<"loading" | "ready" | "error">("loading");
+	const iframeRef = useRef<HTMLIFrameElement>(null);
+	const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
 	// Reset to default endpoint when previewUrl changes
 	useEffect(() => {
 		setPreviewEndpoint("/");
 		setIframeKey(0);
+		setIframeStatus("loading");
 	}, [previewUrl]);
 
 	// Force iframe reload when endpoint changes
 	useEffect(() => {
 		setIframeKey((prev) => prev + 1);
+		setIframeStatus("loading");
 	}, [previewEndpoint]);
+
+	// Auto-retry when error
+	useEffect(() => {
+		if (iframeStatus === "error") {
+			retryTimeoutRef.current = setTimeout(() => {
+				setIframeKey((prev) => prev + 1);
+				setIframeStatus("loading");
+			}, 3000); // Retry every 3 seconds
+		}
+		return () => {
+			if (retryTimeoutRef.current) {
+				clearTimeout(retryTimeoutRef.current);
+			}
+		};
+	}, [iframeStatus]);
+
+	const handleIframeLoad = useCallback(() => {
+		// Check if iframe loaded successfully by trying to access its content
+		try {
+			const iframe = iframeRef.current;
+			if (iframe?.contentWindow) {
+				// If we can access the document and it has a body, it's likely loaded
+				setIframeStatus("ready");
+			}
+		} catch {
+			// Cross-origin error means the page loaded (different origin)
+			setIframeStatus("ready");
+		}
+	}, []);
+
+	const handleIframeError = useCallback(() => {
+		setIframeStatus("error");
+	}, []);
 
 	const handleRefresh = () => {
 		setIframeKey((prev) => prev + 1);
+		setIframeStatus("loading");
 	};
 
 	const iframeUrl = useMemo(() => {
@@ -97,15 +136,33 @@ export const PreviewPanel = memo(function PreviewPanel({
 							</p>
 						</div>
 					</div>
-				) : iframeUrl ? (
+			) : iframeUrl ? (
+				<div className="relative w-full h-full">
 					<iframe
+						ref={iframeRef}
 						key={iframeKey}
 						src={iframeUrl}
-						className="w-full h-full border-0"
+						className={cn(
+							"w-full h-full border-0",
+							iframeStatus !== "ready" && "invisible"
+						)}
 						title="Preview"
 						sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+						onLoad={handleIframeLoad}
+						onError={handleIframeError}
 					/>
-				) : (
+					{iframeStatus !== "ready" && (
+						<div className="absolute inset-0 bg-gray-50 flex items-center justify-center">
+							<div className="text-center">
+								<Loader2 className="h-6 w-6 animate-spin text-gray-400 mx-auto mb-3" />
+								<p className="text-sm text-gray-500">
+									Previewing...
+								</p>
+							</div>
+						</div>
+					)}
+				</div>
+			) : (
 					<div className="absolute inset-0 flex items-center justify-center">
 						<div className="text-center max-w-xs">
 							<div className="w-12 h-12 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">

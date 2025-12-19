@@ -8,9 +8,30 @@
       "MultiEdit(*)",
       "Glob(*)",
       "Grep(*)",
-      "LS(*)"
+      "LS(*)",
+      "Task(*)",
+      "WebSearch(*)",
+      "WebFetch(*)",
+      "Skill(*)",
+      "TodoWrite(*)"
     ],
     "deny": []
   },
+  "allowedTools": [
+    "Task",
+    "Bash",
+    "Glob",
+    "Grep",
+    "LS",
+    "Read",
+    "Edit",
+    "MultiEdit",
+    "Write",
+    "WebFetch",
+    "WebSearch",
+    "Skill",
+    "TodoWrite"
+  ],
+  "enableAllProjectMcpServers": true,
   "enableSkills": true
 }

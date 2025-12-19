@@ -10,11 +10,12 @@ import { Buffer } from "node:buffer";
 
 interface RunEvent {
 	seq: number;
-	type: "delta" | "session_id" | "done" | "error" | "milestone";
+	type: "delta" | "session_id" | "done" | "error" | "milestone" | "status";
 	text?: string;
 	sessionId?: string;
 	error?: string;
 	name?: string;
+	message?: string; // For status events
 	source?: "runner";
 	tsMs?: number;
 	tsIso?: string;
@@ -149,6 +150,11 @@ class EventLogger {
 		this.seq++;
 		this.accumulatedContent += text;
 		this.writeEvent({ seq: this.seq, type: "delta", text });
+	}
+
+	status(message: string): void {
+		this.seq++;
+		this.writeEvent({ seq: this.seq, type: "status", message });
 	}
 
 	setSessionId(sessionId: string): void {
@@ -358,12 +364,21 @@ async function main() {
 	const isNewSession = !existingSessionId;
 
 	// First turn: include the research objective as context.
-	let promptPrefix = "You are a research assistant.";
+	// Master agent delegates implementation to subagents via Task tool.
+	let promptPrefix = `You are a Research Manager helping users create surveys.
+
+You have two subagents available via the Task tool:
+- "survey-builder": For ALL file operations, code generation, and survey building
+- "file-analyzer": For searching and analyzing files in user_files/
+
+ALWAYS use Task to delegate implementation work. Summarize results in plain language.
+When searching for files, check user_files/ directory. PRIORITIZE .md files!
+
+Follow the skills in .claude/skills/ for all specifications.
+
+`;
 	if (researchObjective && isNewSession) {
-		promptPrefix =
-			"You are a research assistant. Use the following context.\n\nContext:\n" +
-			researchObjective +
-			"\n\n";
+		promptPrefix += "Research Context:\n" + researchObjective + "\n\n";
 	}
 	const perTurnPrefix = "";
 	const messageToSend = isNewSession
@@ -400,25 +415,60 @@ async function main() {
 		includePartialMessages: true,
 		// Resume an existing session if we have one.
 		...(existingSessionId ? { resume: existingSessionId } : {}),
-		// Use Claude Code's default toolset and system prompt.
+		// Master agent uses Task to delegate to subagents
 		allowedTools: [
-			"Glob",
-			"Grep",
-			"WebSearch",
-			"WebFetch",
-			"Task",
-			"Read",
-			"Write",
-			"Edit",
-			"Bash",
-			"TodoWrite",
-			"Skill",
+			"Task",        // For spawning subagents
+			"WebSearch",   // For research  
+			"WebFetch",    // For fetching web content
+			"Glob",        // Fallback file search
+			"Read",        // Fallback file read
 		],
+		// Define subagents for implementation work
+		agents: {
+			"survey-builder": {
+				description: "Expert survey and web-app builder. Use for ALL file operations, code writing, editing, and bash commands. Delegate any implementation, file creation, or code changes to this agent.",
+				prompt: `You are a Survey Builder specialist. You handle all technical implementation.
+
+IMPORTANT: You have FULL permission to read/write/edit files and run commands. Do NOT ask for permission.
+
+Tasks you handle:
+- Reading and parsing files from user_files/
+- Creating survey schemas in app/data/
+- Writing and editing code files
+- Building survey UI components
+- Running bash commands
+
+Dev server: ALWAYS use HOSTNAME=0.0.0.0 PORT=3001 npm run dev
+
+Follow skills in .claude/skills/ for specifications.
+Be thorough and complete all tasks. Return a concise summary.`,
+				tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Skill", "TodoWrite"],
+			},
+			"file-analyzer": {
+				description: "File analysis specialist. Use when user mentions questionnaire, qnr, question, uploaded file, or needs to search/read files.",
+				prompt: `You are a File Analyzer. You search and analyze files.
+
+IMPORTANT: You have FULL permission to read files. Do NOT ask for permission.
+
+Tasks:
+- Search user_files/ for questionnaires and documents
+- PRIORITIZE .md files - questionnaires are often in markdown!
+- Also check .txt, .docx, .pdf files
+- Read and parse file contents
+- Count questions, sections, analyze structure
+
+Return clear summaries of what you found.`,
+				tools: ["Read", "Glob", "Grep"],
+			},
+		},
+		// Bypass ALL permissions (container now runs as non-root user 'claude')
+		allowDangerouslySkipPermissions: true,
+		permissionMode: "bypassPermissions" as const,
+		// Use claude_code preset system prompt
 		systemPrompt: { type: "preset" as const, preset: "claude_code" as const },
-		// Note: Cannot use allowDangerouslySkipPermissions when running as root
-		// The bypassPermissions mode should handle this without the dangerous flag
-		settingSources: ['project'],
-		persistSession: true
+		// Load user + project settings (for permissions and CLAUDE.md/skills)
+		settingSources: ["user", "project"] as ("user" | "project")[],
+		persistSession: true,
 	};
 
 	// Make the Agent SDK treat working_directory/ as the current working directory.
@@ -483,23 +533,60 @@ async function main() {
 			}
 
 			if (
-				!wroteAnyText &&
 				msg.type === "assistant" &&
 				msg.message &&
 				Array.isArray(msg.message.content)
 			) {
+				// Check for tool_use blocks and emit status updates
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				const text = msg.message.content
-					.filter((b: any) => b && b.type === "text")
-					.map((b: any) => b.text)
-					.join("");
-				if (text) {
-					if (eventLogger) {
-						eventLogger.delta(text);
-					} else {
-						process.stdout.write(text);
+				for (const block of msg.message.content as any[]) {
+					if (block?.type === "tool_use" && eventLogger) {
+						const toolName = block.name || "unknown";
+						let statusMsg = "";
+						
+						if (toolName === "Task") {
+							// Subagent being spawned
+							const agentName = block.input?.agent || "subagent";
+							const agentLabels: Record<string, string> = {
+								"survey-builder": "Building survey",
+								"file-analyzer": "Analyzing files",
+							};
+							statusMsg = agentLabels[agentName] || `Running ${agentName}`;
+						} else if (toolName === "Bash") {
+							statusMsg = "Running command";
+						} else if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
+							statusMsg = "Writing code";
+						} else if (toolName === "Read" || toolName === "Glob" || toolName === "Grep") {
+							statusMsg = "Searching files";
+						} else if (toolName === "WebSearch" || toolName === "WebFetch") {
+							statusMsg = "Researching";
+						} else if (toolName === "Skill") {
+							statusMsg = "Loading skill";
+						} else {
+							statusMsg = `Using ${toolName}`;
+						}
+						
+						if (statusMsg) {
+							eventLogger.status(statusMsg);
+						}
 					}
-					wroteAnyText = true;
+				}
+
+				// Extract text content for display
+				if (!wroteAnyText) {
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					const text = msg.message.content
+						.filter((b: any) => b && b.type === "text")
+						.map((b: any) => b.text)
+						.join("");
+					if (text) {
+						if (eventLogger) {
+							eventLogger.delta(text);
+						} else {
+							process.stdout.write(text);
+						}
+						wroteAnyText = true;
+					}
 				}
 			}
 

@@ -1,27 +1,27 @@
 ---
 name: survey-hosted
-description: Implements hosted survey runtime for respondents using the existing Next.js app at ../src/survey-app as boilerplate. Typically auto-triggered after survey-generation skill completes. Updates existing routes in ../src/survey-app/app/s/preview/ for welcome screen, question screens, navigation (Previous/Next), progress tracking, logic evaluation, and thank you screen. NEVER creates apps from scratch - always modifies existing boilerplate. Keyword triggers - hosted survey, survey runtime, respondent experience, survey flow, implement survey, build survey, deploy survey.
+description: Implements hosted survey runtime for respondents using the existing Next.js app at app as boilerplate. Typically auto-triggered after survey-generation skill completes. Updates existing routes in app/app/s/preview/ for welcome screen, question screens, navigation (Previous/Next), progress tracking, logic evaluation, and thank you screen. NEVER creates apps from scratch - always modifies existing boilerplate. Keyword triggers - hosted survey, survey runtime, respondent experience, survey flow, implement survey, build survey, deploy survey.
 ---
 
 # Survey Hosted Skill
 
 ## Purpose
 
-This skill provides specifications for updating the **hosted survey runtime** in the existing `../src/survey-app` application - the actual survey experience that respondents take.
+This skill provides specifications for updating the **hosted survey runtime** in the existing `app` application - the actual survey experience that respondents take.
 
 ## Boilerplate Application
 
-**CRITICAL:** Always use the existing Next.js app at `../src/survey-app` as the foundation:
+**CRITICAL:** Always use the existing Next.js app at `app` as the foundation:
 
-- **Location:** `../src/survey-app/app/s/preview/` directory
+- **Location:** `app/app/s/preview/` directory
 - **Never create from scratch:** Always modify existing routes
 - **Existing routes:**
-  - `../src/survey-app/app/s/preview/page.tsx` - Welcome screen
-  - `../src/survey-app/app/s/preview/question/page.tsx` - Question screens
-  - `../src/survey-app/app/s/preview/complete/page.tsx` - Thank you screen
-  - `../src/survey-app/app/s/preview/terminate/page.tsx` - Termination screen
-- **Components:** Reuse from `../src/survey-app/components/`
-- **Theme:** Already implemented in `../src/survey-app/app/globals.css`
+  - `app/app/s/preview/page.tsx` - Welcome screen
+  - `app/app/s/preview/question/page.tsx` - Question screens
+  - `app/app/s/preview/complete/page.tsx` - Thank you screen
+  - `app/app/s/preview/terminate/page.tsx` - Termination screen
+- **Components:** Reuse from `app/components/`
+- **Theme:** Already implemented in `app/app/globals.css`
 
 ## CRITICAL ROUTING RULES ⚠️
 
@@ -75,10 +75,10 @@ Use this skill independently when the user:
 
 ### Step 1: Understand the Boilerplate Structure
 
-**ALWAYS work with existing routes in `../src/survey-app/app/s/preview/`:**
+**ALWAYS work with existing routes in `app/app/s/preview/`:**
 
 ```
-../src/survey-app/app/s/preview/
+app/app/s/preview/
 ├── page.tsx                    # Welcome screen (already exists)
 ├── question/page.tsx           # Question screens (already exists)
 ├── complete/page.tsx           # Thank you screen (already exists)
@@ -89,8 +89,8 @@ Use this skill independently when the user:
 ### Step 2: Understand the Scope
 
 The hosted survey is different from the questionnaire view:
-- **Questionnaire view** (`../src/survey-app/app/page.tsx`) = Design/authoring interface (shows all questions)
-- **Hosted survey** (`../src/survey-app/app/s/preview/*`) = Respondent-facing experience (one question at a time)
+- **Questionnaire view** (`app/app/page.tsx`) = Design/authoring interface (shows all questions)
+- **Hosted survey** (`app/app/s/preview/*`) = Respondent-facing experience (one question at a time)
 
 This skill is for updating the hosted survey (respondent experience).
 
@@ -114,12 +114,12 @@ Thank You Screen (/s/preview/complete)
 **Do NOT create new routes. Update existing ones:**
 
 #### A. Welcome Screen
-- Update `../src/survey-app/app/s/preview/page.tsx`
+- Update `app/app/s/preview/page.tsx`
 - Ensure it reads the correct survey schema
 - Maintain existing structure and theme
 
 #### B. Question Screens
-- Update `../src/survey-app/app/s/preview/question/page.tsx`
+- Update `app/app/s/preview/question/page.tsx`
 - Verify navigation logic works with updated schema
 - Reuse existing QuestionRenderer component
 
@@ -192,7 +192,7 @@ Reference: `../shared/survey-ui-theme.md`
 ### Step 7: Verify Implementation
 
 Check that existing functionality works:
-- [ ] Routes exist at `../src/survey-app/app/s/preview/*`
+- [ ] Routes exist at `app/app/s/preview/*`
 - [ ] Welcome screen displays correct survey
 - [ ] Question screens navigate properly
 - [ ] Thank you screen displays on completion
@@ -228,7 +228,7 @@ Check that existing functionality works:
 **User:** "Make sure the hosted survey works with the updated questionnaire"
 
 **Action:**
-1. Verify existing routes at `../src/survey-app/app/s/preview/*`
+1. Verify existing routes at `app/app/s/preview/*`
 2. Check welcome screen reads correct survey schema
 3. Confirm question screens navigate properly with updated schema
 4. Test logic evaluation with new questions/conditions
@@ -249,7 +249,7 @@ Check that existing functionality works:
 **User:** "Update the hosted survey to show estimated time"
 
 **Action:**
-1. Read `../src/survey-app/app/s/preview/question/page.tsx`
+1. Read `app/app/s/preview/question/page.tsx`
 2. Add time estimation logic, default should be 5 mins.
 3. Update UI to display estimated time
 4. Maintain existing theme and structure
@@ -296,10 +296,10 @@ function evaluateCondition(
 ## Critical Requirements
 
 ### Always:
-- Work within existing `../src/survey-app/app/s/preview/*` routes
+- Work within existing `app/app/s/preview/*` routes
 - Update existing route files, don't recreate them
-- Preserve theme in `../src/survey-app/app/globals.css`
-- Reuse existing components from `../src/survey-app/components/`
+- Preserve theme in `app/app/globals.css`
+- Reuse existing components from `app/components/`
 - Verify all features work with updated schema
 - Maintain same theme as questionnaire view
 - Keep mobile responsive design
@@ -318,7 +318,7 @@ function evaluateCondition(
 
 ### Never:
 - Create new Next.js app from scratch
-- Modify `../src/survey-app/app/globals.css` theme
+- Modify `app/app/globals.css` theme
 - Recreate existing routes unnecessarily
 - Change theme colors, fonts, or spacing
 - Show metadata badges to respondents
@@ -328,7 +328,7 @@ function evaluateCondition(
 ## Success Criteria
 
 A successful hosted survey update means:
-- Existing routes at `../src/survey-app/app/s/preview/*` work correctly
+- Existing routes at `app/app/s/preview/*` work correctly
 - Respondents can complete survey start to finish
 - Navigation works with updated schema (Previous/Next)
 - Logic evaluates properly with new questions/conditions
@@ -345,18 +345,18 @@ A successful hosted survey update means:
 ### Sequential Workflow
 The hosted survey is typically part of a two-step process:
 
-1. **survey-generation skill** updates questionnaire schema in `../src/survey-app/data/`
+1. **survey-generation skill** updates questionnaire schema in `app/data/`
 2. **survey-hosted skill** (this skill, auto-triggered) verifies hosted routes work with updated schema
 
 ### Data Flow
-1. Survey-generation updates schema in `../src/survey-app/data/`
-2. Hosted routes at `../src/survey-app/app/s/preview/*` read the updated schema
+1. Survey-generation updates schema in `app/data/`
+2. Hosted routes at `app/app/s/preview/*` read the updated schema
 3. Respondents take the survey using hosted experience
 4. Responses are collected and stored in localStorage
 5. Both authoring and hosted views use the same boilerplate app
 
 ### Theme Consistency
-Both skills use the **exact same theme** from `../src/survey-app/app/globals.css` for consistency. The authoring view (`../src/survey-app/app/page.tsx`) and respondent experience (`../src/survey-app/app/s/preview/*`) are visually aligned (same colors, fonts, spacing, components).
+Both skills use the **exact same theme** from `app/app/globals.css` for consistency. The authoring view (`app/app/page.tsx`) and respondent experience (`app/app/s/preview/*`) are visually aligned (same colors, fonts, spacing, components).
 
 ---
 
@@ -365,7 +365,7 @@ Both skills use the **exact same theme** from `../src/survey-app/app/globals.css
 **IMPORTANT:** After completing ALL work for both survey-generation and survey-hosted skills, start the development server:
 
 ### Action Required:
-1. Navigate to the survey-app directory: `cd ../src/survey-app`
+1. Navigate to the survey-app directory: `cd app`
 2. Start the Next.js development server: `npm run dev`
 
 ### When to Execute:
