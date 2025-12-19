@@ -476,7 +476,7 @@ export function ProjectView({
 									/>
 									) : (
 										<PreviewPanel
-											previewUrl={`${previewUrl}/s/preview`}
+											previewUrl={`${previewUrl}s/preview`}
 											isLoadingPreview={isLoadingPreview}
 											className="flex-1"
 										/>
