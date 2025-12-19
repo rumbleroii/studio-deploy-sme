@@ -1,15 +1,33 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { sampleSurvey } from '../../../../data/sample-survey';
 import { useSurvey } from '../../../../lib/survey-context';
-import { QuestionRenderer } from '../../../../components/QuestionRenderer';
 import {
   getNextQuestionId,
   validateResponse,
   shouldShowQuestion
 } from '../../../../lib/logic-evaluator';
+
+// Lazy load QuestionRenderer for better performance
+const QuestionRenderer = lazy(() => import('../../../../components/QuestionRenderer').then(mod => ({ default: mod.QuestionRenderer })));
+
+// Loading fallback for question
+const QuestionLoader = () => (
+  <div className="bg-white rounded-lg shadow-lg p-8 animate-pulse">
+    <div className="space-y-4">
+      <div className="h-6 bg-gray-200 rounded w-3/4"></div>
+      <div className="h-4 bg-gray-200 rounded w-full"></div>
+      <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+      <div className="space-y-2 mt-6">
+        <div className="h-10 bg-gray-200 rounded"></div>
+        <div className="h-10 bg-gray-200 rounded"></div>
+        <div className="h-10 bg-gray-200 rounded"></div>
+      </div>
+    </div>
+  </div>
+);
 
 interface PageProps {
   params: Promise<{ surveyId: string }>;
@@ -113,14 +131,16 @@ export default function QuestionPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Question Card */}
+        {/* Question Card with lazy loading */}
         <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
-          <QuestionRenderer
-            question={currentQuestion}
-            onComplete={(value) => {
-              // Response is already saved via context
-            }}
-          />
+          <Suspense fallback={<QuestionLoader />}>
+            <QuestionRenderer
+              question={currentQuestion}
+              onComplete={(value) => {
+                // Response is already saved via context
+              }}
+            />
+          </Suspense>
 
           {error && (
             <div className="mt-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700">

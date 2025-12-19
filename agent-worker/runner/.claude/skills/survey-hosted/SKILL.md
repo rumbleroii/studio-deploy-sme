@@ -221,6 +221,7 @@ Check that existing functionality works:
 7. **../shared/survey-logic-spec.md** - Logic evaluation (referenced for implementation)
 8. **../shared/survey-question-types.md** - Question rendering formats
 9. **../shared/survey-components-spec.md** - Component specifications
+10. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
 
 ## Examples
 
@@ -304,6 +305,10 @@ function evaluateCondition(
 - Maintain same theme as questionnaire view
 - Keep mobile responsive design
 - Maintain accessibility features
+- **MAINTAIN all performance optimizations** (lazy loading, code splitting, Suspense, good web vital scores)
+- Keep `app/next.config.js` optimization settings intact
+- Use lazy loading for QuestionRenderer with Suspense
+- Preserve loading.tsx files in all routes
 
 ### Verify These Features Exist and Work:
 - Welcome screen with start button
@@ -322,6 +327,10 @@ function evaluateCondition(
 - Recreate existing routes unnecessarily
 - Change theme colors, fonts, or spacing
 - Show metadata badges to respondents
+- **Remove or modify performance optimizations** in next.config.js
+- Remove lazy loading or Suspense wrappers from QuestionRenderer
+- Delete loading.tsx files
+- Add heavy imports without lazy loading
 - Display notes sections to respondents
 - Skip testing with updated schema
 

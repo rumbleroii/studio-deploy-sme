@@ -1,10 +1,24 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, lazy, Suspense } from 'react';
 import Link from 'next/link';
 import { sampleSurvey } from '../data/sample-survey';
-import { SurveySection } from '../components/SurveySection';
 import { Question } from '../types/survey';
+
+// Lazy load the SurveySection component for better performance
+const SurveySection = lazy(() => import('../components/SurveySection').then(mod => ({ default: mod.SurveySection })));
+
+// Loading fallback component
+const SectionLoader = () => (
+  <div className="bg-white rounded-lg border border-gray-200 p-6 animate-pulse">
+    <div className="h-6 bg-gray-200 rounded w-1/3 mb-4"></div>
+    <div className="space-y-3">
+      <div className="h-4 bg-gray-200 rounded w-full"></div>
+      <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+      <div className="h-4 bg-gray-200 rounded w-4/6"></div>
+    </div>
+  </div>
+);
 
 export default function HomePage() {
   const survey = sampleSurvey;
@@ -92,21 +106,22 @@ export default function HomePage() {
       {/* Questionnaire Label */}
       <h2 className="section-title mb-6">Questionnaire</h2>
 
-      {/* Survey Sections */}
+      {/* Survey Sections with lazy loading */}
       <div>
         {survey.sections.map((section, idx) => (
-          <SurveySection
-            key={section.id}
-            section={section}
-            sectionNumber={idx + 1}
-            showBadges={true}
-            showNotes={true}
-            defaultExpanded={true}
-            responses={responses}
-            allQuestions={allQuestions}
-            orderedQuestionIds={orderedQuestionIds}
-            onResponseChange={handleResponseChange}
-          />
+          <Suspense key={section.id} fallback={<SectionLoader />}>
+            <SurveySection
+              section={section}
+              sectionNumber={idx + 1}
+              showBadges={true}
+              showNotes={true}
+              defaultExpanded={true}
+              responses={responses}
+              allQuestions={allQuestions}
+              orderedQuestionIds={orderedQuestionIds}
+              onResponseChange={handleResponseChange}
+            />
+          </Suspense>
         ))}
       </div>
 

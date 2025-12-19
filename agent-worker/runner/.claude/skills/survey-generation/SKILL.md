@@ -173,6 +173,7 @@ From `survey-generation-guide.md`, verify:
 5. **../shared/survey-components-spec.md** - Component specifications
 6. **../shared/survey-question-types.md** - All question type formats
 7. **../shared/survey-logic-spec.md** - Logic display and badges
+8. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
 
 ## Examples
 
@@ -232,6 +233,10 @@ From `survey-generation-guide.md`, verify:
 - Apply logic badges with correct colors (#3D1C35 primary, #E0BFD8 show conditions)
 - Include notes sections (light maroon background #E0BFD8, maroon border #3D1C35)
 - Use 20px radio buttons and checkboxes
+- **MAINTAIN all performance optimizations** (lazy loading, code splitting, Suspense)
+- Keep `app/next.config.js` optimization settings intact
+- Use lazy loading for heavy components with Suspense fallbacks
+- Add loading.tsx files for new routes
 
 ### Never:
 
@@ -243,6 +248,10 @@ From `survey-generation-guide.md`, verify:
 - Use inconsistent formatting
 - Deviate from specifications
 - Make "creative" changes to theme or structure
+- **Remove or modify performance optimizations** in next.config.js
+- Remove lazy loading or Suspense wrappers from components
+- Delete loading.tsx files or loading states
+- Add heavy dependencies without dynamic imports
 
 ## Success Criteria
 
