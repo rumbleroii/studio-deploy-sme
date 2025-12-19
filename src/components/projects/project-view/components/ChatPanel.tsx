@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Loader2, Square } from "lucide-react";
+import { Send, Loader2, Square, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Message } from "../types";
 import { MarkdownMessage } from "./MarkdownMessage";
@@ -42,6 +42,19 @@ function newTraceId(): string {
 	return `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+export interface QACheck {
+	id: string;
+	name: string;
+	status: "pending" | "running" | "passed" | "failed";
+	message?: string;
+}
+
+export interface FailedCheck {
+	id: string;
+	code: string;
+	summary: string;
+}
+
 interface MessageBubbleProps {
 	message: Message;
 }
@@ -59,17 +72,165 @@ const MessageBubble = memo(function MessageBubble({
 			)}
 		>
 			{message.role === "user" ? (
-				<div className="max-w-[80%] rounded-2xl border border-gray-200 bg-gray-100/60 px-4 py-2.5 text-sm leading-relaxed text-gray-900 shadow-[0_1px_0_rgba(0,0,0,0.02)]">
+				<div className="max-w-[80%] rounded-2xl border border-gray-200 bg-gray-100/60 px-4 mx-4 py-2.5 text-sm leading-relaxed text-gray-900 shadow-[0_1px_0_rgba(0,0,0,0.02)]">
 					<MarkdownMessage
 						className="text-gray-900 leading-6"
 						content={content}
 					/>
 				</div>
 			) : (
-				<div className="max-w-[70ch] py-1 text-sm leading-7 text-gray-900">
+				<div className="max-w-[70ch] py-1 mx-4 text-sm leading-7 text-gray-900">
 					<MarkdownMessage content={content} />
 				</div>
 			)}
+		</div>
+	);
+});
+
+const QACheckItem = memo(function QACheckItem({ check }: { check: QACheck }) {
+	const getStatusIcon = () => {
+		switch (check.status) {
+			case "passed":
+				return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+			case "failed":
+				return <XCircle className="h-4 w-4 text-red-500" />;
+			case "running":
+				return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
+			default:
+				return <Clock className="h-4 w-4 text-gray-400" />;
+		}
+	};
+
+	return (
+		<div className="flex items-start gap-3 py-1.5">
+			<div className="mt-0.5">{getStatusIcon()}</div>
+			<div className="flex-1 min-w-0">
+				<div className="text-sm text-gray-900">{check.name}</div>
+				{check.message && (
+					<div className="text-xs text-gray-600 mt-0.5">{check.message}</div>
+				)}
+			</div>
+		</div>
+	);
+});
+
+const QAChecksMessage = memo(function QAChecksMessage({ 
+	checks,
+	isExpanded,
+	onToggle 
+}: { 
+	checks: QACheck[];
+	isExpanded: boolean;
+	onToggle: () => void;
+}) {
+	return (
+		<div className="mx-4">
+			<div className="bg-white border border-gray-200 rounded-lg shadow-sm max-w-[85%]">
+				{/* Header */}
+				<button
+					onClick={onToggle}
+					className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+				>
+					<div className="flex items-center gap-2">
+						<Loader2 className="h-4 w-4 animate-spin text-gray-700" />
+						<span className="text-sm font-medium text-gray-900">Running QA Checks</span>
+					</div>
+					<div className="text-gray-500">
+						{isExpanded ? (
+							<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+							</svg>
+						) : (
+							<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+							</svg>
+						)}
+					</div>
+				</button>
+				
+				{/* Checks List - Collapsible */}
+				{isExpanded && (
+					<div className="border-t border-gray-200 max-h-[300px] overflow-y-auto">
+						<div className="p-4 pt-2 space-y-0.5">
+							{checks.map((check) => (
+								<QACheckItem key={check.id} check={check} />
+							))}
+						</div>
+					</div>
+				)}
+			</div>
+		</div>
+	);
+});
+
+const FailedCheckItem = memo(function FailedCheckItem({ check }: { check: FailedCheck }) {
+	return (
+		<div className="flex items-start gap-3 py-2 border-b border-gray-100 last:border-0">
+			<div className="flex-shrink-0 w-16 mt-0.5">
+				<span className="inline-block px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded">
+					{check.code}
+				</span>
+			</div>
+			<div className="flex-1 min-w-0">
+				<p className="text-sm text-gray-900">{check.summary}</p>
+			</div>
+		</div>
+	);
+});
+
+const FixingQAIssuesMessage = memo(function FixingQAIssuesMessage({ 
+	failedChecks,
+	isExpanded,
+	onToggle,
+	isFixing 
+}: { 
+	failedChecks: FailedCheck[];
+	isExpanded: boolean;
+	onToggle: () => void;
+	isFixing: boolean;
+}) {
+	return (
+		<div className="mx-4">
+			<div className="bg-white border border-gray-200 rounded-lg shadow-sm max-w-[85%]">
+				{/* Header */}
+				<button
+					onClick={onToggle}
+					className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+				>
+					<div className="flex items-center gap-2">
+						{isFixing ? (
+							<Loader2 className="h-4 w-4 animate-spin text-gray-700" />
+						) : (
+							<CheckCircle2 className="h-4 w-4 text-green-500" />
+						)}
+						<span className="text-sm font-medium text-gray-900">
+							{isFixing ? "Fixing QA Issues" : "Fixed QA Issues"}
+						</span>
+					</div>
+					<div className="text-gray-500">
+						{isExpanded ? (
+							<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+							</svg>
+						) : (
+							<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+							</svg>
+						)}
+					</div>
+				</button>
+				
+				{/* Failed Checks List - Collapsible */}
+				{isExpanded && (
+					<div className="border-t border-gray-200 max-h-[300px] overflow-y-auto">
+						<div className="p-4 pt-2">
+							{failedChecks.map((check) => (
+								<FailedCheckItem key={check.id} check={check} />
+							))}
+						</div>
+					</div>
+				)}
+			</div>
 		</div>
 	);
 });
@@ -85,6 +246,10 @@ interface ChatPanelProps {
 	messages: Message[];
 	onMessagesChange: React.Dispatch<React.SetStateAction<Message[]>>;
 	startEnsureLoop: () => void;
+	qaChecks?: QACheck[] | null;
+	isRunningQA?: boolean;
+	failedChecks?: FailedCheck[] | null;
+	isFixingIssues?: boolean;
 }
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
@@ -96,6 +261,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			messages,
 			onMessagesChange,
 			startEnsureLoop,
+			qaChecks,
+			isRunningQA,
+			failedChecks,
+			isFixingIssues,
 		},
 		ref
 	) {
@@ -105,6 +274,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		const [composerHeight, setComposerHeight] = useState(120);
 		const [lastDeltaTime, setLastDeltaTime] = useState<number>(0);
 		const [isProcessing, setIsProcessing] = useState(false);
+		const [isQAExpanded, setIsQAExpanded] = useState(true);
+		const [isFixingExpanded, setIsFixingExpanded] = useState(true);
 
 		const inputRef = useRef<HTMLTextAreaElement>(null);
 		const formRef = useRef<HTMLFormElement>(null);
@@ -642,44 +813,64 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		return (
 			<div className="flex-1 flex flex-col min-w-0 bg-gray-50 relative">
 				<ScrollArea className="flex-1 scroll-smooth">
-					<div
-						className="max-w-2xl mx-auto space-y-3 my-4 px-1"
-						role="log"
-						aria-label="Chat messages"
-						aria-live="polite"
-						aria-busy={isStreaming}
-						aria-relevant="additions text"
-					>
-						{messages.length === 0 && !isStreaming && (
-							<div className="text-center py-16">
-								<div className="w-12 h-12 mx-auto mb-4 rounded-full flex items-center justify-center">
-									<Image
-										src="/metaforms-logo.svg"
-										alt="AI"
-										width={24}
-										height={24}
-										style={{ width: "auto", height: "auto" }}
-										className="opacity-90"
-									/>
-								</div>
-								<h3 className="text-sm font-medium text-gray-900 mb-1">
-									Start your research
-								</h3>
-								<p className="text-sm text-gray-500 max-w-xs mx-auto">
-									Ask Metaforms about your research objective or request
-									analysis.
-								</p>
+				<div
+					className="max-w-2xl mx-auto space-y-4 my-4"
+					style={{ maxHeight: '80vh', overflow: 'overlay' }}
+					role="log"
+					aria-label="Chat messages"
+					aria-live="polite"
+					aria-busy={isStreaming}
+					aria-relevant="additions text"
+				>
+					{messages.length === 0 && !isStreaming && !isRunningQA && (
+						<div className="text-center py-16">
+							<div className="w-12 h-12 mx-auto mb-4 rounded-full flex items-center justify-center">
+								<Image
+									src="/metaforms-logo.svg"
+									alt="AI"
+									width={24}
+									height={24}
+									style={{ width: "auto", height: "auto" }}
+									className="opacity-90"
+								/>
 							</div>
-						)}
+							<h3 className="text-sm font-medium text-gray-900 mb-1">
+								Start a conversation
+							</h3>
+							<p className="text-sm text-gray-500 max-w-xs mx-auto">
+								You can ask Metaforms questions about your survey or request analysis on your data.
+							</p>
+						</div>
+					)}
 
-						{messages.map((message) => (
-							<MessageBubble key={message.id} message={message} />
-						))}
+					{messages.map((message) => (
+						<MessageBubble
+							key={message.id}
+							message={message}
+						/>
+					))}
 
-						{isProcessing && (
+				{isRunningQA && qaChecks && qaChecks.length > 0 && (
+					<QAChecksMessage
+						checks={qaChecks}
+						isExpanded={isQAExpanded}
+						onToggle={() => setIsQAExpanded(!isQAExpanded)}
+					/>
+				)}
+
+				{failedChecks && failedChecks.length > 0 && (
+					<FixingQAIssuesMessage
+						failedChecks={failedChecks}
+						isExpanded={isFixingExpanded}
+						onToggle={() => setIsFixingExpanded(!isFixingExpanded)}
+						isFixing={isFixingIssues || false}
+					/>
+				)}
+
+					{isProcessing && (
 							<div className="flex items-center gap-2 py-1 text-sm text-gray-400 italic animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out">
-								<Loader2 className="h-3 w-3 animate-spin text-gray-400" />
-								<span>Agent is processing</span>
+								<Loader2 className="h-3 w-3 animate-spin text-gray-400 ml-2" />
+								<span>Agent is processing...</span>
 							</div>
 						)}
 						<div
@@ -687,15 +878,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 								paddingBottom: Math.max(100, composerHeight + 10),
 							}}
 						/>
-						<div ref={messagesEndRef} />
-					</div>
-				</ScrollArea>
+					<div ref={messagesEndRef} />
+				</div>
 
-				{/* Input */}
-				<div
-					ref={composerRef}
-					className="absolute bottom-0 left-0 right-0 z-20 px-4 pb-4 pt-6 bg-gradient-to-t from-white via-white/95 to-transparent"
-				>
+
+			{/* Input */}
+			<div
+				ref={composerRef}
+				className="absolute bottom-0 left-0 right-0 z-20 px-4 pb-4 pt-6 bg-gradient-to-t from-white via-white/95 to-transparent"
+			>
 					<div className="max-w-2xl mx-auto mt-3">
 						<div className={cn(
 						"rounded-2xl border border-gray-300 bg-white shadow-sm transition-all duration-200",
@@ -714,7 +905,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 										isStreaming
 											? "Agent is responding..."
 											: sandboxStatus === "connected"
-											? "Ask Metaforms Copilot..."
+											? "Ask, Search or Chat..."
 											: "Connecting… you can type while we get things ready"
 									}
 									value={input}
@@ -776,6 +967,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 						</div>
 					</div>
 				</div>
+				</ScrollArea>
 			</div>
 		);
 	}

@@ -44,9 +44,9 @@ export const PreviewPanel = memo(function PreviewPanel({
 
 	return (
 		<div className={cn("flex-1 flex flex-col", className)}>
-			{previewUrl && (
-				<div className="h-10 px-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-					<div className="flex bg-gray-200 rounded-lg p-0.5 gap-0.5">
+			{iframeUrl && (
+				<div className="h-10 px-4 border-b border-gray-200 flex items-center justify-end bg-gray-50">
+					{/* <div className="flex bg-gray-200 rounded-lg p-0.5 gap-0.5">
 						{[
 							{ label: "Questionnaire", value: "/" as const },
 							{ label: "Survey", value: "/s/preview" as const },
@@ -65,8 +65,8 @@ export const PreviewPanel = memo(function PreviewPanel({
 								{tab.label}
 							</button>
 						))}
-					</div>
-					<div className="flex items-center gap-3">
+					</div> */}
+					<div className="flex items-center justify-end gap-3">
 						<button
 							type="button"
 							onClick={handleRefresh}
@@ -76,14 +76,14 @@ export const PreviewPanel = memo(function PreviewPanel({
 							<RefreshCw className="h-3.5 w-3.5" />
 							Refresh
 						</button>
-						<a
+						{/* <a
 							href={iframeUrl || previewUrl}
 							target="_blank"
 							rel="noopener noreferrer"
 							className="text-xs text-gray-500 hover:text-gray-700"
 						>
 							Open in new tab ↗
-						</a>
+						</a> */}
 					</div>
 				</div>
 			)}
@@ -122,10 +122,18 @@ export const PreviewPanel = memo(function PreviewPanel({
 				)}
 			</div>
 			{iframeUrl && (
-				<div className="h-10 px-3 border-t border-gray-200 flex items-center bg-gray-50">
+				<div className="h-10 px-3 border-t border-gray-200 flex items-center gap-2 bg-gray-50">
 					<div className="flex-1 px-3 py-1.5 bg-white border border-gray-200 rounded text-xs text-gray-600 truncate">
 						{iframeUrl}
 					</div>
+					<a
+						href={iframeUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="text-xs text-gray-600 hover:text-gray-900 font-medium whitespace-nowrap"
+					>
+						Open in new tab ↗
+					</a>
 				</div>
 			)}
 		</div>
