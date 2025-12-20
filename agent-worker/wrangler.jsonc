@@ -29,7 +29,8 @@
 			"class_name": "Sandbox",
 			"image": "./Dockerfile",
 			"instance_type": "standard-2", // Changed from "lite" - Next.js dev server needs more resources
-			"max_instances": 2
+			"max_instances": 5,
+			"idle_timeout_seconds": 300 // 5 minutes - container is terminated after being idle
 		}
 	],
 	"observability": {

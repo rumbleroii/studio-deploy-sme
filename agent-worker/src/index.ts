@@ -449,10 +449,19 @@ async function handleEnsure(
 		const userFilesDir = getUserFilesDir(projectId);
 		const appDir = getAppDir(projectId);
 
-		await sandbox.exec(`mkdir -p ${projectDir}`);
-		await sandbox.exec(`mkdir -p ${workingDir}`);
-		await sandbox.exec(`mkdir -p ${userFilesDir}`);
-		await sandbox.exec(`mkdir -p ${appDir}`);
+		// Create all directories in one command (faster than multiple calls)
+		await sandbox.exec(`mkdir -p ${projectDir} ${workingDir} ${userFilesDir} ${appDir}`);
+
+		// Verify writability immediately
+		const testWrite = await sandbox.exec(`touch ${projectDir}/.write_test && rm ${projectDir}/.write_test`);
+		if (testWrite.exitCode !== 0) {
+			const errorMsg = `Permission Denied: User ${whoAmI.stdout.trim()} cannot write to ${projectDir}`;
+			console.error(errorMsg);
+			return new Response(
+				JSON.stringify({ error: errorMsg, details: testWrite.stderr }),
+				{ status: 500, headers: { "Content-Type": "application/json" } }
+			);
+		}
 
 		// Copy .claude directory (with skills) to working directory if it doesn't exist
 		const claudeDir = `${workingDir}/.claude`;
@@ -537,18 +546,34 @@ async function handleEnsure(
 			console.log(`Successfully copied survey-app to ${appDir}`);
 		}
 
-		// Kill any existing dev server and start Next.js on port 3001
-		await sandbox.exec("pkill -f 'next dev' || true");
+		// Check if dev server is already running
+		const checkDevServer = await sandbox.exec("pgrep -f 'next dev' || echo 'not_running'");
+		const devServerRunning = !checkDevServer.stdout.includes('not_running');
 		
-		// Start Next.js dev server binding to 0.0.0.0 (all interfaces) so Cloudflare Sandbox can access it
-		// HOSTNAME=0.0.0.0 is REQUIRED in production (Cloudflare) - without it, server binds to localhost only
-		// PORT=3001 sets the port
-		await sandbox.exec(`cd ${appDir} && HOSTNAME=0.0.0.0 PORT=3001 npm run dev &`, {
-			timeout: 30000,
-		});
-		
-		// Give the dev server time to start (Next.js compilation can take 10-20s with limited resources)
-		await sandbox.exec("sleep 15");
+		if (!devServerRunning) {
+			// Start Next.js dev server binding to 0.0.0.0 (all interfaces)
+			console.log("Starting Next.js dev server...");
+			await sandbox.exec(`cd ${appDir} && HOSTNAME=0.0.0.0 PORT=3001 npm run dev &`, {
+				timeout: 30000,
+			});
+			
+			// Poll for server readiness instead of fixed sleep (max 20s)
+			let serverReady = false;
+			for (let i = 0; i < 20; i++) {
+				await sandbox.exec("sleep 1");
+				const check = await sandbox.exec("curl -s -o /dev/null -w '%{http_code}' http://localhost:3001 || echo '000'");
+				if (check.stdout.trim() !== '000' && check.stdout.trim() !== '') {
+					serverReady = true;
+					console.log(`Dev server ready after ${i + 1}s`);
+					break;
+				}
+			}
+			if (!serverReady) {
+				console.warn("Dev server may not be fully ready, continuing anyway");
+			}
+		} else {
+			console.log("Dev server already running, skipping startup");
+		}
 
 		// Expose port and get public URL
 		let previewUrl: string | undefined;

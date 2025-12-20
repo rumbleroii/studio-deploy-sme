@@ -81,10 +81,10 @@ export async function POST(
 
 		const data = await response.json();
 
-		// For local dev: try to get the actual Docker-mapped port
-		const isLocalDev = process.env.NODE_ENV === "development";
+		// Only use Docker port detection for truly local workers (not prod workers accessed from local dev)
+		const isLocalWorker = workerUrl.includes("localhost") || workerUrl.includes("127.0.0.1");
 		
-		if (isLocalDev) {
+		if (isLocalWorker) {
 			// First check for manual override
 			const localPreviewUrl = process.env.LOCAL_PREVIEW_URL;
 			if (localPreviewUrl) {
@@ -98,6 +98,7 @@ export async function POST(
 				}
 			}
 		}
+		// For production workers, use the previewUrl returned by the worker (Cloudflare exposed port)
 
 		return NextResponse.json(data);
 	} catch (error) {
