@@ -6,54 +6,18 @@ import {
 } from "@cloudflare/sandbox";
 export { Sandbox };
 
+// OpenCode server runs on port 4096 inside the container
+const OPENCODE_PORT = 4096;
+
 interface Env {
 	Sandbox: DurableObjectNamespace<Sandbox>;
-	ANTHROPIC_API_KEY: string;
 	AGENT_WORKER_SHARED_SECRET: string;
-}
-
-interface EnsureRequestBody {}
-
-type TraceSource = "frontend" | "nextjs" | "worker" | "runner";
-
-interface TraceMilestone {
-	name: string;
-	source: TraceSource;
-	tsMs: number;
-	tsIso: string;
-	projectId?: string;
-	runId?: string;
-}
-
-interface TracePayload {
-	traceId: string;
-	frontendSentAtMs?: number;
-	milestones?: TraceMilestone[];
-}
-
-function dedupeTraceMilestones(milestones: TraceMilestone[]): TraceMilestone[] {
-	const seen = new Set<string>();
-	const out: TraceMilestone[] = [];
-	for (const m of milestones) {
-		const key = `${m.source}:${m.name}`;
-		if (seen.has(key)) continue;
-		seen.add(key);
-		out.push(m);
-	}
-	return out;
+	ANTHROPIC_API_KEY: string;
 }
 
 interface ChatRequestBody {
 	message: string;
-	claudeSessionId?: string;
-	trace?: TracePayload;
-}
-
-interface RunsCreateRequestBody extends ChatRequestBody {
-	runId: string;
-	idempotencyKey?: string;
-	callbackUrl?: string;
-	callbackSecret?: string;
+	history?: Array<{ role: string; content: string }>;
 }
 
 interface FileWriteRequestBody {
@@ -108,21 +72,6 @@ type SandboxInstance = ReturnType<typeof getSandbox>;
 
 const PREVIEW_PORT = 3001;
 const CUSTOM_DOMAIN = "metaforms-sandbox.com";
-const RUNS_DIR_NAME = ".runs";
-const ACTIVE_RUN_FILE_NAME = ".active_run.json";
-
-function toBase64Utf8(input: string): string {
-	// Cloudflare Workers has btoa, but it only handles Latin1 strings.
-	// Convert UTF-8 bytes -> binary string -> btoa.
-	const bytes = new TextEncoder().encode(input);
-	let binary = "";
-	const chunkSize = 0x8000;
-	for (let i = 0; i < bytes.length; i += chunkSize) {
-		const chunk = bytes.subarray(i, i + chunkSize);
-		binary += String.fromCharCode(...chunk);
-	}
-	return btoa(binary);
-}
 
 /**
  * Validate and resolve a relative path to an absolute path under workingDir.
@@ -152,22 +101,17 @@ function resolveSecurePath(
 		return null;
 	}
 
-	// Check if path tries to access .claude directory (hidden config)
-	if (normalized === ".claude" || normalized.startsWith(".claude/")) {
-		return null;
-	}
-
 	return `${workingDir}/${normalized}`;
 }
 
 /**
- * Filter file list to exclude .claude directory and other hidden paths
+ * Filter file list to exclude hidden paths
  */
 function filterFileList(files: FileInfo[], workingDir: string): FileInfo[] {
 	return files.filter((f) => {
 		const rel = f.relativePath;
-		// Exclude .claude directory
-		if (rel === ".claude" || rel.startsWith(".claude/")) {
+		// Exclude hidden files/directories (starting with .)
+		if (rel.startsWith(".") || rel.includes("/.")) {
 			return false;
 		}
 		return true;
@@ -197,19 +141,6 @@ export default {
 		// Route matching
 		const ensureMatch = path.match(/^\/v1\/projects\/([^/]+)\/ensure$/);
 		const chatMatch = path.match(/^\/v1\/projects\/([^/]+)\/chat$/);
-		const runsCreateMatch = path.match(/^\/v1\/projects\/([^/]+)\/runs$/);
-		const runStreamMatch = path.match(
-			/^\/v1\/projects\/([^/]+)\/runs\/([^/]+)\/stream$/
-		);
-		const runStatusMatch = path.match(
-			/^\/v1\/projects\/([^/]+)\/runs\/([^/]+)\/status$/
-		);
-		const runCancelMatch = path.match(
-			/^\/v1\/projects\/([^/]+)\/runs\/([^/]+)\/cancel$/
-		);
-		const runLogsMatch = path.match(
-			/^\/v1\/projects\/([^/]+)\/runs\/([^/]+)\/logs$/
-		);
 		const filesListMatch = path.match(/^\/v1\/projects\/([^/]+)\/files$/);
 		const filesWriteMatch = path.match(
 			/^\/v1\/projects\/([^/]+)\/files\/write$/
@@ -234,7 +165,6 @@ export default {
 
 		const validateProjectId = (id: string): boolean =>
 			/^[a-zA-Z0-9_-]+$/.test(id);
-		const validateRunId = (id: string): boolean => /^[a-zA-Z0-9_-]+$/.test(id);
 
 		if (request.method === "POST" && ensureMatch) {
 			const projectId = ensureMatch[1];
@@ -247,85 +177,15 @@ export default {
 			return handleEnsure(projectId, request, env);
 		}
 
-		if (request.method === "POST" && runsCreateMatch) {
-			const projectId = runsCreateMatch[1];
+		if (request.method === "POST" && chatMatch) {
+			const projectId = chatMatch[1];
 			if (!validateProjectId(projectId)) {
 				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
 					status: 400,
 					headers: { "Content-Type": "application/json" },
 				});
 			}
-			return handleRunsCreate(projectId, request, env);
-		}
-
-		if (request.method === "GET" && runStreamMatch) {
-			const projectId = runStreamMatch[1];
-			const runId = runStreamMatch[2];
-			if (!validateProjectId(projectId) || !validateRunId(runId)) {
-				return new Response(
-					JSON.stringify({ error: "Invalid projectId/runId" }),
-					{
-						status: 400,
-						headers: { "Content-Type": "application/json" },
-					}
-				);
-			}
-			return handleRunStream(projectId, runId, request, env);
-		}
-
-		if (request.method === "GET" && runStatusMatch) {
-			const projectId = runStatusMatch[1];
-			const runId = runStatusMatch[2];
-			if (!validateProjectId(projectId) || !validateRunId(runId)) {
-				return new Response(
-					JSON.stringify({ error: "Invalid projectId/runId" }),
-					{
-						status: 400,
-						headers: { "Content-Type": "application/json" },
-					}
-				);
-			}
-			return handleRunStatus(projectId, runId, env);
-		}
-
-		if (request.method === "POST" && runCancelMatch) {
-			const projectId = runCancelMatch[1];
-			const runId = runCancelMatch[2];
-			if (!validateProjectId(projectId) || !validateRunId(runId)) {
-				return new Response(
-					JSON.stringify({ error: "Invalid projectId/runId" }),
-					{
-						status: 400,
-						headers: { "Content-Type": "application/json" },
-					}
-				);
-			}
-			return handleRunCancel(projectId, runId, env);
-		}
-
-		if (request.method === "GET" && runLogsMatch) {
-			const projectId = runLogsMatch[1];
-			const runId = runLogsMatch[2];
-			if (!validateProjectId(projectId) || !validateRunId(runId)) {
-				return new Response(
-					JSON.stringify({ error: "Invalid projectId/runId" }),
-					{
-						status: 400,
-						headers: { "Content-Type": "application/json" },
-					}
-				);
-			}
-			return handleRunLogs(projectId, runId, url, env);
-		}
-
-		if (request.method === "POST" && chatMatch) {
-			if (!validateProjectId(chatMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleChat(chatMatch[1], request, env);
+			return handleChat(projectId, request, env);
 		}
 
 		// File management endpoints
@@ -432,193 +292,83 @@ async function handleEnsure(
 	env: Env
 ): Promise<Response> {
 	try {
-		// Body is optional for ensure; keep it tolerant.
-		try {
-			(await request.json()) as EnsureRequestBody;
-		} catch {
-			// ignore
-		}
 		const sandboxId = `project-${projectId}`;
-
-		// Get or create sandbox
 		const sandbox = getSandbox(env.Sandbox, sandboxId);
-
-		// Create project workspace directory
-		const projectDir = `/workspace/projects/${projectId}`;
-		const workingDir = getWorkingDir(projectId);
-		const userFilesDir = getUserFilesDir(projectId);
 		const appDir = getAppDir(projectId);
+		const userFilesDir = getUserFilesDir(projectId);
 
-		// Create all directories in one command (faster than multiple calls)
-		await sandbox.exec(`mkdir -p ${projectDir} ${workingDir} ${userFilesDir} ${appDir}`);
+		// Create directories
+		await sandbox.exec(`mkdir -p ${userFilesDir} ${appDir}`);
 
-		// Verify writability immediately
-		const testWrite = await sandbox.exec(`touch ${projectDir}/.write_test && rm ${projectDir}/.write_test`);
-		if (testWrite.exitCode !== 0) {
-			const errorMsg = `Permission Denied: User ${whoAmI.stdout.trim()} cannot write to ${projectDir}`;
-			console.error(errorMsg);
-			return new Response(
-				JSON.stringify({ error: errorMsg, details: testWrite.stderr }),
-				{ status: 500, headers: { "Content-Type": "application/json" } }
-			);
+		// Copy survey app if not already present
+		const checkApp = await sandbox.exec(`test -f ${appDir}/package.json`);
+		if (checkApp.exitCode !== 0) {
+			await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
 		}
 
-		// Copy .claude directory (with skills) to working directory if it doesn't exist
-		const claudeDir = `${workingDir}/.claude`;
-		const checkClaudeResult = await sandbox.exec(
-			`test -d ${claudeDir} && echo "exists" || echo "not_exists"`
-		);
-		if (checkClaudeResult.stdout.trim() !== "exists") {
-			console.log(`Copying .claude directory with skills to ${claudeDir}...`);
-			const claudeCopyResult = await sandbox.exec(
-				`cp -r /runner/working_directory/.claude/. ${claudeDir}/`
-			);
-			if (claudeCopyResult.exitCode !== 0) {
-				console.error(`Failed to copy .claude directory: ${claudeCopyResult.stderr}`);
-				// Don't fail the entire ensure, just log the error
-			} else {
-				console.log(`Successfully copied .claude directory to ${claudeDir}`);
-			}
-		}
+		// Create symlink so OpenCode can access user_files from within app directory
+		// user_files is at ../user_files relative to app
+		await sandbox.exec(`ln -sfn ${userFilesDir} ${appDir}/user_files`);
 
-		// Check if Next.js app already exists
-		const checkAppResult = await sandbox.exec(
-			`test -f ${appDir}/package.json && echo "exists" || echo "not_exists"`
-		);
-		const appExists = checkAppResult.stdout.trim() === "exists";
-
-		if (!appExists) {
-			// Copy pre-built Next.js template (dependencies already installed in container)
-			console.log(`Setting up Next.js app for project ${projectId}...`);
-			
-			// Verify source directory exists before copying
-			const checkSourceResult = await sandbox.exec(
-				`test -d /runner/survey-app && echo "exists" || echo "not_exists"`
-			);
-			if (checkSourceResult.stdout.trim() !== "exists") {
-				console.error(`Source directory /runner/survey-app does not exist in container`);
-				return new Response(
-					JSON.stringify({ 
-						error: "Survey app template not found in container",
-						details: "The /runner/survey-app directory is missing. Check Dockerfile COPY command."
-					}),
-					{
-						status: 500,
-						headers: { "Content-Type": "application/json" },
-					}
-				);
-			}
-			
-			// Copy the survey-app
-			const copyResult = await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
-			if (copyResult.exitCode !== 0) {
-				console.error(`Failed to copy survey-app: ${copyResult.stderr}`);
-				return new Response(
-					JSON.stringify({ 
-						error: "Failed to copy survey app template",
-						details: copyResult.stderr || "Copy command failed"
-					}),
-					{
-						status: 500,
-						headers: { "Content-Type": "application/json" },
-					}
-				);
-			}
-			
-			// Verify copy succeeded
-			const verifyResult = await sandbox.exec(
-				`test -f ${appDir}/package.json && echo "exists" || echo "not_exists"`
-			);
-			if (verifyResult.stdout.trim() !== "exists") {
-				console.error(`Copy verification failed: package.json not found in ${appDir}`);
-				return new Response(
-					JSON.stringify({ 
-						error: "Survey app copy verification failed",
-						details: `package.json not found in ${appDir} after copy`
-					}),
-					{
-						status: 500,
-						headers: { "Content-Type": "application/json" },
-					}
-				);
-			}
-			
-			console.log(`Successfully copied survey-app to ${appDir}`);
-		}
-
-		// Check if dev server is already running
-		const checkDevServer = await sandbox.exec("pgrep -f 'next dev' || echo 'not_running'");
-		const devServerRunning = !checkDevServer.stdout.includes('not_running');
-		
-		if (!devServerRunning) {
-			// Start Next.js dev server binding to 0.0.0.0 (all interfaces)
-			console.log("Starting Next.js dev server...");
-			await sandbox.exec(`cd ${appDir} && HOSTNAME=0.0.0.0 PORT=3001 npm run dev &`, {
-				timeout: 30000,
-			});
-			
-			// Poll for server readiness instead of fixed sleep (max 20s)
-			let serverReady = false;
-			for (let i = 0; i < 20; i++) {
+		// Start dev server with Turbopack if not running (port 3000 required for container health check)
+		const checkServer = await sandbox.exec("pgrep -f 'next dev'");
+		if (checkServer.exitCode !== 0) {
+			await sandbox.exec(`cd ${appDir} && PORT=3001 npm run dev -- --turbo &`);
+			// Wait for server to be ready
+			for (let i = 0; i < 15; i++) {
 				await sandbox.exec("sleep 1");
-				const check = await sandbox.exec("curl -s -o /dev/null -w '%{http_code}' http://localhost:3001 || echo '000'");
-				if (check.stdout.trim() !== '000' && check.stdout.trim() !== '') {
-					serverReady = true;
-					console.log(`Dev server ready after ${i + 1}s`);
-					break;
-				}
+				const check = await sandbox.exec("curl -s -o /dev/null -w '%{http_code}' http://localhost:3001");
+				if (check.stdout.trim() !== '000') break;
 			}
-			if (!serverReady) {
-				console.warn("Dev server may not be fully ready, continuing anyway");
-			}
-		} else {
-			console.log("Dev server already running, skipping startup");
 		}
 
-		// Expose port and get public URL
+		// Start OpenCode server in background (for chat functionality)
+		await ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY);
+
+		// Expose port
 		let previewUrl: string | undefined;
 		try {
-			const existingPorts = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
-			const existingPort = existingPorts.find((p) => p.port === PREVIEW_PORT);
-
-			if (existingPort) {
-				previewUrl = existingPort.url;
-			} else {
-				const portResult = await sandbox.exposePort(PREVIEW_PORT, {
-					hostname: CUSTOM_DOMAIN,
-				});
-				previewUrl = portResult.url;
-			}
-		} catch (portError) {
-			console.warn("Port exposure failed:", portError);
-		}
+			const ports = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
+			const existing = ports.find((p) => p.port === PREVIEW_PORT);
+			previewUrl = existing?.url ?? (await sandbox.exposePort(PREVIEW_PORT, { hostname: CUSTOM_DOMAIN })).url;
+		} catch {}
 
 		return new Response(
-			JSON.stringify({
-				status: "ready",
-				sandboxId,
-				previewUrl,
-			}),
-			{
-				headers: { "Content-Type": "application/json" },
-			}
+			JSON.stringify({ status: "ready", sandboxId, previewUrl }),
+			{ headers: { "Content-Type": "application/json" } }
 		);
 	} catch (error) {
 		console.error("Ensure failed:", error);
-		const errorMessage = error instanceof Error ? error.message : String(error);
-		const errorStack = error instanceof Error ? error.stack : undefined;
-		console.error("Error details:", { errorMessage, errorStack, projectId });
 		return new Response(
-			JSON.stringify({
-				error: "Failed to ensure sandbox",
-				details: errorMessage,
-				stack: errorStack,
-			}),
-			{
-				status: 500,
-				headers: { "Content-Type": "application/json" },
-			}
+			JSON.stringify({ error: "Failed to ensure sandbox", details: String(error) }),
+			{ status: 500, headers: { "Content-Type": "application/json" } }
 		);
+	}
+}
+
+// ============================================================================
+// Chat Handler (Direct OpenCode HTTP API)
+// ============================================================================
+
+// Store OpenCode session IDs per project
+const opencodeSessions = new Map<string, string>();
+
+// Helper to start OpenCode server if not running
+async function ensureOpencodeServer(
+	sandbox: ReturnType<typeof getSandbox>,
+	appDir: string,
+	apiKey: string
+): Promise<void> {
+	// Check if OpenCode is already running on port 4096
+	const checkResult = await sandbox.exec(`curl -s http://127.0.0.1:${OPENCODE_PORT}/ 2>/dev/null || echo "NOT_RUNNING"`);
+	
+	if (checkResult.stdout?.includes("NOT_RUNNING") || checkResult.stdout?.includes("Connection refused")) {
+		// Start OpenCode server in background with the app directory
+		await sandbox.exec(
+			`cd "${appDir}" && ANTHROPIC_API_KEY="${apiKey}" nohup opencode serve --port ${OPENCODE_PORT} > /tmp/opencode.log 2>&1 &`
+		);
+		// Wait for server to start
+		await new Promise(resolve => setTimeout(resolve, 3000));
 	}
 }
 
@@ -628,7 +378,7 @@ async function handleChat(
 	env: Env
 ): Promise<Response> {
 	try {
-		const body = await request.json() as { message: string; claudeSessionId?: string };
+		const body = (await request.json()) as ChatRequestBody;
 		if (!body.message) {
 			return new Response(JSON.stringify({ error: "Message required" }), {
 				status: 400,
@@ -636,23 +386,39 @@ async function handleChat(
 			});
 		}
 
-		const sandbox = getSandbox(env.Sandbox, `project-${projectId}`);
-		const projectDir = getProjectDir(projectId);
+		const sandboxId = `project-${projectId}`;
+		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		const appDir = getAppDir(projectId);
 
-		// Ensure directories exist
-		await sandbox.exec(`mkdir -p ${projectDir} ${getWorkingDir(projectId)}`);
+		// OpenCode server is started in handleEnsure, but check just in case
+		// (container might have restarted between ensure and chat)
+		await ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY);
 
-		// Write session ID if provided
-		if (body.claudeSessionId) {
-			await sandbox.writeFile(`${projectDir}/.claude_session_id`, body.claudeSessionId);
+		// Get or create session for this project
+		let sessionId = opencodeSessions.get(projectId);
+		if (!sessionId) {
+			// Create a new session via OpenCode API using curl
+			const createCmd = `curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '{"title":"Project ${projectId}"}'`;
+			const createResult = await sandbox.exec(createCmd);
+			
+			if (createResult.exitCode !== 0 || !createResult.stdout) {
+				throw new Error(`Failed to create session: ${createResult.stderr || createResult.stdout}`);
+			}
+			
+			try {
+				console.log("Session create response:", createResult.stdout);
+				const sessionData = JSON.parse(createResult.stdout);
+				// OpenCode might return 'id' or 'ID' or the whole session object
+				sessionId = sessionData.id || sessionData.ID || sessionData.sessionId;
+				console.log("Parsed sessionId:", sessionId, "from data:", JSON.stringify(sessionData));
+				if (!sessionId) {
+					throw new Error(`No session ID in response: ${JSON.stringify(sessionData)}`);
+				}
+				opencodeSessions.set(projectId, sessionId);
+			} catch (e) {
+				throw new Error(`Failed to parse session response: ${createResult.stdout}, error: ${e}`);
+			}
 		}
-
-		// Run the chat runner
-		const messageBase64 = toBase64Utf8(body.message);
-		const stream = await sandbox.execStream(
-			`cd ${projectDir} && node /runner/run_chat.js --message-base64 ${messageBase64}`,
-			{ env: { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY } }
-		);
 
 		// Stream response
 		const { readable, writable } = new TransformStream();
@@ -661,748 +427,90 @@ async function handleChat(
 
 		(async () => {
 			try {
-				for await (const rawEvent of parseSSEStream(stream)) {
-					const event = rawEvent as SSEEvent;
-					if (event.type === "stdout") {
-						await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "stdout", data: event.data })}\n\n`));
-					} else if (event.type === "stderr") {
-						console.log("stderr:", event.data);
-					} else if (event.type === "complete") {
-						// Read session ID 
-						try {
-							const result = await sandbox.exec(`cat ${projectDir}/.claude_session_id 2>/dev/null || echo ""`);
-							const sessionId = result.stdout.trim();
-							if (sessionId) {
-								await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "session_id", sessionId })}\n\n`));
-							}
-						} catch {}
-						await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "complete", exitCode: event.exitCode })}\n\n`));
-					} else if (event.type === "error") {
-						await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "error", error: event.error })}\n\n`));
+				// Helper to create a new session
+				const createNewSession = async (): Promise<string> => {
+					const createCmd = `curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '{"title":"Project ${projectId}"}'`;
+					const createResult = await sandbox.exec(createCmd);
+					
+					if (createResult.exitCode !== 0 || !createResult.stdout) {
+						throw new Error(`Failed to create session: ${createResult.stderr || createResult.stdout}`);
 					}
+					
+					const sessionData = JSON.parse(createResult.stdout);
+					const newId = sessionData.id || sessionData.ID || sessionData.sessionId;
+					if (!newId) {
+						throw new Error(`No session ID in response: ${createResult.stdout}`);
+					}
+					opencodeSessions.set(projectId, newId);
+					return newId;
+				};
+
+				// Ensure we have a valid session
+				if (!sessionId) {
+					sessionId = await createNewSession();
 				}
-			} catch (error) {
-				console.error("Stream error:", error);
-				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "error", error: "Stream failed" })}\n\n`));
-			} finally {
-				await writer.close();
-			}
-		})();
 
-		return new Response(readable, {
-			headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
-		});
-	} catch (error) {
-		console.error("Chat failed:", error);
-		return new Response(JSON.stringify({ error: "Chat failed" }), {
-			status: 500,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-}
+				// Helper to send message to OpenCode (non-streaming)
+				const sendMessage = async (sid: string): Promise<{ parts?: Array<{ type: string; text?: string }> }> => {
+					const promptBody = JSON.stringify({
+						model: { providerID: "anthropic", modelID: "claude-sonnet-4-20250514" },
+						parts: [{ type: "text", text: body.message }],
+					}).replace(/'/g, "'\\''");
+					
+					const promptCmd = `curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session/${sid}/message?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '${promptBody}'`;
+					const promptResult = await sandbox.exec(promptCmd);
+					
+					if (promptResult.exitCode !== 0) {
+						throw new Error(`Prompt failed: ${promptResult.stderr || promptResult.stdout}`);
+					}
+					
+					return JSON.parse(promptResult.stdout || "{}");
+				};
 
-// ============================================================================
-// Run-based Chat (durable/resumable)
-// ============================================================================
-
-type RunMetaStatus = "starting" | "running" | "done" | "error";
-
-interface ActiveRunPointer {
-	runId: string;
-	pid: number;
-	startedAt: string;
-}
-
-interface RunMeta {
-	runId: string;
-	status: RunMetaStatus;
-	createdAt: string;
-	updatedAt: string;
-	startedAt?: string;
-	finishedAt?: string;
-	pid?: number;
-	lastSeq?: number;
-	lastEventAt?: string;
-	sessionId?: string;
-	error?: string;
-}
-
-function getProjectDir(projectId: string): string {
-	return `/workspace/projects/${projectId}`;
-}
-
-function getActiveRunPath(projectDir: string): string {
-	return `${projectDir}/${ACTIVE_RUN_FILE_NAME}`;
-}
-
-function getRunDir(projectDir: string, runId: string): string {
-	return `${projectDir}/${RUNS_DIR_NAME}/${runId}`;
-}
-
-function getRunEventsPath(projectDir: string, runId: string): string {
-	return `${getRunDir(projectDir, runId)}/events.ndjson`;
-}
-
-function getRunMetaPath(projectDir: string, runId: string): string {
-	return `${getRunDir(projectDir, runId)}/meta.json`;
-}
-
-function getRunTracePath(projectDir: string, runId: string): string {
-	return `${getRunDir(projectDir, runId)}/trace.json`;
-}
-
-async function readJsonViaCat<T>(
-	sandbox: SandboxInstance,
-	filePath: string
-): Promise<T | null> {
-	const result = await sandbox.exec(
-		`test -f ${filePath} && cat ${filePath} || echo ""`
-	);
-	const raw = result.stdout.trim();
-	if (!raw) return null;
-	try {
-		return JSON.parse(raw) as T;
-	} catch {
-		return null;
-	}
-}
-
-async function isPidRunning(
-	sandbox: SandboxInstance,
-	pid: number
-): Promise<boolean> {
-	if (!pid || !Number.isFinite(pid)) return false;
-	const result = await sandbox.exec(
-		`kill -0 ${pid} 2>/dev/null && echo RUNNING || echo NOT_RUNNING`
-	);
-	return result.stdout.trim() === "RUNNING";
-}
-
-async function clearActiveRunPointer(
-	sandbox: SandboxInstance,
-	projectDir: string
-): Promise<void> {
-	const activePath = getActiveRunPath(projectDir);
-	await sandbox.exec(`rm -f ${activePath}`);
-}
-
-async function getActiveRunPointer(
-	sandbox: SandboxInstance,
-	projectDir: string
-): Promise<ActiveRunPointer | null> {
-	return await readJsonViaCat<ActiveRunPointer>(
-		sandbox,
-		getActiveRunPath(projectDir)
-	);
-}
-
-async function handleRunsCreate(
-	projectId: string,
-	request: Request,
-	env: Env
-): Promise<Response> {
-	try {
-		const workerReceivedAtMs = Date.now();
-		const body = (await request.json()) as RunsCreateRequestBody;
-		if (!body?.runId || !body?.message) {
-			return new Response(
-				JSON.stringify({ error: "runId and message are required" }),
-				{
-					status: 400,
-					headers: { "Content-Type": "application/json" },
+				let result: { parts?: Array<{ type: string; text?: string }> };
+				
+				try {
+					// Try with existing session
+					result = await sendMessage(sessionId);
+					
+					// Check if response indicates session not found
+					if ((result as any).name === "SessionNotFoundError" || (result as any).error) {
+						throw new Error("Session invalid, need new one");
+					}
+				} catch (e) {
+					// Session might be stale (container restarted), create a new one
+					console.log("Session failed, creating new session:", e);
+					opencodeSessions.delete(projectId);
+					sessionId = await createNewSession();
+					result = await sendMessage(sessionId);
 				}
-			);
-		}
 
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const projectDir = getProjectDir(projectId);
-
-		const traceId =
-			body?.trace?.traceId ||
-			(typeof crypto !== "undefined" && "randomUUID" in crypto
-				? crypto.randomUUID()
-				: `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-
-		const traceMilestones: TraceMilestone[] = Array.isArray(
-			body?.trace?.milestones
-		)
-			? body.trace!.milestones!.slice()
-			: [];
-		traceMilestones.push({
-			name: "worker_runs_create_received",
-			source: "worker",
-			tsMs: workerReceivedAtMs,
-			tsIso: new Date(workerReceivedAtMs).toISOString(),
-			projectId,
-			runId: body.runId,
-		});
-
-		await sandbox.exec(`mkdir -p ${projectDir}`);
-		await sandbox.exec(`mkdir -p ${getWorkingDir(projectId)}`);
-		const workerReachedSandboxAtMs = Date.now();
-		traceMilestones.push({
-			name: "worker_reached_sandbox",
-			source: "worker",
-			tsMs: workerReachedSandboxAtMs,
-			tsIso: new Date(workerReachedSandboxAtMs).toISOString(),
-			projectId,
-			runId: body.runId,
-		});
-
-		// Enforce single active run per project via .active_run.json + pid liveness.
-		const active = await getActiveRunPointer(sandbox, projectDir);
-		if (active?.pid && (await isPidRunning(sandbox, active.pid))) {
-			// Idempotency: allow repeating the same runId.
-			if (active.runId === body.runId) {
-				return new Response(JSON.stringify({ runId: body.runId }), {
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-
-			// If the "active" pid is still alive but the run has already finished,
-			// treat the pointer as stale. This can happen if the runner process
-			// lingers (e.g. doing callbacks / cleanup) after emitting `done`.
-			try {
-				const maybeMeta = await readJsonViaCat<any>(
-					sandbox,
-					getRunMetaPath(projectDir, active.runId)
-				);
-				const status = String(maybeMeta?.status || "");
-				const hasFinishedAt = Boolean(
-					maybeMeta?.finishedAt || maybeMeta?.completedAt
-				);
-				const isFinishedStatus =
-					status && status !== "starting" && status !== "running";
-				if (isFinishedStatus || hasFinishedAt) {
-					await clearActiveRunPointer(sandbox, projectDir);
-				} else {
-					return new Response(
-						JSON.stringify({
-							error: "Run already active",
-							activeRunId: active.runId,
-						}),
-						{
-							status: 409,
-							headers: { "Content-Type": "application/json" },
-						}
+				// Extract text from response
+				const textPart = result.parts?.find((p) => p.type === "text");
+				if (textPart && textPart.text) {
+					await writer.write(
+						encoder.encode(`data: ${JSON.stringify({ type: "delta", text: textPart.text })}\n\n`)
 					);
 				}
-			} catch {
-				return new Response(
-					JSON.stringify({
-						error: "Run already active",
-						activeRunId: active.runId,
-					}),
-					{
-						status: 409,
-						headers: { "Content-Type": "application/json" },
-					}
+
+				// Send session ID for persistence
+				await writer.write(
+					encoder.encode(`data: ${JSON.stringify({ type: "session_id", sessionId })}\n\n`)
 				);
-			}
-		}
-		// Stale pointer
-		if (active) {
-			await clearActiveRunPointer(sandbox, projectDir);
-		}
 
-		// Prepare run directory + files
-		const runDir = getRunDir(projectDir, body.runId);
-		const eventsPath = getRunEventsPath(projectDir, body.runId);
-		const metaPath = getRunMetaPath(projectDir, body.runId);
-		const tracePath = getRunTracePath(projectDir, body.runId);
-		await sandbox.exec(`mkdir -p ${runDir}`);
-		await sandbox.exec(`touch ${eventsPath}`);
-
-		const nowIso = new Date().toISOString();
-		const initialMeta: RunMeta = {
-			runId: body.runId,
-			status: "starting",
-			createdAt: nowIso,
-			updatedAt: nowIso,
-			lastSeq: 0,
-			lastEventAt: nowIso,
-			sessionId: body.claudeSessionId,
-		};
-		await sandbox.writeFile(metaPath, JSON.stringify(initialMeta));
-
-		const sessionFile = `${projectDir}/.claude_session_id`;
-		if (body.claudeSessionId) {
-			await sandbox.writeFile(sessionFile, body.claudeSessionId);
-		}
-
-		const messageBase64 = toBase64Utf8(body.message);
-
-		// Start runner detached and capture pid.
-		const stdoutLogPath = `${runDir}/runner.stdout.log`;
-		const stderrLogPath = `${runDir}/runner.stderr.log`;
-
-		// Build environment for the runner
-		const runnerEnv: Record<string, string> = {
-			ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
-			RUN_ID: body.runId,
-			PROJECT_ID: projectId,
-			TRACE_ID: traceId,
-		};
-		if (body.callbackUrl) {
-			runnerEnv.CALLBACK_URL = body.callbackUrl;
-		}
-		if (body.callbackSecret) {
-			runnerEnv.CALLBACK_SECRET = body.callbackSecret;
-		}
-		if (typeof body?.trace?.frontendSentAtMs === "number") {
-			runnerEnv.TRACE_FRONTEND_SENT_AT_MS = String(body.trace.frontendSentAtMs);
-		}
-
-		const startResult = await sandbox.exec(
-			`cd ${projectDir} && (node /runner/run_chat.js --message-base64 ${messageBase64} > ${stdoutLogPath} 2> ${stderrLogPath} & echo $!)`,
-			{
-				env: runnerEnv,
-			} as any
-		);
-		const pid = Number(startResult.stdout.trim());
-		if (!pid || !Number.isFinite(pid)) {
-			await sandbox.writeFile(
-				metaPath,
-				JSON.stringify({
-					...initialMeta,
-					status: "error",
-					updatedAt: new Date().toISOString(),
-					error: "Failed to start runner (no pid)",
-				} satisfies RunMeta)
-			);
-			return new Response(JSON.stringify({ error: "Failed to start run" }), {
-				status: 500,
-				headers: { "Content-Type": "application/json" },
-			});
-		}
-
-		const workerStartedRunnerAtMs = Date.now();
-		traceMilestones.push({
-			name: "worker_started_runner",
-			source: "worker",
-			tsMs: workerStartedRunnerAtMs,
-			tsIso: new Date(workerStartedRunnerAtMs).toISOString(),
-			projectId,
-			runId: body.runId,
-		});
-
-		// Persist trace (separate file so runner meta overwrites don't lose it).
-		await sandbox.writeFile(
-			tracePath,
-			JSON.stringify(
-				{
-					traceId,
-					frontendSentAtMs:
-						typeof body?.trace?.frontendSentAtMs === "number"
-							? body.trace.frontendSentAtMs
-							: undefined,
-					milestones: dedupeTraceMilestones(traceMilestones),
-				} satisfies TracePayload,
-				null,
-				2
-			)
-		);
-
-		// Persist active run pointer
-		const activePath = getActiveRunPath(projectDir);
-		const pointer: ActiveRunPointer = {
-			runId: body.runId,
-			pid,
-			startedAt: nowIso,
-		};
-		await sandbox.writeFile(activePath, JSON.stringify(pointer));
-
-		// Update meta with pid/status
-		await sandbox.writeFile(
-			metaPath,
-			JSON.stringify({
-				...initialMeta,
-				status: "running",
-				pid,
-				startedAt: nowIso,
-				updatedAt: new Date().toISOString(),
-			} satisfies RunMeta)
-		);
-
-		return new Response(
-			JSON.stringify({
-				runId: body.runId,
-				trace: {
-					traceId,
-					frontendSentAtMs:
-						typeof body?.trace?.frontendSentAtMs === "number"
-							? body.trace.frontendSentAtMs
-							: undefined,
-					milestones: dedupeTraceMilestones(traceMilestones),
-				} satisfies TracePayload,
-			}),
-			{
-				headers: { "Content-Type": "application/json" },
-			}
-		);
-	} catch (error) {
-		console.error("Runs create failed:", error);
-		return new Response(JSON.stringify({ error: "Failed to start run" }), {
-			status: 500,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-}
-
-async function handleRunStatus(
-	projectId: string,
-	runId: string,
-	env: Env
-): Promise<Response> {
-	try {
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const projectDir = getProjectDir(projectId);
-		const metaPath = getRunMetaPath(projectDir, runId);
-		const eventsPath = getRunEventsPath(projectDir, runId);
-
-		const meta = await readJsonViaCat<RunMeta>(sandbox, metaPath);
-		if (!meta) {
-			return new Response(JSON.stringify({ error: "Run not found" }), {
-				status: 404,
-				headers: { "Content-Type": "application/json" },
-			});
-		}
-
-		// Best-effort lastSeq (line count). If the file is missing, treat as 0.
-		const wc = await sandbox.exec(
-			`test -f ${eventsPath} && wc -l < ${eventsPath} || echo 0`
-		);
-		const lastSeq = Number(wc.stdout.trim()) || 0;
-
-		// Stale active run pointer cleanup
-		const active = await getActiveRunPointer(sandbox, projectDir);
-		if (active?.runId === runId && active.pid) {
-			const running = await isPidRunning(sandbox, active.pid);
-			if (!running && meta.status === "running") {
-				// If the pid died unexpectedly, mark as error.
-				const updatedMeta: RunMeta = {
-					...meta,
-					status: "error",
-					updatedAt: new Date().toISOString(),
-					finishedAt: new Date().toISOString(),
-					error: meta.error || "Runner exited unexpectedly",
-					lastSeq,
-				};
-				await sandbox.writeFile(metaPath, JSON.stringify(updatedMeta));
-				await clearActiveRunPointer(sandbox, projectDir);
-				return new Response(
-					JSON.stringify({
-						status: updatedMeta.status,
-						lastSeq,
-						sessionId: updatedMeta.sessionId,
-						error: updatedMeta.error,
-					}),
-					{ headers: { "Content-Type": "application/json" } }
+				// Send done
+				await writer.write(
+					encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
 				);
-			}
-		}
-
-		return new Response(
-			JSON.stringify({
-				status: meta.status,
-				lastSeq,
-				sessionId: meta.sessionId,
-				error: meta.error,
-			}),
-			{ headers: { "Content-Type": "application/json" } }
-		);
-	} catch (error) {
-		console.error("Run status failed:", error);
-		return new Response(JSON.stringify({ error: "Failed to get run status" }), {
-			status: 500,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-}
-
-async function handleRunCancel(
-	projectId: string,
-	runId: string,
-	env: Env
-): Promise<Response> {
-	try {
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const projectDir = getProjectDir(projectId);
-
-		const active = await getActiveRunPointer(sandbox, projectDir);
-		if (!active || active.runId !== runId) {
-			// If it's already inactive, treat as idempotent success.
-			return new Response(JSON.stringify({ ok: true }), {
-				headers: { "Content-Type": "application/json" },
-			});
-		}
-
-		if (active.pid && (await isPidRunning(sandbox, active.pid))) {
-			await sandbox.exec(`kill -TERM ${active.pid} 2>/dev/null || true`);
-		}
-
-		await clearActiveRunPointer(sandbox, projectDir);
-
-		return new Response(JSON.stringify({ ok: true }), {
-			headers: { "Content-Type": "application/json" },
-		});
-	} catch (error) {
-		console.error("Run cancel failed:", error);
-		return new Response(JSON.stringify({ error: "Failed to cancel run" }), {
-			status: 500,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-}
-
-async function handleRunLogs(
-	projectId: string,
-	runId: string,
-	url: URL,
-	env: Env
-): Promise<Response> {
-	try {
-		const logType = url.searchParams.get("type") || "stderr";
-		if (logType !== "stdout" && logType !== "stderr") {
-			return new Response(
-				JSON.stringify({
-					error: "Invalid log type (must be stdout or stderr)",
-				}),
-				{
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				}
-			);
-		}
-
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const projectDir = getProjectDir(projectId);
-		const runDir = getRunDir(projectDir, runId);
-		const logPath = `${runDir}/runner.${logType}.log`;
-
-		// Check if log file exists
-		const existsResult = await sandbox.exists(logPath);
-		if (!existsResult.exists) {
-			return new Response(
-				JSON.stringify({ error: `Log file not found: ${logPath}` }),
-				{
-					status: 404,
-					headers: { "Content-Type": "application/json" },
-				}
-			);
-		}
-
-		// Read the log file
-		const result = await sandbox.exec(`cat ${logPath}`);
-
-		return new Response(
-			JSON.stringify({
-				runId,
-				projectId,
-				logType,
-				content: result.stdout,
-			}),
-			{
-				headers: { "Content-Type": "application/json" },
-			}
-		);
-	} catch (error) {
-		console.error("Run logs failed:", error);
-		return new Response(JSON.stringify({ error: "Failed to read run logs" }), {
-			status: 500,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-}
-
-async function handleRunStream(
-	projectId: string,
-	runId: string,
-	request: Request,
-	env: Env
-): Promise<Response> {
-	try {
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
-		const projectDir = getProjectDir(projectId);
-		const eventsPath = getRunEventsPath(projectDir, runId);
-		const tracePath = getRunTracePath(projectDir, runId);
-
-		// Determine starting seq
-		const url = new URL(request.url);
-		const fromSeqParam = url.searchParams.get("fromSeq");
-		const lastEventIdHeader = request.headers.get("Last-Event-ID");
-		const fromSeq = Number(fromSeqParam || lastEventIdHeader || "0") || 0;
-		const startLine = Math.max(1, fromSeq + 1);
-
-		// Ensure events file exists so tail doesn't error.
-		await sandbox.exec(
-			`mkdir -p ${getRunDir(projectDir, runId)} && touch ${eventsPath}`
-		);
-
-		const trace = await readJsonViaCat<TracePayload>(sandbox, tracePath);
-		const traceId = trace?.traceId;
-
-		// NOTE: @cloudflare/sandbox does not support passing AbortSignal across the DO boundary
-		// ("AbortSignal serialization is not enabled."). Do not pass `signal` to execStream.
-		// Instead, run a bounded tail process and stop emitting to the client on disconnect.
-		const clientAborted = { value: false };
-		request.signal.addEventListener("abort", () => {
-			clientAborted.value = true;
-		});
-
-		const tailStream = await sandbox.execStream(
-			`sh -c 'tail -n +${startLine} -f ${eventsPath} & pid=$!; sleep 600; kill $pid 2>/dev/null || true'`
-		);
-
-		const { readable, writable } = new TransformStream();
-		const writer = writable.getWriter();
-		const encoder = new TextEncoder();
-
-		const writeMilestone = async (name: string, tsMs: number) => {
-			const payload = {
-				type: "milestone",
-				name,
-				source: "worker",
-				tsMs,
-				tsIso: new Date(tsMs).toISOString(),
-				traceId,
-				projectId,
-				runId,
-			};
-			await writer.write(
-				encoder.encode(`event: milestone\ndata: ${JSON.stringify(payload)}\n\n`)
-			);
-		};
-
-		let closed = false;
-		const close = async () => {
-			if (closed) return;
-			closed = true;
-			try {
-				await writer.close();
-			} catch {}
-		};
-
-		// Heartbeats to keep intermediaries alive
-		const pingInterval = setInterval(() => {
-			if (closed) return;
-			writer.write(encoder.encode(`event: ping\ndata: {}\n\n`)).catch(() => {});
-		}, 15000);
-
-		let emittedFirstDelta = false;
-
-		(async () => {
-			let buffer = "";
-			try {
-				// Emit any known trace milestones (no `id:` so Last-Event-ID remains numeric seq).
-				if (Array.isArray(trace?.milestones) && trace.milestones.length) {
-					for (const m of trace.milestones) {
-						const payload = {
-							type: "milestone",
-							...m,
-							traceId: traceId || (m as any).traceId,
-							projectId: m.projectId || projectId,
-							runId: m.runId || runId,
-						};
-						await writer.write(
-							encoder.encode(
-								`event: milestone\ndata: ${JSON.stringify(payload)}\n\n`
-							)
-						);
-					}
-				}
-
-				await writeMilestone("worker_run_stream_received", Date.now());
-
-				for await (const rawEvent of parseSSEStream(tailStream)) {
-					if (clientAborted.value) {
-						break;
-					}
-					const event = rawEvent as SSEEvent;
-					if (event.type === "stderr" && event.data) {
-						// Keep server-side only
-						console.log("run stream stderr:", event.data);
-						continue;
-					}
-					if (event.type !== "stdout" || !event.data) continue;
-
-					buffer += event.data;
-					let idx: number;
-					while ((idx = buffer.indexOf("\n")) !== -1) {
-						const line = buffer.slice(0, idx).trim();
-						buffer = buffer.slice(idx + 1);
-						if (!line) continue;
-
-						let payload: any;
-						try {
-							payload = JSON.parse(line);
-						} catch {
-							continue;
-						}
-
-						const seq = Number(payload?.seq);
-						const type = String(payload?.type || "message");
-
-						if (!emittedFirstDelta && type === "delta") {
-							emittedFirstDelta = true;
-							await writeMilestone(
-								"worker_received_first_delta_from_runner",
-								Date.now()
-							);
-						}
-
-						await writer.write(
-							encoder.encode(
-								`id: ${
-									Number.isFinite(seq) ? seq : ""
-								}\nevent: ${type}\ndata: ${JSON.stringify(payload)}\n\n`
-							)
-						);
-
-						if (type === "done" || type === "error") {
-							await writeMilestone(
-								"worker_observed_run_terminal_event",
-								Date.now()
-							);
-							// Best-effort: release single-run lock as soon as we observe completion.
-							// This avoids a short window where the UI has received `done` but the
-							// runner process is still doing cleanup/callback work.
-							try {
-								const active = await getActiveRunPointer(sandbox, projectDir);
-								if (active?.runId === runId) {
-									await clearActiveRunPointer(sandbox, projectDir);
-								}
-							} catch (err) {
-								console.error("Failed to clear active run pointer:", err);
-							}
-							await close();
-							return;
-						}
-					}
-				}
 			} catch (error) {
-				if ((error as Error).name !== "AbortError") {
-					console.error("Run stream error:", error);
-					try {
-						await writer.write(
-							encoder.encode(
-								`event: error\ndata: ${JSON.stringify({
-									seq: -1,
-									type: "error",
-									error: "Stream failed",
-								})}\n\n`
-							)
-						);
-					} catch {}
-				}
+				console.error("Chat error:", error);
+				// Clear cached session on error so next attempt creates fresh one
+				opencodeSessions.delete(projectId);
+				await writer.write(
+					encoder.encode(`data: ${JSON.stringify({ type: "error", error: String(error) })}\n\n`)
+				);
 			} finally {
-				clearInterval(pingInterval);
-				await close();
+				await writer.close();
 			}
 		})();
 
@@ -1414,11 +522,11 @@ async function handleRunStream(
 			},
 		});
 	} catch (error) {
-		console.error("Run stream failed:", error);
-		return new Response(JSON.stringify({ error: "Failed to stream run" }), {
-			status: 500,
-			headers: { "Content-Type": "application/json" },
-		});
+		console.error("Chat failed:", error);
+		return new Response(
+			JSON.stringify({ error: "Chat failed", details: String(error) }),
+			{ status: 500, headers: { "Content-Type": "application/json" } }
+		);
 	}
 }
 
@@ -1452,7 +560,7 @@ async function handleFilesList(projectId: string, env: Env): Promise<Response> {
 			includeHidden: false,
 		});
 
-		// Filter out .claude directory (though it shouldn't be in user_files)
+		// Filter out hidden directories
 		const filteredFiles = filterFileList(
 			result.files as FileInfo[],
 			userFilesDir
@@ -1869,10 +977,10 @@ async function handleFilesEvents(
 								? fullPath.substring(userFilesDir.length + 1)
 								: fullPath;
 
-							// Skip .claude directory events (though they shouldn't be in user_files)
+							// Skip hidden files/directories
 							if (
-								relativePath === ".claude" ||
-								relativePath.startsWith(".claude/")
+								relativePath.startsWith(".") ||
+								relativePath.includes("/.")
 							) {
 								continue;
 							}

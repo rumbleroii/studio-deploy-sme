@@ -19,6 +19,8 @@ const nextConfig = {
   experimental: {
     optimizeCss: true, // Enable CSS optimization
     optimizePackageImports: ['lucide-react'], // Optimize icon imports
+    preloadEntriesOnStart: false, // Prevents Next.js from pre-loading all routes on start
+    webpackBuildWorker: true, // Reduces memory usage during development
   },
 
   // Production optimization
