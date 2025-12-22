@@ -359,16 +359,15 @@ async function ensureOpencodeServer(
 	appDir: string,
 	apiKey: string
 ): Promise<void> {
-	// Check if OpenCode is already running on port 4096
-	const checkResult = await sandbox.exec(`curl -s http://127.0.0.1:${OPENCODE_PORT}/ 2>/dev/null || echo "NOT_RUNNING"`);
-	
+	const checkResult = await sandbox.exec(
+		`curl -s http://127.0.0.1:${OPENCODE_PORT}/ 2>/dev/null || echo "NOT_RUNNING"`
+	);
+
 	if (checkResult.stdout?.includes("NOT_RUNNING") || checkResult.stdout?.includes("Connection refused")) {
-		// Start OpenCode server in background with the app directory
 		await sandbox.exec(
 			`cd "${appDir}" && ANTHROPIC_API_KEY="${apiKey}" nohup opencode serve --port ${OPENCODE_PORT} > /tmp/opencode.log 2>&1 &`
 		);
-		// Wait for server to start
-		await new Promise(resolve => setTimeout(resolve, 3000));
+		await new Promise((resolve) => setTimeout(resolve, 3000));
 	}
 }
 
@@ -394,121 +393,193 @@ async function handleChat(
 		// (container might have restarted between ensure and chat)
 		await ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY);
 
+		// Helper to create a new session
+		const createNewSession = async (): Promise<string> => {
+			const createCmd = `curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '{"title":"Project ${projectId}"}'`;
+			const createResult = await sandbox.exec(createCmd);
+
+			if (createResult.exitCode !== 0 || !createResult.stdout) {
+				throw new Error(
+					`Failed to create session: ${createResult.stderr || createResult.stdout}`
+				);
+			}
+
+			const sessionData = JSON.parse(createResult.stdout);
+			const newId = sessionData.id || sessionData.ID || sessionData.sessionId;
+			if (!newId) {
+				throw new Error(`No session ID in response: ${createResult.stdout}`);
+			}
+			opencodeSessions.set(projectId, newId);
+			return newId;
+		};
+
 		// Get or create session for this project
 		let sessionId = opencodeSessions.get(projectId);
 		if (!sessionId) {
-			// Create a new session via OpenCode API using curl
-			const createCmd = `curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '{"title":"Project ${projectId}"}'`;
-			const createResult = await sandbox.exec(createCmd);
-			
-			if (createResult.exitCode !== 0 || !createResult.stdout) {
-				throw new Error(`Failed to create session: ${createResult.stderr || createResult.stdout}`);
-			}
-			
-			try {
-				console.log("Session create response:", createResult.stdout);
-				const sessionData = JSON.parse(createResult.stdout);
-				// OpenCode might return 'id' or 'ID' or the whole session object
-				sessionId = sessionData.id || sessionData.ID || sessionData.sessionId;
-				console.log("Parsed sessionId:", sessionId, "from data:", JSON.stringify(sessionData));
-				if (!sessionId) {
-					throw new Error(`No session ID in response: ${JSON.stringify(sessionData)}`);
-				}
-				opencodeSessions.set(projectId, sessionId);
-			} catch (e) {
-				throw new Error(`Failed to parse session response: ${createResult.stdout}, error: ${e}`);
-			}
+			sessionId = await createNewSession();
 		}
 
-		// Stream response
+		// Stream response using SSE for real-time updates
 		const { readable, writable } = new TransformStream();
 		const writer = writable.getWriter();
 		const encoder = new TextEncoder();
 
 		(async () => {
 			try {
-				// Helper to create a new session
-				const createNewSession = async (): Promise<string> => {
-					const createCmd = `curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '{"title":"Project ${projectId}"}'`;
-					const createResult = await sandbox.exec(createCmd);
-					
-					if (createResult.exitCode !== 0 || !createResult.stdout) {
-						throw new Error(`Failed to create session: ${createResult.stderr || createResult.stdout}`);
-					}
-					
-					const sessionData = JSON.parse(createResult.stdout);
-					const newId = sessionData.id || sessionData.ID || sessionData.sessionId;
-					if (!newId) {
-						throw new Error(`No session ID in response: ${createResult.stdout}`);
-					}
-					opencodeSessions.set(projectId, newId);
-					return newId;
-				};
-
-				// Ensure we have a valid session
-				if (!sessionId) {
-					sessionId = await createNewSession();
-				}
-
-				// Helper to send message to OpenCode (non-streaming)
-				const sendMessage = async (sid: string): Promise<{ parts?: Array<{ type: string; text?: string }> }> => {
-					const promptBody = JSON.stringify({
-						model: { providerID: "anthropic", modelID: "claude-sonnet-4-20250514" },
-						parts: [{ type: "text", text: body.message }],
-					}).replace(/'/g, "'\\''");
-					
-					const promptCmd = `curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session/${sid}/message?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '${promptBody}'`;
-					const promptResult = await sandbox.exec(promptCmd);
-					
-					if (promptResult.exitCode !== 0) {
-						throw new Error(`Prompt failed: ${promptResult.stderr || promptResult.stdout}`);
-					}
-					
-					return JSON.parse(promptResult.stdout || "{}");
-				};
-
-				let result: { parts?: Array<{ type: string; text?: string }> };
-				
-				try {
-					// Try with existing session
-					result = await sendMessage(sessionId);
-					
-					// Check if response indicates session not found
-					if ((result as any).name === "SessionNotFoundError" || (result as any).error) {
-						throw new Error("Session invalid, need new one");
-					}
-				} catch (e) {
-					// Session might be stale (container restarted), create a new one
-					console.log("Session failed, creating new session:", e);
-					opencodeSessions.delete(projectId);
-					sessionId = await createNewSession();
-					result = await sendMessage(sessionId);
-				}
-
-				// Extract text from response
-				const textPart = result.parts?.find((p) => p.type === "text");
-				if (textPart && textPart.text) {
-					await writer.write(
-						encoder.encode(`data: ${JSON.stringify({ type: "delta", text: textPart.text })}\n\n`)
-					);
-				}
-
-				// Send session ID for persistence
-				await writer.write(
-					encoder.encode(`data: ${JSON.stringify({ type: "session_id", sessionId })}\n\n`)
+				// Connect to OpenCode event stream
+				const eventStream = await sandbox.execStream(
+					`curl -sN "http://127.0.0.1:${OPENCODE_PORT}/event"`
 				);
 
-				// Send done
-				await writer.write(
-					encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
+				// Track state
+				let messageComplete = false;
+				const partTextMap = new Map<string, string>();
+
+				// Send the message (async)
+				const promptBody = JSON.stringify({
+					model: {
+						providerID: "anthropic",
+						modelID: "claude-sonnet-4-20250514",
+					},
+					parts: [{ type: "text", text: body.message }],
+				}).replace(/'/g, "'\\''");
+
+				const messagePromise = sandbox.exec(
+					`curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session/${sessionId}/message?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '${promptBody}'`
 				);
+
+				// Process SSE events
+				let sseBuffer = "";
+				for await (const rawEvent of parseSSEStream(eventStream)) {
+					if (messageComplete) break;
+					const event = rawEvent as SSEEvent;
+
+					if (event.type === "stdout" && event.data) {
+						sseBuffer += event.data;
+						const events = sseBuffer.split("\n\n");
+						sseBuffer = events.pop() || "";
+
+						for (const sseEvent of events) {
+							if (!sseEvent.trim()) continue;
+
+							// Parse SSE data
+							let eventData = "";
+							for (const line of sseEvent.split("\n")) {
+								if (line.startsWith("data: ")) {
+									eventData = line.slice(6);
+								}
+							}
+							if (!eventData) continue;
+
+							try {
+								const data = JSON.parse(eventData);
+
+								// Text streaming
+								if (data.type === "message.part.updated" && data.properties?.part?.type === "text") {
+									const part = data.properties.part;
+									const fullText = part.text || "";
+									const previousText = partTextMap.get(part.id) || "";
+
+									if (fullText.length > previousText.length) {
+										let delta = fullText.slice(previousText.length);
+										partTextMap.set(part.id, fullText);
+
+										// Strip user message if at start
+										if (previousText.length === 0) {
+											const userMsg = body.message.trim();
+											if (delta.startsWith(userMsg)) {
+												delta = delta.slice(userMsg.length).trimStart();
+											}
+										}
+
+										if (delta) {
+											await writer.write(
+												encoder.encode(`data: ${JSON.stringify({ type: "delta", text: delta })}\n\n`)
+											);
+										}
+									}
+								}
+								// Tool events - partType="tool" with state.status
+								else if (data.type === "message.part.updated" && data.properties?.part?.type === "tool") {
+									const part = data.properties.part;
+									const toolName = part.tool || "tool";
+									const status = part.state?.status;
+
+									if (status === "pending" || status === "running") {
+										// Only send tool_start once per tool call
+										const toolKey = part.callID || part.id;
+										if (!partTextMap.has(`tool_${toolKey}`)) {
+											partTextMap.set(`tool_${toolKey}`, "started");
+											await writer.write(
+												encoder.encode(`data: ${JSON.stringify({ type: "tool_start", tool: toolName })}\n\n`)
+											);
+										}
+									} else if (status === "completed") {
+										await writer.write(
+											encoder.encode(`data: ${JSON.stringify({ type: "tool_end", tool: toolName })}\n\n`)
+										);
+									}
+								}
+								// Session idle = complete
+								else if (data.type === "session.idle" || 
+									(data.type === "session.status" && data.properties?.status?.type === "idle")) {
+									messageComplete = true;
+								}
+								// Session errors
+								else if (data.type === "error" || data.name === "SessionNotFoundError") {
+									throw new Error(data.message || data.error || "Session error");
+								}
+							} catch (e) {
+								if (!(e instanceof SyntaxError)) throw e;
+							}
+						}
+					} else if (event.type === "error") {
+						throw new Error(`Stream error: ${event.error}`);
+					} else if (event.type === "complete") {
+						break;
+					}
+				}
+
+				// Wait for message to complete and check for errors
+				const messageResult = await messagePromise;
+				if (messageResult.stdout) {
+					try {
+						const result = JSON.parse(messageResult.stdout);
+						if (result.name === "SessionNotFoundError" || result.error?.includes("session")) {
+							opencodeSessions.delete(projectId);
+							throw new Error("Session expired, please retry");
+						}
+
+						// Fallback: if no text was streamed, use POST response
+						if (partTextMap.size === 0 && result.parts) {
+							for (const part of result.parts) {
+								if (part.type === "text" && part.text) {
+									let text = part.text;
+									const userMsg = body.message.trim();
+									if (text.startsWith(userMsg)) {
+										text = text.slice(userMsg.length).trimStart();
+									}
+									if (text) {
+										await writer.write(
+											encoder.encode(`data: ${JSON.stringify({ type: "delta", text })}\n\n`)
+										);
+									}
+								}
+							}
+						}
+					} catch (e) {
+						// Ignore parse errors
+					}
+				}
+
+				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "session_id", sessionId })}\n\n`));
+				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`));
 			} catch (error) {
 				console.error("Chat error:", error);
-				// Clear cached session on error so next attempt creates fresh one
-				opencodeSessions.delete(projectId);
-				await writer.write(
-					encoder.encode(`data: ${JSON.stringify({ type: "error", error: String(error) })}\n\n`)
-				);
+				if (String(error).toLowerCase().includes("session")) {
+					opencodeSessions.delete(projectId);
+				}
+				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "error", error: String(error) })}\n\n`));
 			} finally {
 				await writer.close();
 			}
