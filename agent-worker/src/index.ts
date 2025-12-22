@@ -310,16 +310,26 @@ async function handleEnsure(
 		// user_files is at ../user_files relative to app
 		await sandbox.exec(`ln -sfn ${userFilesDir} ${appDir}/user_files`);
 
-		// Start dev server with Turbopack if not running (port 3000 required for container health check)
-		const checkServer = await sandbox.exec("pgrep -f 'next dev'");
-		if (checkServer.exitCode !== 0) {
-			await sandbox.exec(`cd ${appDir} && PORT=3001 npm run dev -- --turbo &`);
-			// Wait for server to be ready
-			for (let i = 0; i < 15; i++) {
-				await sandbox.exec("sleep 1");
-				const check = await sandbox.exec("curl -s -o /dev/null -w '%{http_code}' http://localhost:3001");
-				if (check.stdout.trim() !== '000') break;
+		// Start dev server with STRICT port binding (no fallback ports)
+		// Step 1: Kill anything on the assigned port
+		await sandbox.exec(`lsof -ti :${PREVIEW_PORT} | xargs kill -9 2>/dev/null || true`);
+		
+		// Step 2: Start server (PORT and hostname already in package.json)
+		await sandbox.exec(`cd ${appDir} && npm run dev -- --turbo &`);
+		
+		// Step 3: Health check or die
+		let serverReady = false;
+		for (let i = 0; i < 20; i++) {
+			await sandbox.exec("sleep 1");
+			const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
+			if (check.stdout.trim() !== '000') {
+				serverReady = true;
+				break;
 			}
+		}
+		
+		if (!serverReady) {
+			throw new Error(`Dev server did not bind to assigned port ${PREVIEW_PORT}`);
 		}
 
 		// Start OpenCode server in background (for chat functionality)

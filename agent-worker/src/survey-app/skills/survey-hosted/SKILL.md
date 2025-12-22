@@ -26,6 +26,7 @@ This skill provides specifications for updating the **hosted survey runtime** in
 ## CRITICAL ROUTING RULES ⚠️
 
 **ALWAYS use these exact routes for navigation:**
+
 ```typescript
 // ✅ CORRECT - Use /s/preview/ paths
 router.push(`/s/preview/question?q=${nextQuestionId}`);
@@ -38,6 +39,7 @@ router.push(`/s/${surveyId}/terminate`);
 ```
 
 **Route Pattern:**
+
 - Base: `/s/preview/`
 - Welcome: `/s/preview`
 - Questions: `/s/preview/question?q={questionId}` (query param, not dynamic route)
@@ -49,20 +51,25 @@ router.push(`/s/${surveyId}/terminate`);
 **IMPORTANT:** This skill is typically auto-triggered after the `survey-generation` skill completes to provide a complete survey system (authoring view + respondent experience).
 
 ### Sequential Trigger:
+
 - **Primary workflow:** survey-generation → survey-hosted (automatic)
 - **Standalone workflow:** survey-hosted only (when explicitly requested)
 
 ### Complete Survey System:
+
 1. **survey-generation** creates the authoring/design view
 2. **survey-hosted** (this skill) creates the respondent runtime experience
 
 ## When to Use This Skill
 
 ### Auto-Triggered:
+
 This skill is automatically activated after survey-generation completes when user requests a complete survey.
 
 ### Standalone Use:
+
 Use this skill independently when the user:
+
 - Asks to "implement a hosted survey" or "build the survey runtime"
 - Wants to create the "respondent experience" or "survey taking flow"
 - Mentions "survey deployment" or "publish survey"
@@ -89,6 +96,7 @@ app/app/s/preview/
 ### Step 2: Understand the Scope
 
 The hosted survey is different from the questionnaire view:
+
 - **Questionnaire view** (`app/app/page.tsx`) = Design/authoring interface (shows all questions)
 - **Hosted survey** (`app/app/s/preview/*`) = Respondent-facing experience (one question at a time)
 
@@ -114,17 +122,21 @@ Thank You Screen (/s/preview/complete)
 **Do NOT create new routes. Update existing ones:**
 
 #### A. Welcome Screen
+
 - Update `app/app/s/preview/page.tsx`
 - Ensure it reads the correct survey schema
 - Maintain existing structure and theme
 
 #### B. Question Screens
+
 - Update `app/app/s/preview/question/page.tsx`
 - Verify navigation logic works with updated schema
 - Reuse existing QuestionRenderer component
 
 #### C. Navigation Logic
+
 Already implemented, verify:
+
 - Previous/Next button functionality
 - Skip logic evaluation
 - Conditional routing
@@ -132,7 +144,9 @@ Already implemented, verify:
 - Question sequencing
 
 #### D. State Management
+
 Already implemented in existing routes, verify:
+
 - Current question ID tracking
 - Responses (Record<questionId, answer>)
 - Visited questions
@@ -140,9 +154,11 @@ Already implemented in existing routes, verify:
 - Survey completion status
 
 #### E. Logic Evaluation
+
 Reference: `survey-navigation-spec.md` and `../shared/survey-logic-spec.md`
 
 Verify real-time evaluation works:
+
 - Show/hide conditions
 - Skip logic (conditional routing)
 - Display conditions
@@ -151,6 +167,7 @@ Verify real-time evaluation works:
 - **Piping/text substitution** (displays previous answers in question text)
 
 **Piping in Respondent View:**
+
 - Automatically replaces `[INSERT Q#]` with answer values
 - Replaces `[INSERT Q# LABEL]` with option labels
 - Updates in real-time as user answers questions
@@ -165,12 +182,14 @@ Verify real-time evaluation works:
 Reference: `../shared/survey-ui-theme.md`
 
 **Theme specifications:**
+
 - Colors: #3D1C35 (accent), #1A1A1A (text), #666666 (secondary), #E0E0E0 (borders)
 - Fonts: 32px title, 15px question, 14px option
 - Spacing: 40px page padding, 24px section padding, 8px option gap
 - Components: 20px radio/checkbox, 8px border radius
 
 **Key differences from questionnaire view:**
+
 - Hide metadata badges (logic is evaluated, not displayed)
 - Hide notes sections (internal use only)
 - Show progress indicator
@@ -181,6 +200,7 @@ Reference: `../shared/survey-ui-theme.md`
 ### Step 6: Verify Key Features
 
 **Existing features to verify work correctly:**
+
 - Welcome screen with survey title and start button
 - Question screens with proper formatting
 - Previous and Next buttons
@@ -193,6 +213,7 @@ Reference: `../shared/survey-ui-theme.md`
 - Keyboard navigation support
 
 **Only implement if explicitly requested:**
+
 - Save and continue later
 - Browser back button support
 - Estimated time remaining
@@ -201,6 +222,7 @@ Reference: `../shared/survey-ui-theme.md`
 ### Step 7: Verify Implementation
 
 Check that existing functionality works:
+
 - [ ] Routes exist at `app/app/s/preview/*`
 - [ ] Welcome screen displays correct survey
 - [ ] Question screens navigate properly
@@ -217,15 +239,18 @@ Check that existing functionality works:
 ## Key Files Reference
 
 ### Must Read First:
+
 1. **survey-implementation-guide.md** - Step-by-step guide
 
 ### Skill-Specific:
+
 2. **survey-runtime-spec.md** - Runtime architecture and patterns
 3. **survey-routes-spec.md** - Next.js routing structure
 4. **survey-navigation-spec.md** - Navigation logic and flow control
 5. **survey-data-architecture.md** - Data storage patterns
 
 ### Shared Specifications (in ../shared/):
+
 6. **../shared/survey-ui-theme.md** - Exact theme specifications
 7. **../shared/survey-logic-spec.md** - Logic evaluation (referenced for implementation)
 8. **../shared/survey-question-types.md** - Question rendering formats
@@ -235,9 +260,11 @@ Check that existing functionality works:
 ## Examples
 
 ### Example 1: User wants hosted survey to work
+
 **User:** "Make sure the hosted survey works with the updated questionnaire"
 
 **Action:**
+
 1. Verify existing routes at `app/app/s/preview/*`
 2. Check welcome screen reads correct survey schema
 3. Confirm question screens navigate properly with updated schema
@@ -246,9 +273,11 @@ Check that existing functionality works:
 6. Test end-to-end flow
 
 ### Example 2: User asks about survey flow
+
 **User:** "How does the survey navigation work?"
 
 **Action:**
+
 1. Reference survey-navigation-spec.md
 2. Explain existing Previous/Next implementation
 3. Describe skip logic evaluation in place
@@ -256,9 +285,11 @@ Check that existing functionality works:
 5. Demonstrate conditional routing
 
 ### Example 3: User wants to update hosted routes
+
 **User:** "Update the hosted survey to show estimated time"
 
 **Action:**
+
 1. Read `app/app/s/preview/question/page.tsx`
 2. Add time estimation logic, default should be 5 mins.
 3. Update UI to display estimated time
@@ -268,6 +299,7 @@ Check that existing functionality works:
 ## Technical Implementation
 
 ### State Shape
+
 ```typescript
 interface SurveyState {
   surveyId: string;
@@ -281,6 +313,7 @@ interface SurveyState {
 ```
 
 ### Navigation Function
+
 ```typescript
 function getNextQuestion(
   currentQuestionId: string,
@@ -293,6 +326,7 @@ function getNextQuestion(
 ```
 
 ### Logic Evaluation
+
 ```typescript
 function evaluateCondition(
   condition: LogicCondition,
@@ -306,6 +340,7 @@ function evaluateCondition(
 ## Critical Requirements
 
 ### Always:
+
 - Work within existing `app/app/s/preview/*` routes
 - Update existing route files, don't recreate them
 - Preserve theme in `app/app/globals.css`
@@ -320,6 +355,7 @@ function evaluateCondition(
 - Preserve loading.tsx files in all routes
 
 ### Verify These Features Exist and Work:
+
 - Welcome screen with start button
 - One question per screen
 - Previous and Next buttons
@@ -331,6 +367,7 @@ function evaluateCondition(
 - Termination screen
 
 ### Never:
+
 - Create new Next.js app from scratch
 - Modify `app/app/globals.css` theme
 - Recreate existing routes unnecessarily
@@ -346,6 +383,7 @@ function evaluateCondition(
 ## Success Criteria
 
 A successful hosted survey update means:
+
 - Existing routes at `app/app/s/preview/*` work correctly
 - Respondents can complete survey start to finish
 - Navigation works with updated schema (Previous/Next)
@@ -361,12 +399,14 @@ A successful hosted survey update means:
 ## Integration with Survey Generation
 
 ### Sequential Workflow
+
 The hosted survey is typically part of a two-step process:
 
 1. **survey-generation skill** updates questionnaire schema in `app/data/`
 2. **survey-hosted skill** (this skill, auto-triggered) verifies hosted routes work with updated schema
 
 ### Data Flow
+
 1. Survey-generation updates schema in `app/data/`
 2. Hosted routes at `app/app/s/preview/*` read the updated schema
 3. Respondents take the survey using hosted experience
@@ -374,28 +414,26 @@ The hosted survey is typically part of a two-step process:
 5. Both authoring and hosted views use the same boilerplate app
 
 ### Theme Consistency
+
 Both skills use the **exact same theme** from `app/app/globals.css` for consistency. The authoring view (`app/app/page.tsx`) and respondent experience (`app/app/s/preview/*`) are visually aligned (same colors, fonts, spacing, components).
 
 ---
 
-## Final Step: Start Development Server
+# Final Step: Start Development Server
 
 **IMPORTANT:** After completing ALL work for both survey-generation and survey-hosted skills, start the development server:
 
 ### Action Required:
+
 1. Navigate to the survey-app directory: `cd app`
 2. Start the Next.js development server: `npm run dev`
 
 ### When to Execute:
+
 - ✅ Execute this step **ONLY AFTER** both skills have completed all their tasks
 - ✅ This is the final step of the survey implementation workflow
 - ✅ The server must be running for users to view the survey
 
-### What This Does:
-- Starts the Next.js development server on `http://localhost:3000`
-- Enables hot-reload for any further changes
-- Makes both authoring view and hosted survey accessible
-- Allows the user to test the complete survey implementation
-
 ### Note:
+
 If the server is already running, you can skip this step. Only start it if it's not currently running.
