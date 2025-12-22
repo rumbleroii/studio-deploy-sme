@@ -12,7 +12,6 @@ import {
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Send, Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -297,21 +296,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 	// Play chime when streaming ends
 		useEffect(() => {
-			// Only trigger when isStreaming changes from true to false
 			if (!isStreaming && wasStreamingRef.current) {
 				const audio = new Audio("/sounds/chime.mp3");
 				audio.volume = 0.4;
-				audio.play().catch((e) => console.log("Chime failed:", e));
+				audio.play().catch(() => {});
 			}
 			wasStreamingRef.current = isStreaming;
 		}, [isStreaming]);
-
-		const handleCancel = useCallback(() => {
-			abortControllerRef.current?.abort();
-			setIsStreaming(false);
-			setIsProcessing(false);
-			setStatusMessage(null);
-		}, []);
 
 		const handleSubmit = async (e: React.FormEvent) => {
 			e.preventDefault();
@@ -391,6 +382,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 											: m
 									)
 								);
+							} else if (payload.type === "tool_start") {
+								setIsProcessing(true);
+								setStatusMessage(`Running: ${payload.tool || "tool"}...`);
+							} else if (payload.type === "tool_end") {
+								setIsProcessing(false);
+								setStatusMessage(null);
+								// Add newline after tool call so next text starts fresh
+								onMessagesChange((prev) =>
+									prev.map((m) =>
+										m.id === assistantMsgId && m.content && !m.content.endsWith("\n\n")
+											? { ...m, content: m.content.trimEnd() + "\n\n" }
+											: m
+									)
+								);
 							} else if (payload.type === "done") {
 								onMessagesChange((prev) =>
 									prev.map((m) =>
@@ -437,12 +442,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		};
 
 		return (
-			<div className="flex-1 flex flex-col min-w-0 bg-gray-50 relative">
-				<ScrollArea className="flex-1 scroll-smooth">
+			<div className="flex-1 flex flex-col min-w-0 bg-gray-50 relative overflow-hidden">
+				<div className="flex-1 overflow-y-auto">
 					<div
-						className="max-w-2xl mx-auto space-y-4 my-4"
-						style={{ maxHeight: '80vh', overflow: 'overlay' }}
-						role="log"
+						className="max-w-2xl mx-auto space-y-4 py-4"
 						aria-label="Chat messages"
 						aria-live="polite"
 						aria-busy={isStreaming}
@@ -490,7 +493,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 						)}
 
 						{isProcessing && (
-							<div className="flex items-center gap-2 pl-4 py-1 text-sm text-gray-400 italic animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out">
+							<div className="flex items-center gap-2 pl-4 text-sm text-gray-400 italic animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out">
 								<Loader2 className="h-3 w-3 animate-spin text-gray-400" />
 								<span>{statusMessage || "Agent is processing"}</span>
 							</div>
@@ -578,7 +581,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 							</div>
 						</div>
 					</div>
-				</ScrollArea>
+				</div>
 			</div>
 		);
 	}
