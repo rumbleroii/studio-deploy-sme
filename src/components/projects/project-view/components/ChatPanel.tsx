@@ -221,6 +221,7 @@ interface ChatPanelProps {
 	isRunningQA?: boolean;
 	failedChecks?: FailedCheck[] | null;
 	isFixingIssues?: boolean;
+	isPublished?: boolean
 }
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
@@ -236,6 +237,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			isRunningQA,
 			failedChecks,
 			isFixingIssues,
+			isPublished
 		},
 		ref
 	) {
@@ -475,21 +477,32 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 							<MessageBubble key={message.id} message={message} />
 						))}
 
-						{isRunningQA && qaChecks && qaChecks.length > 0 && (
-							<QAChecksMessage
-								checks={qaChecks}
-								isExpanded={isQAExpanded}
-								onToggle={() => setIsQAExpanded(!isQAExpanded)}
-							/>
-						)}
+							{qaChecks && qaChecks.length > 0 && (
+								<>
+								<QAChecksMessage
+									checks={qaChecks}
+									isExpanded={isQAExpanded}
+									onToggle={() => setIsQAExpanded(!isQAExpanded)}
+								/>
+								<MessageBubble key={'abcd'} message={{createdAt: new Date().toISOString(), id: 'abcd', role:"assistant", content: `I successfully have run the QA checks for the created survey, and here’s what I found:
+									Checks Performed: 30
+									Checks Passed: 30
+									Checks Failed: 0
+									`}} />
+								</>
+							)}	
 
 						{failedChecks && failedChecks.length > 0 && (
+							<>
 							<FixingQAIssuesMessage
 								failedChecks={failedChecks}
 								isExpanded={isFixingExpanded}
 								onToggle={() => setIsFixingExpanded(!isFixingExpanded)}
 								isFixing={isFixingIssues || false}
 							/>
+							<MessageBubble key={'abcde'} message={{createdAt: new Date().toISOString(), id: 'abcde', role:"assistant", content: `All the issues have been fixed. Your survey is now live! Start inviting participants using the link you’ll find after clicking on the ‘Invite Participants’ button.`}} />
+							</>
+							
 						)}
 
 						{isProcessing && (

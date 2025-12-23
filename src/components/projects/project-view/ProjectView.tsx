@@ -13,7 +13,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
-import { ArrowLeft, PanelRightClose, PanelRight, FileText, Eye, Globe, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, PanelRightClose, PanelRight, FileText, Eye, Globe, Loader2, RefreshCw, User, Users, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { useSandboxConnection } from "./hooks/useSandboxConnection";
@@ -22,6 +22,7 @@ import { ChatPanel, type ChatPanelHandle } from "./components/ChatPanel";
 import { FilesPanel } from "./components/FilesPanel";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { TerminalPanel } from "./components/TerminalPanel";
+import { InviteParticipantsModal } from "./components/InviteParticipantsModal";
 import type { ProjectViewProps, Message } from "./types";
 
 export function ProjectView({
@@ -41,6 +42,8 @@ export function ProjectView({
 	const [qaChecks, setQaChecks] = useState<any[]>([]);
 	const [failedChecks, setFailedChecks] = useState<any[]>([]);
 	const [isFixingIssues, setIsFixingIssues] = useState(false);
+	const [isPublished, setIsPublished] = useState(false);
+	const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
 	const chatPanelRef = useRef<ChatPanelHandle>(null);
 
@@ -57,6 +60,10 @@ export function ProjectView({
 		{ id: "check-q4", name: "Q4", status: "pending" as const },
 		{ id: "check-q5", name: "Q5", status: "pending" as const },
 	];
+
+	const handleInviteParticipants = async () => {
+		setInviteModalOpen(true);
+	};
 
 	const handleReviewAndPublish = async () => {
 		setIsRunningQA(true);
@@ -112,6 +119,8 @@ export function ProjectView({
 			// Simulate fixing process
 			await new Promise(resolve => setTimeout(resolve, 2000));
 			setIsFixingIssues(false);
+			setIsPublished(true)
+			setIsRunningQA(false)
 		}
 		
 		// Keep showing checks after completion
@@ -240,10 +249,10 @@ export function ProjectView({
 						{sandboxStatus === "connected" ? "Connected" : "Connecting…"}
 					</span>
 				</div>
-				{/* <Button
+				<Button
 					className="bg-burgundy-500 hover:bg-burgundy-600 text-white h-9 px-4 gap-2"
 					size="sm"
-					onClick={handleReviewAndPublish}
+					onClick={isPublished ? handleInviteParticipants : handleReviewAndPublish}
 					disabled={isRunningQA}
 				>
 					{isRunningQA ? (
@@ -251,13 +260,18 @@ export function ProjectView({
 							<Loader2 className="h-4 w-4 animate-spin" />
 							Running Quality Checks
 						</>
-					) : (
+					) : isPublished && !isRunningQA ? (
+						<>
+							<Users className="h-4 w-4" />
+							Invite Participants
+						</>
+					): !isPublished && (
 						<>
 							<Globe className="h-4 w-4" />
 							Review & Publish
 						</>
 					)}
-				</Button> */}
+				</Button>
 				<Dialog>
 					<DialogTrigger asChild>
 						<Button
@@ -521,6 +535,13 @@ export function ProjectView({
 					</div>
 				)}
 			</div>
+
+			{/* Invite Participants Modal */}
+			<InviteParticipantsModal
+				open={inviteModalOpen}
+				onOpenChange={setInviteModalOpen}
+				surveyUrl={`survey.metaforms.app/${project.id}`}
+			/>
 		</div>
 	);
 }
