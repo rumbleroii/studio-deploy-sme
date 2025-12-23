@@ -44,6 +44,7 @@ export function ProjectView({
 	const [isFixingIssues, setIsFixingIssues] = useState(false);
 	const [isPublished, setIsPublished] = useState(false);
 	const [inviteModalOpen, setInviteModalOpen] = useState(false);
+	const [isEditInProgress, setIsEditInProgress] = useState(false)
 
 	const chatPanelRef = useRef<ChatPanelHandle>(null);
 
@@ -413,6 +414,7 @@ export function ProjectView({
 						isRunningQA={isRunningQA}
 						failedChecks={failedChecks}
 						isFixingIssues={isFixingIssues}
+						setIsEditInProgress={setIsEditInProgress}
 					/>
 					</div>
 
@@ -485,7 +487,7 @@ export function ProjectView({
 									{viewMode === "questionnaire" ? (
 										<PreviewPanel
 										previewUrl={previewUrl}
-										isLoadingPreview={isLoadingPreview}
+										isLoadingPreview={isLoadingPreview || isEditInProgress}
 										className="flex-1"
 									/>
 									) : (

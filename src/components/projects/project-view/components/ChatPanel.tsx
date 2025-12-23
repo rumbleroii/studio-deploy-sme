@@ -221,7 +221,8 @@ interface ChatPanelProps {
 	isRunningQA?: boolean;
 	failedChecks?: FailedCheck[] | null;
 	isFixingIssues?: boolean;
-	isPublished?: boolean
+	isPublished?: boolean;
+	setIsEditInProgress?: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
@@ -237,7 +238,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			isRunningQA,
 			failedChecks,
 			isFixingIssues,
-			isPublished
+			isPublished,
+			setIsEditInProgress
+
 		},
 		ref
 	) {
@@ -255,6 +258,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		const messagesEndRef = useRef<HTMLDivElement>(null);
 		const abortControllerRef = useRef<AbortController | null>(null);
 		const wasStreamingRef = useRef(false);
+		const hasTriggeredInitialMessage = useRef(false);
 
 		const { toast } = useToast();
 
@@ -306,12 +310,27 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			wasStreamingRef.current = isStreaming;
 		}, [isStreaming]);
 
-		const handleSubmit = async (e: React.FormEvent) => {
-			e.preventDefault();
-			if (!input.trim() || isStreaming || sandboxStatus !== "connected") return;
+		// Cleanup on unmount
+		useEffect(() => {
+			return () => {
+				// Abort any in-flight requests
+				if (abortControllerRef.current) {
+					abortControllerRef.current.abort();
+					abortControllerRef.current = null;
+				}
+				// Reset refs
+				hasTriggeredInitialMessage.current = false;
+				wasStreamingRef.current = false;
+			};
+		}, []);
 
-			const userMessage = input.trim();
-			setInput("");
+		// Function to send a message programmatically
+		const sendMessage = useCallback(async (messageContent: string) => {
+			if (isStreaming || sandboxStatus !== "connected") return;
+
+			const userMessage = messageContent.trim();
+			if (!userMessage) return;
+
 			setIsStreaming(true);
 			setIsProcessing(true);
 			setStatusMessage("Thinking...");
@@ -373,6 +392,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 						try {
 							const payload = JSON.parse(data);
+							if(payload.tool === "edit"){
+								setIsEditInProgress?.(true)
+							}
 
 							if (payload.type === "delta" && payload.text) {
 								setIsProcessing(false);
@@ -399,6 +421,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 									)
 								);
 							} else if (payload.type === "done") {
+								setIsEditInProgress?.(false)
 								onMessagesChange((prev) =>
 									prev.map((m) =>
 										m.id === assistantMsgId ? { ...m, status: "complete" } : m
@@ -425,22 +448,45 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 				} else {
 					console.error("Chat error:", error);
 					onMessagesChange((prev) => prev.filter((m) => m.id !== assistantMsgId));
-					// Restore user message to input
-					setInput(userMessage);
 					onMessagesChange((prev) => prev.filter((m) => m.id !== userMsgId));
-					
+
 					toast({
 						variant: "destructive",
 						title: "Chat failed",
 						description: "Could not send message. Please try again.",
 					});
 				}
-				
+
 				setIsStreaming(false);
 				setIsProcessing(false);
 				setStatusMessage(null);
 				startEnsureLoop();
 			}
+		}, [isStreaming, sandboxStatus, onMessagesChange, projectId, startEnsureLoop, toast, setIsEditInProgress]);
+
+		// Auto-send initial message for new projects
+		useEffect(() => {
+			const DEFAULT_MESSAGE = "Create the survey UI by using the questionnaire for reference";
+
+			// Only trigger if: no messages, sandbox is connected, not already triggered, not currently streaming
+			if (
+				messages.length === 0 &&
+				sandboxStatus === "connected" &&
+				!hasTriggeredInitialMessage.current &&
+				!isStreaming
+			) {
+				hasTriggeredInitialMessage.current = true;
+				sendMessage(DEFAULT_MESSAGE);
+			}
+		}, [messages.length, sandboxStatus, isStreaming, sendMessage]);
+
+		const handleSubmit = async (e: React.FormEvent) => {
+			e.preventDefault();
+			if (!input.trim()) return;
+
+			const userMessage = input.trim();
+			setInput("");
+			await sendMessage(userMessage);
 		};
 
 		return (
