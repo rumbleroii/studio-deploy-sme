@@ -141,3 +141,18 @@
 		box-shadow: none;
 	}
 }
+
+/* Hide Next.js development overlays and indicators */
+#__next-build-watcher,
+nextjs-portal,
+[data-nextjs-dialog-overlay],
+[data-nextjs-toast],
+[data-nextjs-scroll-lock],
+.__next-dev-error-overlay,
+#webpack-dev-server-client-overlay,
+#webpack-dev-server-client-overlay-div {
+	display: none !important;
+	visibility: hidden !important;
+	opacity: 0 !important;
+	pointer-events: none !important;
+}
