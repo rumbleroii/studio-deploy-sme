@@ -293,7 +293,7 @@ async function handleEnsure(
 ): Promise<Response> {
 	try {
 		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		const sandbox = getSandbox(env.Sandbox, sandboxId, { sleepAfter: '5m' });
 		const appDir = getAppDir(projectId);
 		const userFilesDir = getUserFilesDir(projectId);
 
@@ -311,11 +311,28 @@ async function handleEnsure(
 		await sandbox.exec(`ln -sfn ${userFilesDir} ${appDir}/user_files`);
 
 		// Start dev server with STRICT port binding (no fallback ports)
-		// Step 1: Kill anything on the assigned port
+		// Step 1: Kill anything on the assigned port and wait for port to be released
 		await sandbox.exec(`lsof -ti :${PREVIEW_PORT} | xargs kill -9 2>/dev/null || true`);
 		
-		// Step 2: Start server (PORT and hostname already in package.json)
-		await sandbox.exec(`cd ${appDir} && npm run dev -- --turbo &`);
+		// Wait for port to be fully released (kernel needs time to release the socket)
+		let portFree = false;
+		for (let i = 0; i < 10; i++) {
+			const portCheck = await sandbox.exec(`lsof -ti :${PREVIEW_PORT} 2>/dev/null`);
+			if (!portCheck.stdout?.trim()) {
+				portFree = true;
+				break;
+			}
+			await sandbox.exec("sleep 0.5");
+		}
+		
+		if (!portFree) {
+			// Force kill any remaining processes
+			await sandbox.exec(`fuser -k ${PREVIEW_PORT}/tcp 2>/dev/null || true`);
+			await sandbox.exec("sleep 1");
+		}
+		
+		// Step 2: Start server with --port flag to ensure strict port binding
+		await sandbox.exec(`cd ${appDir} && PORT=${PREVIEW_PORT} npm run dev -- --turbo --port ${PREVIEW_PORT} &`);
 		
 		// Step 3: Health check or die
 		let serverReady = false;
@@ -396,12 +413,52 @@ async function handleChat(
 		}
 
 		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		const sandbox = getSandbox(env.Sandbox, sandboxId, { sleepAfter: '5m' });
 		const appDir = getAppDir(projectId);
 
 		// OpenCode server is started in handleEnsure, but check just in case
 		// (container might have restarted between ensure and chat)
 		await ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY);
+
+		// Helper to find existing session from OpenCode API
+		// This persists across Worker isolates since it queries the container directly
+		const findExistingSession = async (): Promise<string | null> => {
+			try {
+				const listResult = await sandbox.exec(
+					`curl -s "http://127.0.0.1:${OPENCODE_PORT}/session"`
+				);
+				
+				if (listResult.exitCode !== 0 || !listResult.stdout) {
+					return null;
+				}
+				
+				// OpenCode returns Session[] - find one matching our project directory
+				const sessions = JSON.parse(listResult.stdout);
+				
+				// Handle both array and object formats
+				const sessionList = Array.isArray(sessions) 
+					? sessions 
+					: Object.entries(sessions).map(([id, data]) => ({ id, ...(data as object) }));
+				
+				for (const session of sessionList) {
+					const sessionPath = session.path || session.directory || session.cwd || '';
+					// Match by exact path or by project ID in path
+					if (sessionPath === appDir || 
+						sessionPath.includes(`/projects/${projectId}/`) ||
+						sessionPath.endsWith(`/${projectId}/working_directory/app`)) {
+						const id = session.id || session.ID || session.sessionId;
+						if (id) {
+							console.log(`Found existing OpenCode session: ${id} for project ${projectId}`);
+							return id;
+						}
+					}
+				}
+				return null;
+			} catch (e) {
+				console.error("Error finding existing session:", e);
+				return null;
+			}
+		};
 
 		// Helper to create a new session
 		const createNewSession = async (): Promise<string> => {
@@ -423,10 +480,19 @@ async function handleChat(
 			return newId;
 		};
 
-		// Get or create session for this project
-		let sessionId = opencodeSessions.get(projectId);
+		// Get session: first check in-memory cache, then query OpenCode, finally create new
+		let sessionId: string | undefined = opencodeSessions.get(projectId);
 		if (!sessionId) {
-			sessionId = await createNewSession();
+			// Worker memory doesn't persist across isolates, so query OpenCode directly
+			const existingSession = await findExistingSession();
+			if (existingSession) {
+				sessionId = existingSession;
+				// Cache it for subsequent requests in this isolate
+				opencodeSessions.set(projectId, sessionId);
+			} else {
+				// No existing session found, create new one
+				sessionId = await createNewSession();
+			}
 		}
 
 		// Stream response using SSE for real-time updates
@@ -435,6 +501,9 @@ async function handleChat(
 		const encoder = new TextEncoder();
 
 		(async () => {
+			// Keepalive interval - declared outside try so it can be cleared in catch/finally
+			let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+			
 			try {
 				// Connect to OpenCode event stream
 				const eventStream = await sandbox.execStream(
@@ -444,6 +513,18 @@ async function handleChat(
 				// Track state
 				let messageComplete = false;
 				const partTextMap = new Map<string, string>();
+				
+				// Keepalive: send ping every 15 seconds to prevent connection timeout
+				keepaliveInterval = setInterval(async () => {
+					if (!messageComplete) {
+						try {
+							await writer.write(encoder.encode(`: keepalive\n\n`));
+						} catch {
+							// Writer closed, stop keepalive
+							if (keepaliveInterval) clearInterval(keepaliveInterval);
+						}
+					}
+				}, 15000);
 
 				// Send the message (async)
 				const promptBody = JSON.stringify({
@@ -582,15 +663,18 @@ async function handleChat(
 					}
 				}
 
+				if (keepaliveInterval) clearInterval(keepaliveInterval);
 				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "session_id", sessionId })}\n\n`));
 				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`));
 			} catch (error) {
 				console.error("Chat error:", error);
+				if (keepaliveInterval) clearInterval(keepaliveInterval);
 				if (String(error).toLowerCase().includes("session")) {
 					opencodeSessions.delete(projectId);
 				}
 				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: "error", error: String(error) })}\n\n`));
 			} finally {
+				if (keepaliveInterval) clearInterval(keepaliveInterval);
 				await writer.close();
 			}
 		})();
@@ -610,6 +694,7 @@ async function handleChat(
 		);
 	}
 }
+
 
 // ============================================================================
 // File Management Handlers
