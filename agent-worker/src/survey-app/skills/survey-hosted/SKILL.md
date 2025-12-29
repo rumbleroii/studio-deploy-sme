@@ -428,7 +428,7 @@ Both skills use the **exact same theme** from `app/app/globals.css` for consiste
 ### Action Required:
 
 1. Navigate to the survey-app directory: `cd app`
-2. Start the Next.js development server: `npm run dev`
+2. Start the Next.js development server: `PORT=3001 npm run dev`
 
 ### When to Execute:
 

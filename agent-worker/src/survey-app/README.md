@@ -106,9 +106,9 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the **authoring view**.
+Open [http://localhost:3001](http://localhost:3001) to see the **authoring view**.
 
-Open [http://localhost:3000/s/verizon-2025](http://localhost:3000/s/verizon-2025) to take the **hosted survey**.
+Open [http://localhost:3001/s/verizon-2025](http://localhost:3001/s/verizon-2025) to take the **hosted survey**.
 
 ### Build for Production
 
@@ -171,13 +171,13 @@ The app follows **exact specifications** from survey-ui-theme.md:
 ## 🧪 Testing the Survey
 
 ### Test the Authoring View
-1. Visit [http://localhost:3000](http://localhost:3000)
+1. Visit [http://localhost:3001](http://localhost:3001)
 2. Verify all sections are collapsible
 3. Check that all badges are displayed correctly
 4. Ensure notes sections have yellow background
 
 ### Test the Hosted Survey
-1. Visit [http://localhost:3000/s/verizon-2025](http://localhost:3000/s/verizon-2025)
+1. Visit [http://localhost:3001/s/verizon-2025](http://localhost:3001/s/verizon-2025)
 2. Click "Start Survey"
 3. Answer questions and test navigation:
    - Enter a number for S11 (e.g., 100)

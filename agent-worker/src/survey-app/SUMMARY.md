@@ -187,8 +187,8 @@ npm run dev
 ```
 
 Then visit:
-- **Authoring View**: http://localhost:3000
-- **Hosted Survey**: http://localhost:3000/s/verizon-2025
+- **Authoring View**: http://localhost:3001
+- **Hosted Survey**: http://localhost:3001/s/verizon-2025
 
 ### Production Build
 ```bash

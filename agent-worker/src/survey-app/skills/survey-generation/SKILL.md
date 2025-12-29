@@ -207,69 +207,69 @@ From `survey-generation-guide.md`, verify:
 
 ### Step 6: Start Development Server
 
-**CRITICAL: Always run on port 3000**
+**CRITICAL: Always run on port 3001**
 
 When starting the development server or testing the survey:
 
 #### Port Management Rules
 
-1. **Default Port**: Always use port 3000
-2. **Handle Conflicts**: If port 3000 is in use, kill the existing process first
-3. **No Alternatives**: Never use ports like 3001, 3002, etc.
+1. **Default Port**: Always use port 3001. If nothing is running on 3001, then run the nextjs app on 3001.
+2. **Handle Conflicts**: If port 3001 is in use, don't kill the existing process.
+3. **No Alternatives**: Never use ports like 3000, 3002, etc.
 
 #### Starting Process
 
 **Standard sequence:**
 ```bash
-# Step 1: Check if port 3000 is in use
-lsof -ti:3000
+# Step 1: Check if port 3001 is in use
+lsof -ti:3001
 
 # Step 2: If a process exists, kill it
-kill -9 $(lsof -ti:3000)
+kill -9 $(lsof -ti:3001)
 
-# Step 3: Start dev server on port 3000
-npm run dev
+# Step 3: Start dev server on port 3001
+PORT=3001 npm run dev
 ```
 
 **Quick command** (handles all steps):
 ```bash
-# Kill any process on 3000 and start dev server
-lsof -ti:3000 && kill -9 $(lsof -ti:3000) || true && npm run dev
+# Kill any process on 3001 and start dev server
+lsof -ti:3001 && kill -9 $(lsof -ti:3001) || true && PORT=3001 npm run dev
 ```
 
 #### Common Scenarios
 
 **Scenario 1: Port Already in Use**
 ```bash
-# Error: Port 3000 is already in use
+# Error: Port 3001 is already in use
 # Solution: Kill and restart
-kill -9 $(lsof -ti:3000) && npm run dev
+kill -9 $(lsof -ti:3001) && PORT=3001 npm run dev
 ```
 
 **Scenario 2: Starting Fresh**
 ```bash
 # Clean start with port check
-lsof -ti:3000 && kill -9 $(lsof -ti:3000) || true
-npm run dev
+lsof -ti:3001 && kill -9 $(lsof -ti:3001) || true
+PORT=3001 npm run dev
 ```
 
 **Scenario 3: Multiple Terminal Sessions**
 - If dev server is in another terminal, kill it first
-- Use: `kill -9 $(lsof -ti:3000)`
+- Use: `kill -9 $(lsof -ti:3001)`
 - Then start new instance
 
-#### Why Port 3000?
+#### Why Port 3001?
 
-- **Consistency**: All URLs and references use port 3000
-- **Standard**: Default Next.js development port
-- **Preview URLs**: Configured for localhost:3000
-- **Testing**: Test scripts expect port 3000
+- **Consistency**: All URLs and references use port 3001
+- **Dedicated Port**: Separate from default Next.js port (3001)
+- **Preview URLs**: Configured for localhost:3001
+- **Testing**: Test scripts expect port 3001
 
 #### Important Notes
 
-- **Never modify** the default port in `next.config.js` or `.env`
+- **Always specify port**: Use `PORT=3001 npm run dev`
 - **Always kill** existing processes before starting new ones
-- **Port 3000 is mandatory** for local development
+- **Port 3001 is mandatory** for local development
 - **Consistency matters** for URL references and testing
 
 #### Troubleshooting
@@ -277,10 +277,10 @@ npm run dev
 **Port still shows as in use:**
 ```bash
 # Force kill with sudo (use cautiously)
-sudo lsof -ti:3000 | xargs kill -9
+sudo lsof -ti:3001 | xargs kill -9
 
 # Or find specific process
-lsof -i:3000
+lsof -i:3001
 # Then kill by PID: kill -9 <PID>
 ```
 
@@ -290,7 +290,7 @@ lsof -i:3000
 npx prisma generate
 
 # Then start dev server
-npm run dev
+PORT=3001 npm run dev
 ```
 
 ## Key Files Reference
