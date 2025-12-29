@@ -1,4 +1,4 @@
-import type { Submission, DataStats } from "./types";
+import type { Submission, DataStats, QuotaProgress, DataChecksSummary } from "./types";
 
 const ageGroups = ["18-24", "25-34", "35-44", "45-54", "55+"];
 const genders = ["Male", "Female", "Non-binary", "Prefer not to say"];
@@ -90,3 +90,69 @@ export const calculateStats = (submissions: Submission[]): DataStats => {
 // Generate initial dummy data (700 submissions)
 export const dummySubmissions = generateSubmissions(700);
 export const dummyStats = calculateStats(dummySubmissions);
+
+// Quota progress data
+export const dummyQuotaProgress: QuotaProgress = {
+	sections: [
+		{
+			title: "Generation",
+			items: [
+				{ label: "Gen-Z", progress: 90, current: 180, target: 200 },
+				{ label: "Millenials", progress: 90, current: 270, target: 300 },
+				{ label: "Gen Alpha", progress: 90, current: 135, target: 150 },
+			],
+		},
+		{
+			title: "Gender",
+			items: [
+				{ label: "Male", progress: 90, current: 360, target: 400 },
+				{ label: "Female", progress: 90, current: 360, target: 400 },
+			],
+		},
+		{
+			title: "Location",
+			items: [
+				{ label: "Urban", progress: 90, current: 450, target: 500 },
+				{ label: "Rural", progress: 90, current: 270, target: 300 },
+			],
+		},
+	],
+};
+
+// Data checks data
+export const dummyDataChecks: DataChecksSummary = {
+	totalRespondents: 100,
+	passed: 85,
+	warning: 10,
+	critical: 5,
+	checks: [
+		{
+			id: "skip-logic",
+			name: "Skip Logic Check",
+			affectedCount: 2,
+			status: "passed",
+		},
+		{
+			id: "gibberish-text",
+			name: "OE Gibberish Text",
+			affectedCount: 10,
+			status: "warning",
+			details: [
+				{ questionId: "Q1", responsesCoded: 25 },
+				{ questionId: "S11", responsesCoded: 50 },
+			],
+		},
+		{
+			id: "straight-liners",
+			name: "Straight Liners",
+			affectedCount: 12,
+			status: "warning",
+		},
+		{
+			id: "speeders",
+			name: "Speeders",
+			affectedCount: 5,
+			status: "critical",
+		},
+	],
+};
