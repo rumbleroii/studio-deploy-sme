@@ -83,7 +83,7 @@ export const PreviewPanel = memo(function PreviewPanel({
 
 	return (
 		<div className={cn("flex-1 flex flex-col", className)}>
-			{iframeUrl && (
+			{iframeUrl && false && (
 				<div className="h-10 px-4 border-b border-gray-200 flex items-center justify-end bg-gray-50">
 					{/* <div className="flex bg-gray-200 rounded-lg p-0.5 gap-0.5">
 						{[
@@ -105,7 +105,7 @@ export const PreviewPanel = memo(function PreviewPanel({
 							</button>
 						))}
 					</div> */}
-					<div className="flex items-center justify-end gap-3">
+					{/* <div className="flex items-center justify-end gap-3">
 						<button
 							type="button"
 							onClick={handleRefresh}
@@ -115,15 +115,15 @@ export const PreviewPanel = memo(function PreviewPanel({
 							<RefreshCw className="h-3.5 w-3.5" />
 							Refresh
 						</button>
-						{/* <a
+						<a
 							href={iframeUrl || previewUrl}
 							target="_blank"
 							rel="noopener noreferrer"
 							className="text-xs text-gray-500 hover:text-gray-700"
 						>
 							Open in new tab ↗
-						</a> */}
-					</div>
+						</a>
+					</div> */}
 				</div>
 			)}
 			<div className="flex-1 bg-gray-50 relative">
@@ -183,6 +183,16 @@ export const PreviewPanel = memo(function PreviewPanel({
 					<div className="flex-1 px-3 py-1.5 bg-white border border-gray-200 rounded text-xs text-gray-600 truncate">
 						{iframeUrl}
 					</div>
+					<button
+							type="button"
+							onClick={handleRefresh}
+							className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1.5 transition-colors"
+							title="Refresh preview"
+							aria-label="Refresh preview"
+						>
+								<RefreshCw className="h-3.5 w-3.5" />
+							{/* Refresh */}
+						</button>
 					<a
 						href={iframeUrl}
 						target="_blank"

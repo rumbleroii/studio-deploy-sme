@@ -13,7 +13,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
-import { ArrowLeft, PanelRightClose, PanelRight, FileText, Eye, Globe, Loader2, RefreshCw, User, Users, Users2 } from "lucide-react";
+import { ArrowLeft, PanelRightClose, PanelRight, FileText, Eye, Globe, Loader2, RefreshCw, User, Users, Users2, File, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { useSandboxConnection } from "./hooks/useSandboxConnection";
@@ -36,7 +36,7 @@ export function ProjectView({
 		"preview"
 	);
 	const [activeMainTab, setActiveMainTab] = useState<"survey" | "data" | "insights">("survey");
-	const [viewMode, setViewMode] = useState<"questionnaire" | "preview">("questionnaire");
+	const [viewMode, setViewMode] = useState<"questionnaire" | "preview" | "files">("questionnaire");
 	const [messages, setMessages] = useState<Message[]>(initialMessages);
 	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 	const [isRunningQA, setIsRunningQA] = useState(false);
@@ -463,9 +463,8 @@ export function ProjectView({
 								showContext ? "w-[60%] opacity-100" : "w-0 opacity-0 border-l-0"
 							)}
 						>
-							<div className="h-12 px-4 border-b border-gray-200 flex items-center justify-between shrink-0">
-								{/* Left side - tabs for context/files */}
-								<Tabs
+							<div className="h-12 px-4 border-b border-gray-200 flex items-center justify-end shrink-0">
+								{/* <Tabs
 									value={activeTab}
 									onValueChange={(v) =>
 										setActiveTab(v as "preview" | "terminal" | "files")
@@ -475,45 +474,59 @@ export function ProjectView({
 										<TabsTrigger value="preview" className="text-xs h-7 px-3">
 											Preview
 										</TabsTrigger>
-										{/* <TabsTrigger value="context" className="text-xs h-7 px-3">
+										<TabsTrigger value="context" className="text-xs h-7 px-3">
 											Context
-										</TabsTrigger> */}
+										</TabsTrigger>
 										<TabsTrigger value="files" className="text-xs h-7 px-3">
 											Files
 										</TabsTrigger>
 									</TabsList>
-								</Tabs>
+								</Tabs> */}
 
 								{/* Right side - Questionnaire/Preview buttons */}
 								{activeTab === "preview" && (
-									<div className="flex items-center gap-2">
+									<div className="flex items-center gap-1">
 										<Button
 											variant={viewMode === "questionnaire" ? "default" : "ghost"}
 											size="sm"
 											onClick={() => setViewMode("questionnaire")}
 											className={cn(
-												"gap-2 h-8 text-xs",
+												"gap-1 h-8 text-xs",
 												viewMode === "questionnaire"
 													? "bg-burgundy-500 hover:bg-burgundy-600 text-white"
 													: "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
 											)}
 										>
 											<FileText className="h-3.5 w-3.5" />
-											Questionnaire
+											{/* Questionnaire */}
 										</Button>
 										<Button
 											variant={viewMode === "preview" ? "default" : "ghost"}
 											size="sm"
 											onClick={() => setViewMode("preview")}
 											className={cn(
-												"gap-2 h-8 text-xs",
+												"gap-1 h-8 text-xs",
 												viewMode === "preview"
 													? "bg-burgundy-500 hover:bg-burgundy-600 text-white"
 													: "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
 											)}
 										>
 											<Eye className="h-3.5 w-3.5" />
-											Preview
+											{/* Preview */}
+										</Button>
+										<Button
+											variant={viewMode === "files" ? "default" : "ghost"}
+											size="sm"
+											onClick={() => setViewMode("files")}
+											className={cn(
+												"gap-1 h-8 text-xs",
+												viewMode === "files"
+													? "bg-burgundy-500 hover:bg-burgundy-600 text-white"
+													: "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+											)}
+										>
+											<Upload className="h-3.5 w-3.5" />
+											{/* Preview */}
 										</Button>
 									</div>
 								)}
@@ -528,12 +541,16 @@ export function ProjectView({
 										isLoadingPreview={isLoadingPreview || isEditInProgress}
 										className="flex-1"
 									/>
-									) : (
+									) : viewMode === "preview" ? (
 										<PreviewPanel
 											previewUrl={`${previewUrl}s/preview`}
 											isLoadingPreview={isLoadingPreview}
 											className="flex-1"
 										/>
+									): viewMode === "files" && (
+										<div className="flex-1 p-4 overflow-hidden">
+											{filesContent}
+										</div>
 									)}
 								</div>
 							)}
