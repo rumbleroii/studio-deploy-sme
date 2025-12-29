@@ -57,7 +57,7 @@ export function DataView() {
 
 				{/* Details Section - Quota Progress */}
 				{showDetails && (
-					<div className="bg-white rounded-lg border border-gray-200 p-6 animate-in fade-in slide-in-from-top-2 duration-300">
+					<div className="rounded-lg border border-gray-200 p-6 animate-in fade-in slide-in-from-top-2 duration-300">
 						<h3 className="text-xl font-semibold text-gray-900 mb-6">
 							Quota Progress
 						</h3>
@@ -80,7 +80,7 @@ export function DataView() {
 												</div>
 												<div className="h-2 bg-gray-200 rounded-full overflow-hidden">
 													<div
-														className="h-full bg-purple-900 rounded-full transition-all duration-300"
+														className="h-full bg-burgundy-500 rounded-full transition-all duration-300"
 														style={{ width: `${item.progress}%` }}
 													/>
 												</div>
