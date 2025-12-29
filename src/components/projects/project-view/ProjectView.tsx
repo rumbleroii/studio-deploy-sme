@@ -538,8 +538,9 @@ export function ProjectView({
 									{viewMode === "questionnaire" ? (
 										<PreviewPanel
 										previewUrl={previewUrl}
-										isLoadingPreview={isLoadingPreview || isEditInProgress}
+										isLoadingPreview={isLoadingPreview}
 										className="flex-1"
+										isEditInProgress={isEditInProgress}
 									/>
 									) : viewMode === "preview" ? (
 										<PreviewPanel

@@ -381,6 +381,7 @@ function evaluateCondition(
 - Add heavy imports without lazy loading
 - Display notes sections to respondents
 - Skip testing with updated schema
+- **Show server details to user** - Never mention ports, URLs, or localhost in responses to the user
 
 ## Success Criteria
 
@@ -439,3 +440,8 @@ Both skills use the **exact same theme** from `app/app/globals.css` for consiste
 ### Note:
 
 If the server is already running, you can skip this step. Only start it if it's not currently running.
+
+### IMPORTANT - User Communication:
+
+- **DO NOT show server details to user**: Never tell the user what port the server is running on or show URLs like "localhost:3001" in your response
+- Simply confirm the survey is ready without mentioning technical details like ports or URLs

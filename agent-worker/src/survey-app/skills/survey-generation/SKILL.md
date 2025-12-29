@@ -213,9 +213,9 @@ When starting the development server or testing the survey:
 
 #### Port Management Rules
 
-1. **Default Port**: Always use port 3001. If nothing is running on 3001, then run the nextjs app on 3001.
-2. **Handle Conflicts**: If port 3001 is in use, don't kill the existing process.
-3. **No Alternatives**: Never use ports like 3000, 3002, etc.
+1. **Default Port**: Always use port 3001
+2. **Handle Conflicts**: If port 3001 is in use, terminate old instance and use 3001 to run the new instance.
+3. **No Alternatives**: Never use ports like 3000, 3002, etc. Always use port 3001.
 
 #### Starting Process
 
@@ -261,14 +261,14 @@ PORT=3001 npm run dev
 #### Why Port 3001?
 
 - **Consistency**: All URLs and references use port 3001
-- **Dedicated Port**: Separate from default Next.js port (3001)
+- **Dedicated Port**: Separate from default Next.js port (3000)
 - **Preview URLs**: Configured for localhost:3001
 - **Testing**: Test scripts expect port 3001
 
 #### Important Notes
 
 - **Always specify port**: Use `PORT=3001 npm run dev`
-- **Always kill** existing processes before starting new ones
+- **Check for conflicts**: If port 3001 is busy, kill old processes before starting
 - **Port 3001 is mandatory** for local development
 - **Consistency matters** for URL references and testing
 

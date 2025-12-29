@@ -8,11 +8,13 @@ interface PreviewPanelProps {
 	previewUrl: string | null;
 	isLoadingPreview: boolean;
 	className?: string;
+	isEditInProgress?: boolean;
 }
 
 export const PreviewPanel = memo(function PreviewPanel({
 	previewUrl,
 	isLoadingPreview,
+	isEditInProgress = false,
 	className,
 }: PreviewPanelProps) {
 	const [previewEndpoint, setPreviewEndpoint] = useState<"/" | "/s/preview">("/");
@@ -136,6 +138,14 @@ export const PreviewPanel = memo(function PreviewPanel({
 							</p>
 						</div>
 					</div>
+			) : isEditInProgress ? (
+				<div className="absolute inset-0 flex items-center justify-center">
+					<div className="text-center">
+						<p className="text-sm text-gray-500">
+							AI is making changes...
+						</p>
+					</div>
+				</div>
 			) : iframeUrl ? (
 				<div className="relative w-full h-full">
 					<iframe
