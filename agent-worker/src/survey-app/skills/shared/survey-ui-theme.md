@@ -343,6 +343,7 @@ Margin Top: 16px
 3. **Component Reuse**: Build reusable components that enforce these styles
 4. **Theme Variables**: Use CSS variables or design tokens for easy maintenance
 5. **Documentation**: Reference this file in all survey generation prompts
+6. **Terminology**: Use professional research language (see survey-terminology-spec.md)
 
 ---
 

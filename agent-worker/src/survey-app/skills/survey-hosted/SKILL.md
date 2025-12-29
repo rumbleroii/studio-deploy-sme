@@ -252,10 +252,11 @@ Check that existing functionality works:
 ### Shared Specifications (in ../shared/):
 
 6. **../shared/survey-ui-theme.md** - Exact theme specifications
-7. **../shared/survey-logic-spec.md** - Logic evaluation (referenced for implementation)
-8. **../shared/survey-question-types.md** - Question rendering formats
-9. **../shared/survey-components-spec.md** - Component specifications
-10. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
+7. **../shared/survey-terminology-spec.md** - Professional language standards (MANDATORY)
+8. **../shared/survey-logic-spec.md** - Logic evaluation (referenced for implementation)
+9. **../shared/survey-question-types.md** - Question rendering formats
+10. **../shared/survey-components-spec.md** - Component specifications
+11. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
 
 ## Examples
 
@@ -353,6 +354,7 @@ function evaluateCondition(
 - Keep `app/next.config.js` optimization settings intact
 - Use lazy loading for QuestionRenderer with Suspense
 - Preserve loading.tsx files in all routes
+- **USE RESEARCH MANAGER TERMINOLOGY ONLY** - Never expose technical terms to respondents (see ../shared/survey-terminology-spec.md)
 
 ### Verify These Features Exist and Work:
 

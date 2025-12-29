@@ -309,12 +309,13 @@ npm run dev
 ### Shared Specifications (in ../shared/):
 
 6. **../shared/survey-ui-theme.md** - Colors, fonts, spacing (EXACT values)
-7. **../shared/survey-components-spec.md** - Component specifications
-8. **../shared/survey-question-types.md** - All question type formats
-9. **../shared/survey-logic-spec.md** - Logic display and badges
-10. **../shared/matrix-question-guide.md** - CRITICAL for matrix questions: Detailed guide to avoid generation failures
-11. **../shared/other-option-spec.md** - "Other (please specify)" options with conditional text inputs
-12. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
+7. **../shared/survey-terminology-spec.md** - Professional language standards (MANDATORY)
+8. **../shared/survey-components-spec.md** - Component specifications
+9. **../shared/survey-question-types.md** - All question type formats
+10. **../shared/survey-logic-spec.md** - Logic display and badges
+11. **../shared/matrix-question-guide.md** - CRITICAL for matrix questions: Detailed guide to avoid generation failures
+12. **../shared/other-option-spec.md** - "Other (please specify)" options with conditional text inputs
+13. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
 
 ## Examples
 
@@ -378,6 +379,7 @@ npm run dev
 - Keep `app/next.config.js` optimization settings intact
 - Use lazy loading for heavy components with Suspense fallbacks
 - Add loading.tsx files for new routes
+- **USE RESEARCH MANAGER TERMINOLOGY ONLY** - Never expose technical terms like "skip logic", "code logic", "variables" (see ../shared/survey-terminology-spec.md)
 
 ### Never:
 
