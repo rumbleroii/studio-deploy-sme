@@ -75,6 +75,107 @@ Every survey MUST have:
 
 ---
 
+## ⛔ NO Extra Questions
+
+**CRITICAL RULE**: Only generate questions from the uploaded questionnaire.
+
+- ❌ **NEVER add** questions not in the source document
+- ❌ **NEVER add** intro/thank you screens unless in questionnaire
+- ❌ **NEVER add** demographics, validation, or attention checks unless specified
+- ✅ **ONLY generate** questions that exist in the uploaded file
+- ✅ **Every question** must have a direct source in the document
+
+**If unclear, ASK the user - don't invent.**
+
+---
+
+## ✅ Verify Question Types
+
+**CRITICAL RULE**: Always use the correct question type.
+
+**Common Error**: Rating questions generated as multiple choice ❌
+
+### Quick Type Check:
+- 🔢 **"Rate 1-5"** or **"How satisfied"** → `ratingScale` (NOT multipleChoice!)
+- 📊 **"Rate 0-10"** or **"NPS"** → `slider` (NOT ratingScale!)
+- ☑️ **"Select all that apply"** → `multipleChoice`
+- ○ **"Choose one"** → `singleChoice`
+- 📋 **Grid of items** → `matrix`
+
+### Before Every Question:
+1. Read question text carefully
+2. Look for rating/scale keywords
+3. Check if options are numbered (1-5)
+4. Verify type matches format
+5. Generate with correct type
+
+---
+
+## ⚠️ Add Validation Based on Answer Type
+
+**CRITICAL RULE**: Match validation to expected answer format.
+
+### Quick Validation Guide:
+- 🔢 **Age, quantity, count** → `inputType: "number"`, `min`, `max`
+- 📧 **Email** → `inputType: "email"`, email pattern
+- 📞 **Phone** → `inputType: "tel"`, phone pattern, length
+- 🔗 **URL** → `inputType: "url"`, URL pattern
+- 📝 **Name, text** → `pattern` for letters, `minLength`, `maxLength`
+- 💬 **Free text** → `minLength: 10`, `maxLength: 500`, `rejectWhitespaceOnly: true`
+
+### Before Every Text Input:
+1. What type of data is expected?
+2. Add appropriate `inputType`
+3. Add validation pattern if needed
+4. Add min/max or length constraints
+5. Add meaningful error message
+
+**Example:**
+```typescript
+// Age question
+validation: {
+  required: true,
+  inputType: "number",
+  min: 18,
+  max: 120,
+  errorMessage: "Please enter a valid age"
+}
+```
+
+**See**: ../shared/survey-question-types.md for 10+ validation examples
+
+---
+
+## 🚨 ALL Questions Are Mandatory
+
+**CRITICAL RULE**: Every question in the survey sequence MUST be answered.
+
+```typescript
+validation: {
+  required: true  // MANDATORY for ALL questions
+}
+```
+
+### What's Required:
+✅ Single Choice - must select one
+✅ Multiple Choice - must select ≥1 (minSelections)
+✅ Text Input - must enter text (non-whitespace)
+✅ Matrix - must answer ALL rows (requireAllRows: true)
+✅ Number/Date/Dropdown - must provide value
+
+### Exceptions ONLY:
+❌ Introduction Screen
+❌ Termination Screen
+❌ Thank You Screen
+
+### Why:
+- Data quality & completeness
+- Statistical validity
+- Professional standard
+- No partial responses
+
+---
+
 ## 🏷️ Badge Colors
 
 | Badge Type | Background | Text | Border |
@@ -141,6 +242,10 @@ Before presenting survey:
 - [ ] Notes sections have yellow bg and amber border
 - [ ] Radio buttons are 20px circles
 - [ ] Checkboxes are 20px squares with 3px radius
+- [ ] **ALL questions have `required: true`** (except INTRO, TERM, THANK)
+- [ ] Matrix questions have `requireAllRows: true`
+- [ ] Multiple choice have `minSelections: 1`
+- [ ] Text inputs have whitespace validation
 
 ---
 
@@ -154,6 +259,8 @@ Before presenting survey:
 ❌ Skip metadata badges
 ❌ Forget notes sections
 ❌ Use inconsistent spacing
+❌ Make questions optional (required: false)
+❌ Skip validation rules
 
 ---
 
@@ -166,6 +273,8 @@ Before presenting survey:
 ✅ Maintain consistent spacing
 ✅ Follow structure template
 ✅ Verify against checklist
+✅ Set required: true for ALL questions
+✅ Include validation for every question type
 
 ---
 
@@ -180,6 +289,122 @@ Before presenting survey:
 | Text Input | Text Input | Text field |
 | Text Area | Text Area | Textarea |
 | Dropdown | Dropdown | Select (▼) |
+
+## 🎯 "Other (Please Specify)" Pattern
+
+**COMMON**: Appears in 50%+ of questionnaires!
+
+### Detection:
+- "Other (please specify)"
+- "Other (specify)"
+- "Other: ___________"
+- "Something else (explain)"
+
+### Schema:
+```typescript
+{
+  id: "99",
+  label: "Other (please specify)",
+  hasOtherOption: true,          // Shows text input
+  otherInputRequired: true,       // Text required when selected
+  otherInputPlaceholder: "Please specify",
+  otherInputMaxLength: 100
+}
+```
+
+### Behavior:
+- Text input **hidden** initially
+- **Appears** when option selected
+- **Required** when option selected
+- **Clears** when option deselected
+
+**See**: ../shared/other-option-spec.md for complete details
+
+---
+
+## ✍️ Text Input Validation
+
+**MANDATORY**: All text inputs must prevent whitespace-only responses!
+
+### Rules:
+```typescript
+{
+  trimWhitespace: true,      // Trim on blur & submit
+  rejectWhitespaceOnly: true // Reject "   " as invalid
+}
+```
+
+### Behavior:
+- **On blur**: Trim leading/trailing spaces automatically
+- **On submit**: Trim all text inputs before validation
+- **If empty after trim**: Show error "This field is required"
+- **Length validation**: Calculate AFTER trimming
+
+### Example:
+| Input | After Trim | Valid? |
+|-------|------------|--------|
+| "Hello" | "Hello" | ✅ Yes |
+| "  Hello  " | "Hello" | ✅ Yes (trimmed) |
+| "     " | "" | ❌ No (whitespace-only) |
+
+**Applies to**:
+- Text Input (short text)
+- Text Area (long text)
+- "Other (specify)" inputs
+
+---
+
+## ⚠️ Selection Validation Timing
+
+**Bug**: Option selected but shows "Please select an option" error!
+
+**Cause**: Validation runs BEFORE state updates (race condition)
+
+**Fix**:
+```javascript
+// ❌ WRONG
+function handleNext() {
+  if (!validate()) { showError(); }
+}
+
+// ✅ CORRECT
+function handleNext() {
+  requestAnimationFrame(() => {
+    if (!validate()) { showError(); }
+  });
+}
+```
+
+**Rules**:
+- NEVER validate immediately on click
+- ALWAYS use `requestAnimationFrame()` or `setTimeout(fn, 0)`
+- Clear errors when option selected
+- Prevent double-click
+
+**Applies to**: Radio, Checkbox, Matrix questions
+
+---
+
+## 🚫 NEVER Auto-Select Options
+
+**CRITICAL**: No options auto-selected in ANY question!
+
+### Initial States:
+```javascript
+Radio:    selectedOption = null
+Checkbox: selectedOptions = []
+Dropdown: selectedValue = null (show placeholder)
+Matrix:   matrixResponses = {}
+Rating:   rating = null
+```
+
+### Why:
+- Creates response bias
+- Skews data
+- Unprofessional
+- Invalidates results
+
+### Exception: NONE
 
 ---
 
@@ -227,10 +452,14 @@ Questionnaire → Schema
 
 ## 📊 Matrix Table Format
 
-```
-Column Attributes
-Attr1 | Attr2 | Attr3
+**⚠️ CRITICAL**: Matrix questions fail often! See ../shared/matrix-question-guide.md for detailed instructions.
 
+### Two Types:
+- **Single-Attribute** (90%): NO "Column Attributes" section → `type: "matrix"`
+- **Multi-Attribute** (10%): HAS "Column Attributes" section → `type: "matrix-multi-attribute"`
+
+### Standard Format:
+```
 Scale Points
 1  Description 1
 2  Description 2
@@ -244,15 +473,50 @@ Scale Points
 └─────────┴─────┴─────┴─────┘
 ```
 
+**Key**: Rows = Items being rated, Columns = Scale (1-5), Scale Points = Explanations
+
+### Validation (CRITICAL):
+```typescript
+validation: {
+  required: true,
+  requireAllRows: true  // DEFAULT: All rows must be answered
+}
+```
+
+**ALWAYS require all rows** unless questionnaire explicitly says "optional" or "if applicable"
+
+---
+
+## 🚨 Zero Omissions Rule
+
+**CRITICAL**: ALL questions from questionnaire MUST be generated - NO EXCEPTIONS!
+
+### Before Generation:
+1. **Count total questions** in questionnaire
+2. **Create master list** of all question IDs
+3. **Note section breakdown** (e.g., Section 1: 5 questions, Section 2: 8 questions)
+
+### During Generation:
+- **Parse sequentially** - go through questionnaire in order
+- **Check off each question** as you add it to schema
+- **Never skip** - if unclear, generate as text question with review note
+
+### After Generation:
+- **Count schema questions** and verify matches questionnaire total
+- **Output verification report**: "Generated 25/25 questions ✅"
+
+**See**: complete-generation-checklist.md for comprehensive instructions
+
 ---
 
 ## 💡 Quick Tips
 
-1. **Start with** `survey-generation-guide.md`
-2. **Reference** `VISUAL-REFERENCE.md` for quick lookups
-3. **Verify** against checklist before presenting
-4. **Use exact values** - no approximations
-5. **Maintain consistency** - every survey identical
+1. **Start with** `complete-generation-checklist.md` - Ensures zero omissions
+2. **For matrix questions** - Use `../shared/matrix-question-guide.md`
+3. **Reference** `VISUAL-REFERENCE.md` for quick lookups
+4. **Verify** against checklist before presenting
+5. **Use exact values** - no approximations
+6. **Maintain consistency** - every survey identical
 
 ---
 
@@ -272,6 +536,9 @@ Every survey from any questionnaire should:
 
 | Topic | See Document |
 |-------|--------------|
+| **Zero omissions** | complete-generation-checklist.md |
+| **Matrix questions** | ../shared/matrix-question-guide.md |
+| **"Other" options** | ../shared/other-option-spec.md |
 | Full process | survey-generation-guide.md |
 | All colors/fonts | ../shared/survey-ui-theme.md |
 | Layout structure | survey-structure-spec.md |

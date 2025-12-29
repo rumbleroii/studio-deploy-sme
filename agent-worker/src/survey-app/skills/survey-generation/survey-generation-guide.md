@@ -64,6 +64,25 @@ You MUST reference these documents for EVERY survey generation:
 - Common file types: `.doc`, `.docx`, `.pdf`, `.txt`
 - If the user says "I uploaded a questionnaire", check `user_files/` for the most recent file
 
+**CRITICAL - No Extra Questions:**
+
+- **NEVER add questions that are not in the uploaded questionnaire**
+- **Only generate questions that exist in the source document**
+- **Do NOT add introductions, thank you screens, or demographic questions unless they are in the questionnaire**
+- **Do NOT add validation questions, attention checks, or test questions unless specified**
+- **Every question must have a direct source in the uploaded file**
+- **If a question seems missing, ask the user rather than inventing it**
+
+**CRITICAL - Question Type Verification:**
+
+- **ALWAYS verify the correct question type** by reading the question carefully
+- **Rating questions** (e.g., "Rate 1-5", "How satisfied") → Use `ratingScale` type
+- **NPS questions** (0-10 scale) → Use `slider` type
+- **DO NOT generate rating scales as `multipleChoice`** - This is a common critical error
+- **"Select all that apply"** → Use `multipleChoice` type
+- **Single selection** → Use `singleChoice` type
+- **Before generating each question**, confirm the type matches the response format
+
 Extract the following from the uploaded questionnaire:
 
 #### A. Survey Metadata

@@ -23,6 +23,7 @@ import { FilesPanel } from "./components/FilesPanel";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { InviteParticipantsModal } from "./components/InviteParticipantsModal";
+import { DataView } from "./components/data";
 import type { ProjectViewProps, Message } from "./types";
 
 export function ProjectView({
@@ -239,6 +240,43 @@ export function ProjectView({
 						{project.name}
 					</h1>
 				</div>
+				{/* <div className="bg-white border-b border-gray-200 w-full"> */}
+				<div className="flex-1 items-center px-4 justify-center">
+					<button
+						onClick={() => setActiveMainTab("survey")}
+						className={cn(
+							"px-4 py-3 text-sm font-medium border-b-2 transition-colors",
+							activeMainTab === "survey"
+								? "border-burgundy-500 text-gray-900"
+								: "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+						)}
+					>
+						Survey
+					</button>
+					<button
+						onClick={() => setActiveMainTab("data")}
+						className={cn(
+							"px-4 py-3 text-sm font-medium border-b-2 transition-colors",
+							activeMainTab === "data"
+								? "border-burgundy-500 text-gray-900"
+								: "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+						)}
+					>
+						Data
+					</button>
+					<button
+						onClick={() => setActiveMainTab("insights")}
+						className={cn(
+							"px-4 py-3 text-sm font-medium border-b-2 transition-colors",
+							activeMainTab === "insights"
+								? "border-burgundy-500 text-gray-900"
+								: "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+						)}
+					>
+						Insights
+					</button>
+				</div>
+			    {/* </div> */}
 				<div className="hidden sm:flex items-center gap-2 text-xs text-gray-500">
 					<span
 						className={cn(
@@ -520,12 +558,7 @@ export function ProjectView({
 				)}
 
 				{activeMainTab === "data" && (
-					<div className="flex-1 flex items-center justify-center bg-gray-50">
-						<div className="text-center">
-							<h2 className="text-lg font-semibold text-gray-900 mb-2">Data View</h2>
-							<p className="text-sm text-gray-500">Data visualization and management coming soon</p>
-						</div>
-					</div>
+					<DataView />
 				)}
 
 				{activeMainTab === "insights" && (

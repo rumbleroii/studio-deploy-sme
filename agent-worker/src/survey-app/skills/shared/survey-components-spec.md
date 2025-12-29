@@ -6,6 +6,48 @@ This document defines the exact component specifications for all UI elements use
 
 ---
 
+## 🚨 CRITICAL: Validation Requirements
+
+**ALL questions are mandatory** - Every question in the survey must be answered before the respondent can proceed.
+
+### Implementation Rules
+
+1. **Required Attribute**: All input components must have `required` attribute set
+2. **Validation Messages**: Show clear error messages when validation fails
+3. **Prevent Progression**: Disable "Next" button or show error until question answered
+4. **Exceptions**: ONLY informational screens (Introduction, Termination, Thank You) are not required
+
+### Question Type Requirements
+
+| Component | Validation | Behavior |
+|-----------|------------|----------|
+| Radio buttons | `required: true` | Must select one option |
+| Checkboxes | `minSelections: 1` | Must select at least 1 (or more if specified) |
+| Text inputs | `required: true` | Must enter non-whitespace text |
+| Textarea | `required: true` | Must enter non-whitespace text |
+| Number inputs | `required: true` | Must enter a valid number |
+| Dropdowns | `required: true` | Must select an option |
+| Matrix | `requireAllRows: true` | Must answer every row |
+| Date/Time | `required: true` | Must select a date/time |
+| Rating | `required: true` | Must select a rating |
+
+### Standard Error Messages
+
+```typescript
+{
+  singleChoice: "Please select an option",
+  multipleChoice: "Please select at least {minSelections} option(s)",
+  textInput: "This field is required",
+  textWhitespaceOnly: "Please enter a valid response (not just spaces)",
+  numberInput: "Please enter a number",
+  dropdown: "Please select an option",
+  matrix: "Please answer all rows before continuing",
+  dateInput: "Please select a date"
+}
+```
+
+---
+
 ## Component Library
 
 ### 1. Badge Component
@@ -170,7 +212,7 @@ Badges are used for question IDs, question types, logic indicators, and metadata
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background-color: E0BFD8;
+  background-color: #E0BFD8;
   color: #FFFFFF;
   font-size: 11px;
   font-weight: 600;
@@ -202,6 +244,28 @@ Used for single-choice questions.
 - `label`: Option text
 - `checked`: Boolean
 - `onChange`: Handler function
+
+**Initial State (CRITICAL)**:
+- **NEVER auto-select** any radio button
+- **All options start unchecked** (checked={false})
+- User must make deliberate selection
+- Prevents response bias
+- Ensures data quality
+
+**Why This Matters**:
+- Auto-selecting creates bias toward that option
+- Respondents may not notice pre-selection
+- Skews data and invalidates results
+- Professional surveys NEVER pre-select
+
+**Implementation**:
+```javascript
+// ✅ CORRECT - No default selection
+const [selectedOption, setSelectedOption] = useState(null);
+
+// ❌ WRONG - Auto-selects first option
+const [selectedOption, setSelectedOption] = useState("option1");
+```
 
 **Styling**:
 ```css
@@ -259,6 +323,53 @@ Used for single-choice questions.
 }
 ```
 
+**State Management & Validation (CRITICAL)**:
+
+**Problem**: User selects option but validation shows "Please select an option" error - FALSE POSITIVE.
+
+**Root Cause**: Validation runs BEFORE state updates, creating race condition.
+
+**Solution**:
+```javascript
+// onChange Handler
+function handleRadioChange(questionId, optionId) {
+  // 1. Update state FIRST
+  setState({ selectedOption: optionId });
+
+  // 2. Clear validation error immediately
+  clearValidationError(questionId);
+}
+
+// Submit Handler - NEVER validate immediately!
+function handleNextClick() {
+  // ❌ WRONG - causes false errors
+  // if (!validateForm()) { showError(); }
+
+  // ✅ CORRECT - wait for state to update
+  requestAnimationFrame(() => {
+    if (!validateForm()) {
+      showError();
+      return;
+    }
+    submitForm();
+  });
+}
+```
+
+**Key Rules**:
+- **NEVER validate synchronously** on submit click
+- **Always wait** for state update: use `requestAnimationFrame` or `setTimeout(fn, 0)`
+- **Clear errors immediately** when option selected
+- **Prevent double-click** with `isSubmitting` flag
+
+**State Structure**:
+```typescript
+{
+  questionId: "Q1",
+  selectedOption: "2" // Option ID, or null if none selected
+}
+```
+
 ---
 
 ### 3. Checkbox Component
@@ -281,6 +392,29 @@ Used for multiple-choice questions.
 - `label`: Option text
 - `checked`: Boolean
 - `onChange`: Handler function
+
+**Initial State (CRITICAL)**:
+- **NEVER auto-check** any checkbox
+- **All checkboxes start unchecked** (checked={false})
+- User must make deliberate selections
+- Prevents response bias
+- Ensures data quality
+
+**Why This Matters**:
+- Pre-checking creates bias toward those options
+- Respondents may not notice what's already checked
+- Common pattern: users uncheck less than they check
+- Skews data toward pre-selected options
+- Professional surveys NEVER pre-check
+
+**Implementation**:
+```javascript
+// ✅ CORRECT - No default selections
+const [selectedOptions, setSelectedOptions] = useState([]);
+
+// ❌ WRONG - Pre-selects options
+const [selectedOptions, setSelectedOptions] = useState(["option1", "option3"]);
+```
 
 **Styling**:
 ```css
@@ -334,6 +468,97 @@ Used for multiple-choice questions.
   color: #1A1A1A;
   cursor: pointer;
   user-select: none;
+}
+```
+
+**State Management & Validation (CRITICAL)**:
+
+**Problem**: User checks options but validation shows "Please select at least one option" error - FALSE POSITIVE.
+
+**Root Cause**: Validation runs BEFORE state array updates complete.
+
+**Solution**:
+```javascript
+// onChange Handler
+function handleCheckboxChange(questionId, optionId, checked) {
+  // 1. Get current selections
+  const currentSelections = state.responses[questionId]?.selectedOptions || [];
+
+  // 2. Update selections array
+  let newSelections;
+  if (checked) {
+    newSelections = [...currentSelections, optionId];
+  } else {
+    newSelections = currentSelections.filter(id => id !== optionId);
+  }
+
+  // 3. Update state FIRST
+  setState({
+    responses: {
+      ...state.responses,
+      [questionId]: {
+        selectedOptions: newSelections
+      }
+    }
+  });
+
+  // 4. Clear validation error if min selections met
+  if (newSelections.length > 0) {
+    clearValidationError(questionId);
+  }
+}
+
+// Submit Handler - NEVER validate immediately!
+function handleNextClick() {
+  // ✅ CORRECT - wait for state to update
+  requestAnimationFrame(() => {
+    const isValid = validateForm();
+    if (!isValid) {
+      showErrors();
+      return;
+    }
+    submitForm();
+  });
+}
+```
+
+**Handling Exclusive Options**:
+```javascript
+function handleCheckboxChange(questionId, optionId, checked) {
+  const option = getOption(questionId, optionId);
+  const currentSelections = getSelections(questionId);
+
+  let newSelections;
+
+  if (option.isExclusive && checked) {
+    // Exclusive option: clear all others
+    newSelections = [optionId];
+  } else if (checked) {
+    // Non-exclusive: remove any exclusive options first
+    const exclusiveOptions = getExclusiveOptions(questionId);
+    newSelections = currentSelections.filter(id => !exclusiveOptions.includes(id));
+    newSelections.push(optionId);
+  } else {
+    newSelections = currentSelections.filter(id => id !== optionId);
+  }
+
+  // Update in single atomic operation
+  updateSelections(questionId, newSelections);
+}
+```
+
+**Key Rules**:
+- **NEVER validate synchronously** on submit click
+- **Always wait** for state array update complete
+- **Handle exclusive options atomically** in single update
+- **Clear errors** when min selections met
+- **Prevent double-click** with `isSubmitting` flag
+
+**State Structure**:
+```typescript
+{
+  questionId: "Q5",
+  selectedOptions: ["1", "3", "5"] // Array of selected option IDs
 }
 ```
 
@@ -402,7 +627,169 @@ Used for open-ended text questions.
 .text-area::placeholder {
   color: #BDBDBD;
 }
+
+/* Validation error state */
+.text-input.error,
+.text-area.error {
+  border-color: #D32F2F;
+}
+
+.validation-error-message {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #D32F2F;
+  font-weight: 400;
+}
 ```
+
+**Validation & Whitespace Handling (CRITICAL)**:
+
+Text inputs must implement automatic trimming and whitespace validation:
+
+```javascript
+// On blur event
+function handleTextBlur(input) {
+  // Trim leading and trailing whitespace
+  const trimmedValue = input.value.trim();
+  input.value = trimmedValue;
+
+  // Validate after trimming
+  validateTextInput(input, trimmedValue);
+}
+
+// Validation function
+function validateTextInput(input, value) {
+  const isRequired = input.hasAttribute('required');
+  const minLength = parseInt(input.getAttribute('data-min-length') || '0');
+  const maxLength = parseInt(input.getAttribute('data-max-length') || '999999');
+
+  let errorMessage = '';
+
+  // Check if whitespace-only or empty (for required fields)
+  if (isRequired && (!value || value.length === 0)) {
+    errorMessage = 'This field is required';
+  }
+  // Check minimum length (after trimming)
+  else if (value.length > 0 && value.length < minLength) {
+    errorMessage = `Please enter at least ${minLength} characters`;
+  }
+  // Check maximum length (before trimming to prevent abuse)
+  else if (input.value.length > maxLength) {
+    errorMessage = `Maximum ${maxLength} characters allowed`;
+  }
+
+  // Show/hide error
+  if (errorMessage) {
+    showError(input, errorMessage);
+    return false;
+  } else {
+    clearError(input);
+    return true;
+  }
+}
+
+// Before form submission
+function handleFormSubmit(form) {
+  let isValid = true;
+
+  // Trim all text inputs
+  const textInputs = form.querySelectorAll('input[type="text"], textarea');
+  textInputs.forEach(input => {
+    input.value = input.value.trim();
+    if (!validateTextInput(input, input.value)) {
+      isValid = false;
+    }
+  });
+
+  return isValid;
+}
+```
+
+**Validation Rules**:
+- **Always trim** on blur and before submit
+- **Reject whitespace-only** input for required fields
+- **Calculate length** after trimming for min/max validation
+- **Show error** immediately after blur if invalid
+- **Prevent submission** if validation fails
+
+---
+
+### 4.1 Conditional Text Input (for "Other" Options)
+
+Used when "Other (please specify)" option is selected in choice questions.
+
+```tsx
+<ConditionalTextInput
+  parentOptionId={optionId}
+  isVisible={isOptionSelected}
+  value={otherText}
+  onChange={handleOtherTextChange}
+  placeholder="Please specify"
+  maxLength={100}
+  required={true}
+/>
+```
+
+**Props**:
+- `parentOptionId`: ID of the "Other" option
+- `isVisible`: Boolean (shows/hides based on option selection)
+- `value`: Current text value
+- `onChange`: Handler function
+- `placeholder`: Placeholder text
+- `maxLength`: Maximum character limit
+- `required`: Boolean (required when parent option selected)
+
+**Styling**:
+```css
+.other-input-container {
+  margin-left: 32px;  /* Indent under the option */
+  margin-top: 8px;
+  margin-bottom: 8px;
+  transition: all 0.2s ease-in-out;
+}
+
+.other-input-container.hidden {
+  display: none;
+}
+
+.other-input-container.visible {
+  display: block;
+}
+
+.other-text-input {
+  width: 100%;
+  max-width: 400px;
+  border: 1px solid #BDBDBD;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 400;
+  font-family: inherit;
+  color: #1A1A1A;
+  transition: all 0.2s ease-in-out;
+}
+
+.other-text-input:focus {
+  outline: none;
+  border-color: #3D1C35;
+  box-shadow: 0 0 0 2px rgba(61, 28, 53, 0.1);
+}
+
+.other-text-input::placeholder {
+  color: #BDBDBD;
+  font-style: italic;
+}
+```
+
+**Behavior**:
+- Initially hidden when page loads
+- Appears when parent "Other" option is selected
+- Auto-focuses when revealed
+- Disappears and clears value when parent option deselected
+- Becomes required field when visible (if `required: true`)
+
+**See**: `other-option-spec.md` for complete implementation details
 
 ---
 
@@ -426,6 +813,34 @@ Used for select questions.
 - `value`: Selected value
 - `onChange`: Handler function
 - `placeholder`: Placeholder text
+
+**Initial State (CRITICAL)**:
+- **NEVER pre-select** any dropdown option
+- **Always show placeholder** initially (e.g., "Select an option")
+- **value starts as null or empty string**
+- User must make deliberate selection
+- Prevents response bias
+
+**Why This Matters**:
+- Pre-selecting biases toward that option
+- First option auto-selection is common mistake
+- Respondents may not realize they need to change it
+- Creates artificial preference for default option
+- Professional surveys ALWAYS show placeholder first
+
+**Implementation**:
+```javascript
+// ✅ CORRECT - Shows placeholder, no selection
+const [selectedValue, setSelectedValue] = useState(null);
+<select value={selectedValue || ""}>
+  <option value="" disabled>Select an option</option>
+  <option value="1">Option 1</option>
+  <option value="2">Option 2</option>
+</select>
+
+// ❌ WRONG - Auto-selects first option
+const [selectedValue, setSelectedValue] = useState("1");
+```
 
 **Styling**:
 ```css

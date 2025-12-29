@@ -443,6 +443,43 @@ export default async function TerminatePage({
 }
 ```
 
+**Client Component**:
+```tsx
+// /src/components/survey/TerminationScreen.tsx
+'use client';
+
+import { useRouter } from 'next/navigation';
+
+export function TerminationScreen({ survey }: { survey: Survey }) {
+  const router = useRouter();
+
+  const handleReturnHome = () => {
+    // CRITICAL: Return to home redirects to /s/preview
+    router.push('/s/preview');
+  };
+
+  return (
+    <div className="termination-screen">
+      <div className="container">
+        <h1 className="termination-title">Survey Complete</h1>
+        <p className="termination-message">
+          {survey.terminationMessage ||
+            "Thank you for your interest in this survey. Unfortunately, you do not meet the qualification criteria for this particular study. We appreciate your time."}
+        </p>
+        <button
+          className="return-home-button"
+          onClick={handleReturnHome}
+        >
+          Return to Home
+        </button>
+      </div>
+    </div>
+  );
+}
+```
+
+**Important**: The "Return to Home" button must redirect to `/s/preview`, not to any other route.
+
 ---
 
 ### 5. Error Screen

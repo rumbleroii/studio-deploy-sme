@@ -109,11 +109,47 @@ When user uploads a questionnaire:
 **Processing Steps:**
 
 1. **Parse the questionnaire** from `user_files/` directory to extract all elements
-2. **Detect piping patterns** - Questionnaires use various formats (see below)
-3. **Read existing schema files** in `app/data/` for format reference
-4. **Create new survey schema file** in `app/data/[survey-name]-survey.ts`
-5. **Follow exact TypeScript structure** from existing schemas
-6. **Include all**: metadata, sections, questions, options, logic, notes
+2. **Follow complete-generation-checklist.md** - CRITICAL to avoid missing questions
+3. **Detect piping patterns** - Questionnaires use various formats (see below)
+4. **Read existing schema files** in `app/data/` for format reference
+5. **Create new survey schema file** in `app/data/[survey-name]-survey.ts`
+6. **Follow exact TypeScript structure** from existing schemas
+7. **Include all**: metadata, sections, questions, options, logic, notes
+
+**CRITICAL - No Extra Questions:**
+
+- **NEVER add questions that are not in the uploaded questionnaire**
+- **Only generate questions that exist in the source document**
+- **Do NOT add introductions, thank you screens, or demographic questions unless they are in the questionnaire**
+- **Do NOT add validation questions, attention checks, or test questions unless specified**
+- **Every question must have a direct source in the uploaded file**
+
+**CRITICAL - Question Type Verification:**
+
+- **ALWAYS verify the correct question type** before generating
+- **Rating questions** (1-5, 1-7 scales) must use `ratingScale` type, NOT `multipleChoice`
+- **NPS questions** (0-10 scales) must use `slider` type, NOT `ratingScale`
+- **"Select all that apply"** must use `multipleChoice`, NOT `singleChoice`
+- **Single selection** must use `singleChoice`, NOT `multipleChoice`
+- **Common error**: Generating rating scales as multiple choice - AVOID THIS
+
+**CRITICAL - Validation Based on Expected Answer:**
+
+- **ALWAYS add appropriate validation** based on expected answer type
+- **Numeric questions** (age, quantity, year) → Add `inputType: "number"`, `min`, `max`, numeric pattern
+- **Email questions** → Add `inputType: "email"`, email pattern
+- **Phone questions** → Add `inputType: "tel"`, phone pattern, length constraints
+- **URL questions** → Add `inputType: "url"`, URL pattern
+- **Text questions** → Add `minLength`, `maxLength`, `rejectWhitespaceOnly: true`
+- **Free text** → Add `minLength` (e.g., 10), `maxLength` (e.g., 500)
+- **See** `../shared/survey-question-types.md` for complete validation examples
+
+**CRITICAL - Zero Omissions:**
+
+- **Use complete-generation-checklist.md** to ensure ALL questions are generated
+- **Count questions** before and after generation - totals MUST match
+- **For matrix questions**: Use ../shared/matrix-question-guide.md for correct structure
+- **Never skip a question** - if unclear, generate as text question with note for review
 
 **CRITICAL - Piping Pattern Detection:**
 
@@ -169,6 +205,94 @@ From `survey-generation-guide.md`, verify:
 - [ ] Consistent spacing throughout
 - [ ] Exact colors from specification
 
+### Step 6: Start Development Server
+
+**CRITICAL: Always run on port 3000**
+
+When starting the development server or testing the survey:
+
+#### Port Management Rules
+
+1. **Default Port**: Always use port 3000
+2. **Handle Conflicts**: If port 3000 is in use, kill the existing process first
+3. **No Alternatives**: Never use ports like 3001, 3002, etc.
+
+#### Starting Process
+
+**Standard sequence:**
+```bash
+# Step 1: Check if port 3000 is in use
+lsof -ti:3000
+
+# Step 2: If a process exists, kill it
+kill -9 $(lsof -ti:3000)
+
+# Step 3: Start dev server on port 3000
+npm run dev
+```
+
+**Quick command** (handles all steps):
+```bash
+# Kill any process on 3000 and start dev server
+lsof -ti:3000 && kill -9 $(lsof -ti:3000) || true && npm run dev
+```
+
+#### Common Scenarios
+
+**Scenario 1: Port Already in Use**
+```bash
+# Error: Port 3000 is already in use
+# Solution: Kill and restart
+kill -9 $(lsof -ti:3000) && npm run dev
+```
+
+**Scenario 2: Starting Fresh**
+```bash
+# Clean start with port check
+lsof -ti:3000 && kill -9 $(lsof -ti:3000) || true
+npm run dev
+```
+
+**Scenario 3: Multiple Terminal Sessions**
+- If dev server is in another terminal, kill it first
+- Use: `kill -9 $(lsof -ti:3000)`
+- Then start new instance
+
+#### Why Port 3000?
+
+- **Consistency**: All URLs and references use port 3000
+- **Standard**: Default Next.js development port
+- **Preview URLs**: Configured for localhost:3000
+- **Testing**: Test scripts expect port 3000
+
+#### Important Notes
+
+- **Never modify** the default port in `next.config.js` or `.env`
+- **Always kill** existing processes before starting new ones
+- **Port 3000 is mandatory** for local development
+- **Consistency matters** for URL references and testing
+
+#### Troubleshooting
+
+**Port still shows as in use:**
+```bash
+# Force kill with sudo (use cautiously)
+sudo lsof -ti:3000 | xargs kill -9
+
+# Or find specific process
+lsof -i:3000
+# Then kill by PID: kill -9 <PID>
+```
+
+**Prisma issues:**
+```bash
+# Regenerate Prisma client
+npx prisma generate
+
+# Then start dev server
+npm run dev
+```
+
 ## Key Files Reference
 
 ### Must Read First:
@@ -176,18 +300,21 @@ From `survey-generation-guide.md`, verify:
 1. **../shared/user-files-spec.md** - User file locations and search patterns
 2. **survey-generation-guide.md** - Step-by-step generation process
 3. **QUICK-REFERENCE.md** - Quick lookup cheat sheet
+4. **complete-generation-checklist.md** - CRITICAL: Ensures ALL questions are generated, zero omissions
 
 ### Skill-Specific:
 
-3. **survey-structure-spec.md** - Layout and hierarchy for authoring view
+5. **survey-structure-spec.md** - Layout and hierarchy for authoring view
 
 ### Shared Specifications (in ../shared/):
 
-4. **../shared/survey-ui-theme.md** - Colors, fonts, spacing (EXACT values)
-5. **../shared/survey-components-spec.md** - Component specifications
-6. **../shared/survey-question-types.md** - All question type formats
-7. **../shared/survey-logic-spec.md** - Logic display and badges
-8. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
+6. **../shared/survey-ui-theme.md** - Colors, fonts, spacing (EXACT values)
+7. **../shared/survey-components-spec.md** - Component specifications
+8. **../shared/survey-question-types.md** - All question type formats
+9. **../shared/survey-logic-spec.md** - Logic display and badges
+10. **../shared/matrix-question-guide.md** - CRITICAL for matrix questions: Detailed guide to avoid generation failures
+11. **../shared/other-option-spec.md** - "Other (please specify)" options with conditional text inputs
+12. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
 
 ## Examples
 

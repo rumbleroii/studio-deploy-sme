@@ -11,7 +11,7 @@ export default function CompletePage() {
 
   const handleStartNew = () => {
     clearResponses();
-    window.location.href = '/';
+    window.location.href = '/s/preview';
   };
 
   return (
