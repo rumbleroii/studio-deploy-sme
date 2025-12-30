@@ -392,9 +392,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 						try {
 							const payload = JSON.parse(data);
-							if(payload.tool === "edit"){
-								setIsEditInProgress?.(true)
-							}
+							
+							const EDIT_TOOLS = ["edit"];
+							const isEditTool = payload.tool && EDIT_TOOLS.some(t => 
+								payload.tool.toLowerCase().includes(t)
+							);
 
 							if (payload.type === "delta" && payload.text) {
 								setIsProcessing(false);
@@ -408,10 +410,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 								);
 							} else if (payload.type === "tool_start") {
 								setIsProcessing(true);
+								if (isEditTool) {
+									setIsEditInProgress?.(true);
+								} 
 								setStatusMessage(`Running: ${payload.tool || "tool"}...`);
 							} else if (payload.type === "tool_end") {
 								setIsProcessing(false);
 								setStatusMessage(null);
+								// Only clear edit state when an edit tool ends
+								if (isEditTool) {
+									setIsEditInProgress?.(false);
+								}
 								// Add newline after tool call so next text starts fresh
 								onMessagesChange((prev) =>
 									prev.map((m) =>
