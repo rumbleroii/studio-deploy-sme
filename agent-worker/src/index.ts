@@ -13,6 +13,7 @@ interface Env {
 	Sandbox: DurableObjectNamespace<Sandbox>;
 	AGENT_WORKER_SHARED_SECRET: string;
 	ANTHROPIC_API_KEY: string;
+	DATA_BUCKET: R2Bucket;
 }
 
 interface ChatRequestBody {
@@ -166,117 +167,78 @@ export default {
 		const validateProjectId = (id: string): boolean =>
 			/^[a-zA-Z0-9_-]+$/.test(id);
 
+		const projectId = ensureMatch?.[1] || 
+			chatMatch?.[1] || 
+			filesListMatch?.[1] || 
+			filesWriteMatch?.[1] || 
+			filesMkdirMatch?.[1] || 
+			filesDeleteMatch?.[1] || 
+			filesMoveMatch?.[1] || 
+			filesDownloadMatch?.[1] || 
+			filesEventsMatch?.[1] || 
+			terminalMatch?.[1] || 
+			terminalInputMatch?.[1];
+
+		if (!projectId) {
+			return new Response(JSON.stringify({ error: "Invalid projectId" }), {
+				status: 400,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		if (!validateProjectId(projectId)) {
+			return new Response(JSON.stringify({ error: "Invalid projectId format" }), {
+				status: 400,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		const sandboxId = `project-${projectId}`;
+		// Use a slightly longer timeout for chat requests as they might involve startup
+		const sandbox = getSandbox(env.Sandbox, sandboxId, { sleepAfter: '5m' });
+
 		if (request.method === "POST" && ensureMatch) {
-			const projectId = ensureMatch[1];
-			if (!validateProjectId(projectId)) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleEnsure(projectId, request, env);
+			return handleEnsure(ensureMatch[1], request, env, sandbox);
 		}
 
 		if (request.method === "POST" && chatMatch) {
-			const projectId = chatMatch[1];
-			if (!validateProjectId(projectId)) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleChat(projectId, request, env);
+			return handleChat(chatMatch[1], request, env, sandbox);
 		}
 
-		// File management endpoints
 		if (request.method === "GET" && filesListMatch) {
-			if (!validateProjectId(filesListMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleFilesList(filesListMatch[1], env);
+			return handleFilesList(filesListMatch[1], request, env, sandbox);
 		}
 
 		if (request.method === "POST" && filesWriteMatch) {
-			if (!validateProjectId(filesWriteMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleFilesWrite(filesWriteMatch[1], request, env);
+			return handleFilesWrite(filesWriteMatch[1], request, env, sandbox);
 		}
 
 		if (request.method === "POST" && filesMkdirMatch) {
-			if (!validateProjectId(filesMkdirMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleFilesMkdir(filesMkdirMatch[1], request, env);
+			return handleFilesMkdir(filesMkdirMatch[1], request, env, sandbox);
 		}
 
 		if (request.method === "POST" && filesDeleteMatch) {
-			if (!validateProjectId(filesDeleteMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleFilesDelete(filesDeleteMatch[1], request, env);
+			return handleFilesDelete(filesDeleteMatch[1], request, env, sandbox);
 		}
 
 		if (request.method === "POST" && filesMoveMatch) {
-			if (!validateProjectId(filesMoveMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleFilesMove(filesMoveMatch[1], request, env);
+			return handleFilesMove(filesMoveMatch[1], request, env, sandbox);
 		}
 
 		if (request.method === "GET" && filesDownloadMatch) {
-			if (!validateProjectId(filesDownloadMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleFilesDownload(filesDownloadMatch[1], url, env);
+			return handleFilesDownload(filesDownloadMatch[1], url, env, sandbox);
 		}
 
 		if (request.method === "GET" && filesEventsMatch) {
-			if (!validateProjectId(filesEventsMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleFilesEvents(filesEventsMatch[1], request, env);
+			return handleFilesEvents(filesEventsMatch[1], request, env, sandbox);
 		}
 
 		if (request.method === "POST" && terminalMatch) {
-			if (!validateProjectId(terminalMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleTerminal(terminalMatch[1], request, env);
+			return handleTerminal(terminalMatch[1], request, env, sandbox);
 		}
 
 		if (request.method === "POST" && terminalInputMatch) {
-			if (!validateProjectId(terminalInputMatch[1])) {
-				return new Response(JSON.stringify({ error: "Invalid projectId" }), {
-					status: 400,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return handleTerminalInput(terminalInputMatch[1], request, env);
+			return handleTerminalInput(terminalInputMatch[1], request, env, sandbox);
 		}
 
 		return new Response(JSON.stringify({ error: "Not Found" }), {
@@ -289,70 +251,70 @@ export default {
 async function handleEnsure(
 	projectId: string,
 	request: Request,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
 		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId, { sleepAfter: '5m' });
+		// sandbox passed from caller
 		const appDir = getAppDir(projectId);
 		const userFilesDir = getUserFilesDir(projectId);
 
-		// Create directories
+		// 1. Mount R2 bucket (Idempotent check)
+		try {
+			await sandbox.mountBucket("studio-bucket", "/workspace", {
+				endpoint: "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com"
+			});
+		} catch (e) {
+			// Ignore if already mounted
+		}
+
+		// 2. Create directories (Idempotent)
 		await sandbox.exec(`mkdir -p ${userFilesDir} ${appDir}`);
 
-		// Copy survey app if not already present
+		// 3. Setup App (Idempotent)
 		const checkApp = await sandbox.exec(`test -f ${appDir}/package.json`);
 		if (checkApp.exitCode !== 0) {
 			await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
 		}
 
-		// Create symlink so OpenCode can access user_files from within app directory
-		// user_files is at ../user_files relative to app
+		// 4. Create symlink (Idempotent)
 		await sandbox.exec(`ln -sfn ${userFilesDir} ${appDir}/user_files`);
 
-		// Start dev server with STRICT port binding (no fallback ports)
-		// Step 1: Kill anything on the assigned port and wait for port to be released
-		await sandbox.exec(`lsof -ti :${PREVIEW_PORT} | xargs kill -9 2>/dev/null || true`);
-		
-		// Wait for port to be fully released (kernel needs time to release the socket)
-		let portFree = false;
-		for (let i = 0; i < 10; i++) {
-			const portCheck = await sandbox.exec(`lsof -ti :${PREVIEW_PORT} 2>/dev/null`);
-			if (!portCheck.stdout?.trim()) {
-				portFree = true;
-				break;
-			}
-			await sandbox.exec("sleep 0.5");
-		}
-		
-		if (!portFree) {
-			// Force kill any remaining processes
-			await sandbox.exec(`fuser -k ${PREVIEW_PORT}/tcp 2>/dev/null || true`);
-			await sandbox.exec("sleep 1");
-		}
-		
-		// Step 2: Start server with --port flag to ensure strict port binding
-		await sandbox.exec(`cd ${appDir} && PORT=${PREVIEW_PORT} npm run dev -- --turbo --port ${PREVIEW_PORT} &`);
-		
-		// Step 3: Health check or die
-		let serverReady = false;
-		for (let i = 0; i < 20; i++) {
-			await sandbox.exec("sleep 1");
-			const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
-			if (check.stdout.trim() !== '000') {
-				serverReady = true;
-				break;
-			}
-		}
-		
-		if (!serverReady) {
-			throw new Error(`Dev server did not bind to assigned port ${PREVIEW_PORT}`);
+		// 5. Start Dev Server (Idempotent)
+		let serverRunning = false;
+		const healthCheck = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
+		if (healthCheck.stdout.trim() === '200') {
+			serverRunning = true;
 		}
 
-		// Start OpenCode server in background (for chat functionality)
+		if (!serverRunning) {
+			// Clean up any stale process on the port
+			await sandbox.exec(`lsof -ti :${PREVIEW_PORT} | xargs kill -9 2>/dev/null || true`);
+			await sandbox.exec(`fuser -k ${PREVIEW_PORT}/tcp 2>/dev/null || true`);
+			
+			// Start server
+			await sandbox.exec(`cd ${appDir} && PORT=${PREVIEW_PORT} npm run dev -- --turbo --port ${PREVIEW_PORT} &`);
+			
+			// Wait for health check
+			for (let i = 0; i < 20; i++) {
+				await sandbox.exec("sleep 1");
+				const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
+				if (check.stdout.trim() === '200') {
+					serverRunning = true;
+					break;
+				}
+			}
+			
+			if (!serverRunning) {
+				throw new Error(`Dev server did not bind to assigned port ${PREVIEW_PORT}`);
+			}
+		}
+
+		// 6. Start OpenCode server (Idempotent)
 		await ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY);
 
-		// Expose port
+		// 7. Expose port (Idempotent)
 		let previewUrl: string | undefined;
 		try {
 			const ports = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
@@ -401,7 +363,8 @@ async function ensureOpencodeServer(
 async function handleChat(
 	projectId: string,
 	request: Request,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
 		const body = (await request.json()) as ChatRequestBody;
@@ -412,8 +375,7 @@ async function handleChat(
 			});
 		}
 
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId, { sleepAfter: '5m' });
+		// sandbox passed from caller
 		const appDir = getAppDir(projectId);
 
 		// OpenCode server is started in handleEnsure, but check just in case
@@ -482,6 +444,8 @@ async function handleChat(
 
 		// Get session: first check in-memory cache, then query OpenCode, finally create new
 		let sessionId: string | undefined = opencodeSessions.get(projectId);
+		let isNewSession = false; // Track if we just created this session
+
 		if (!sessionId) {
 			// Worker memory doesn't persist across isolates, so query OpenCode directly
 			const existingSession = await findExistingSession();
@@ -492,6 +456,7 @@ async function handleChat(
 			} else {
 				// No existing session found, create new one
 				sessionId = await createNewSession();
+				isNewSession = true;
 			}
 		}
 
@@ -527,17 +492,79 @@ async function handleChat(
 				}, 15000);
 
 				// Send the message (async)
+				let promptText = body.message;
+				
+				// If this is a new session and we have history, prepend it for context restoration
+				if (isNewSession && body.history && body.history.length > 0) {
+					console.log(`Restoring context for new session ${sessionId} with ${body.history.length} messages`);
+					const transcript = body.history
+						.map(m => `[${m.role === 'user' ? 'User' : 'Assistant'}]: ${m.content}`)
+						.join("\n\n");
+					
+					promptText = `Here is the conversation history so far for context:\n\n${transcript}\n\n[User]: ${body.message}`;
+				}
+
 				const promptBody = JSON.stringify({
 					model: {
 						providerID: "anthropic",
 						modelID: "claude-sonnet-4-20250514",
 					},
-					parts: [{ type: "text", text: body.message }],
+					parts: [{ type: "text", text: promptText }],
 				}).replace(/'/g, "'\\''");
 
-				const messagePromise = sandbox.exec(
-					`curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session/${sessionId}/message?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '${promptBody}'`
-				);
+				// Helper to execute message with retry on session error
+				const executeMessage = async (currentSessionId: string): Promise<any> => {
+					// Use verbose curl to capture connection errors
+					const result = await sandbox.exec(
+						`curl -v -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session/${currentSessionId}/message?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '${promptBody}'`
+					);
+					
+					// Log execution result for debugging
+					if (result.exitCode !== 0) {
+						console.error(`Opencode request failed (exit ${result.exitCode}):`, result.stderr);
+					}
+
+					// Parse result to check for session errors immediately
+					if (result.stdout) {
+						try {
+							const parsed = JSON.parse(result.stdout);
+							if (parsed.name === "SessionNotFoundError" || parsed.error?.includes("session")) {
+								console.log(`Session ${currentSessionId} not found, recreating...`);
+								opencodeSessions.delete(projectId);
+								const newSessionId = await createNewSession();
+								// Update sessionId for the outer scope
+								sessionId = newSessionId;
+									// If we prepended history, retry with history prepended again
+									// But wait, the session ID is new, so we DO want to prepend history.
+									// We need to reconstruct the prompt with history for the new session.
+									let retryPromptText = body.message;
+									if (body.history && body.history.length > 0) {
+										const transcript = body.history
+											.map(m => `[${m.role === 'user' ? 'User' : 'Assistant'}]: ${m.content}`)
+											.join("\n\n");
+										retryPromptText = `Here is the conversation history so far for context:\n\n${transcript}\n\n[User]: ${body.message}`;
+									}
+									
+									const retryPromptBody = JSON.stringify({
+										model: {
+											providerID: "anthropic",
+											modelID: "claude-sonnet-4-20250514",
+										},
+										parts: [{ type: "text", text: retryPromptText }],
+									}).replace(/'/g, "'\\''");
+
+									return await sandbox.exec(
+										`curl -v -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session/${newSessionId}/message?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '${retryPromptBody}'`
+									);
+								}
+						} catch (e) {
+							// Ignore parse errors here, let main loop handle it
+						}
+					}
+					return result;
+				};
+
+				const messagePromise = executeMessage(sessionId);
 
 				// Process SSE events
 				let sseBuffer = "";
@@ -577,9 +604,18 @@ async function handleChat(
 
 										// Strip user message if at start
 										if (previousText.length === 0) {
-											const userMsg = body.message.trim();
-											if (delta.startsWith(userMsg)) {
-												delta = delta.slice(userMsg.length).trimStart();
+											// The prompt might contain the history prefix, but Opencode output shouldn't.
+											// However, if Opencode echoes the prompt, we need to be careful.
+											// Typically Opencode streams only the *new* content.
+											// But if we modified the prompt, we should ensure we don't accidentally leak it.
+											// We check both the full prompt text (with history) and the original user message.
+											
+											if (delta.startsWith(promptText)) {
+												// Strips full history transcript if echoed
+												delta = delta.slice(promptText.length).trimStart();
+											} else if (delta.startsWith(body.message.trim())) {
+												// Fallback: Strips just the user message if echoed
+												delta = delta.slice(body.message.trim().length).trimStart();
 											}
 										}
 
@@ -618,6 +654,12 @@ async function handleChat(
 								}
 								// Session errors
 								else if (data.type === "error" || data.name === "SessionNotFoundError") {
+									if (data.name === "SessionNotFoundError" || data.message?.includes("session")) {
+										// This error came via stream, trigger retry logic if needed
+										// But since we are streaming, we might just want to inform user or autorecover
+										// For now, let's treat it as a hard error that the client will retry
+										opencodeSessions.delete(projectId);
+									}
 									throw new Error(data.message || data.error || "Session error");
 								}
 							} catch (e) {
@@ -636,6 +678,7 @@ async function handleChat(
 				if (messageResult.stdout) {
 					try {
 						const result = JSON.parse(messageResult.stdout);
+						// We handled retry in executeMessage, but check one last time
 						if (result.name === "SessionNotFoundError" || result.error?.includes("session")) {
 							opencodeSessions.delete(projectId);
 							throw new Error("Session expired, please retry");
@@ -712,10 +755,14 @@ function getAppDir(projectId: string): string {
 	return `/workspace/projects/${projectId}/working_directory/app`;
 }
 
-async function handleFilesList(projectId: string, env: Env): Promise<Response> {
+async function handleFilesList(
+	projectId: string,
+	request: Request,
+	env: Env,
+	sandbox: SandboxInstance
+): Promise<Response> {
 	try {
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		// sandbox passed from caller
 		const userFilesDir = getUserFilesDir(projectId);
 
 		// Ensure directory exists
@@ -758,12 +805,12 @@ async function handleFilesList(projectId: string, env: Env): Promise<Response> {
 async function handleFilesWrite(
 	projectId: string,
 	request: Request,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
 		const body = (await request.json()) as FileWriteRequestBody;
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		// sandbox passed from caller
 		const userFilesDir = getUserFilesDir(projectId);
 
 		// Ensure user files directory exists
@@ -841,12 +888,12 @@ async function handleFilesWrite(
 async function handleFilesMkdir(
 	projectId: string,
 	request: Request,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
 		const body = (await request.json()) as MkdirRequestBody;
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		// sandbox passed from caller
 		const userFilesDir = getUserFilesDir(projectId);
 
 		if (!body.path) {
@@ -888,12 +935,12 @@ async function handleFilesMkdir(
 async function handleFilesDelete(
 	projectId: string,
 	request: Request,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
 		const body = (await request.json()) as DeleteRequestBody;
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		// sandbox passed from caller
 		const userFilesDir = getUserFilesDir(projectId);
 
 		if (!body.path) {
@@ -938,12 +985,12 @@ async function handleFilesDelete(
 async function handleFilesMove(
 	projectId: string,
 	request: Request,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
 		const body = (await request.json()) as MoveRequestBody;
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		// sandbox passed from caller
 		const userFilesDir = getUserFilesDir(projectId);
 
 		if (!body.sourcePath || !body.destinationPath) {
@@ -1019,7 +1066,8 @@ async function handleFilesMove(
 async function handleFilesDownload(
 	projectId: string,
 	url: URL,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
 		const filePath = url.searchParams.get("path");
@@ -1033,8 +1081,7 @@ async function handleFilesDownload(
 			);
 		}
 
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		// sandbox passed from caller
 		const userFilesDir = getUserFilesDir(projectId);
 
 		const absolutePath = resolveSecurePath(userFilesDir, filePath);
@@ -1085,11 +1132,11 @@ async function handleFilesDownload(
 async function handleFilesEvents(
 	projectId: string,
 	request: Request,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
-		const sandboxId = `project-${projectId}`;
-		const sandbox = getSandbox(env.Sandbox, sandboxId);
+		// sandbox passed from caller
 		const userFilesDir = getUserFilesDir(projectId);
 
 		// Ensure directory exists
@@ -1231,11 +1278,12 @@ function getTerminalInputFifo(projectId: string): string {
 async function handleTerminal(
 	projectId: string,
 	request: Request,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
 		const body = (await request.json()) as TerminalRequestBody;
-		const sandbox = getSandbox(env.Sandbox, `project-${projectId}`);
+		// sandbox passed from caller
 		const projectDir = `/runner/projects/${projectId}`;
 		const userFilesDir = getUserFilesDir(projectId);
 
@@ -1322,13 +1370,13 @@ async function handleTerminal(
 async function handleTerminalInput(
 	projectId: string,
 	request: Request,
-	env: Env
+	env: Env,
+	sandbox: SandboxInstance
 ): Promise<Response> {
 	try {
 		const body = (await request.json()) as TerminalInputRequestBody;
 
-		// Get a fresh sandbox instance for this request (can't reuse across requests in Workers)
-		const sandbox = getSandbox(env.Sandbox, `project-${projectId}`);
+		// sandbox passed from caller
 		const inputFifo = getTerminalInputFifo(projectId);
 
 		// Write input to the FIFO using a non-blocking approach

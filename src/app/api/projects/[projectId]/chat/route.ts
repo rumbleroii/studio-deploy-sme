@@ -2,6 +2,46 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+export async function GET(
+	request: NextRequest,
+	props: { params: Promise<{ projectId: string }> }
+) {
+	const params = await props.params;
+	try {
+		const user = await requireAuth();
+		const { projectId } = params;
+
+		// Verify project ownership
+		const project = await prisma.project.findUnique({
+			where: { id: projectId },
+			select: { id: true, createdById: true },
+		});
+
+		if (!project || project.createdById !== user.id) {
+			return NextResponse.json({ error: "Not Found" }, { status: 404 });
+		}
+
+		const messages = await prisma.projectMessage.findMany({
+			where: { projectId },
+			orderBy: { createdAt: "asc" },
+			select: {
+				id: true,
+				role: true,
+				content: true,
+				createdAt: true,
+			},
+		});
+
+		return NextResponse.json({ messages });
+	} catch (error) {
+		console.error("Get messages error:", error);
+		return NextResponse.json(
+			{ error: "Internal Server Error" },
+			{ status: 500 }
+		);
+	}
+}
+
 export async function POST(
 	request: NextRequest,
 	props: { params: Promise<{ projectId: string }> }
@@ -36,6 +76,14 @@ export async function POST(
 			},
 		});
 
+		// Fetch recent history (e.g., last 20 messages)
+		const history = await prisma.projectMessage.findMany({
+			where: { projectId },
+			orderBy: { createdAt: "asc" },
+			take: 20,
+			select: { role: true, content: true },
+		});
+
 		// Call worker chat endpoint
 		const workerUrl = process.env.AGENT_WORKER_URL;
 		const sharedSecret = process.env.AGENT_WORKER_SHARED_SECRET;
@@ -58,6 +106,7 @@ export async function POST(
 				body: JSON.stringify({
 					message,
 					sessionId: sessionId || project.claudeSessionId,
+					history, // Pass history to worker
 				}),
 			}
 		);

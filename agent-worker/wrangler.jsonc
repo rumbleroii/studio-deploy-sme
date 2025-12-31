@@ -18,6 +18,12 @@
 			}
 		]
 	},
+	"r2_buckets": [
+		{
+			"binding": "DATA_BUCKET",
+			"bucket_name": "studio-bucket"
+		}
+	],
 	"migrations": [
 		{
 			"tag": "v1",

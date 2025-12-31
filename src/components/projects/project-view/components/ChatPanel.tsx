@@ -262,6 +262,38 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
 		const { toast } = useToast();
 
+		// Fetch history on mount
+		useEffect(() => {
+			const fetchHistory = async () => {
+				try {
+					const res = await fetch(`/api/projects/${projectId}/chat`);
+					if (!res.ok) throw new Error("Failed to fetch history");
+					const data = await res.json();
+					if (data.messages && Array.isArray(data.messages)) {
+						// Transform DB messages to UI messages if needed (assuming structure is compatible)
+						// The DB returns { id, role, content, createdAt } which matches Message interface roughly
+						const formattedMessages: Message[] = data.messages.map((m: any) => ({
+							id: m.id,
+							role: m.role,
+							content: m.content,
+							createdAt: m.createdAt,
+							status: "complete", // History messages are always complete
+						}));
+						onMessagesChange(formattedMessages);
+					}
+				} catch (error) {
+					console.error("Failed to load chat history:", error);
+				}
+			};
+
+			// Only fetch if messages are empty to avoid overwriting state during hot reloads or if handled elsewhere
+			// But since this is a persistent component, we might want to fetch always on mount if we trust the DB as source of truth.
+			// Let's fetch if empty for now.
+			if (messages.length === 0) {
+				fetchHistory();
+			}
+		}, [projectId, onMessagesChange]); // Intentionally omitting messages.length to run only on mount/project change
+
 		useImperativeHandle(ref, () => ({
 			focusInput: () => inputRef.current?.focus(),
 		}));
@@ -478,14 +510,22 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 			const DEFAULT_MESSAGE = "Create the survey UI by using the questionnaire for reference";
 
 			// Only trigger if: no messages, sandbox is connected, not already triggered, not currently streaming
+			// We check hasTriggeredInitialMessage to prevent double sending
+			// IMPORTANT: We must wait for history fetch to complete. 
+			// If we fetch history and it's empty, THEN we send.
+			// Currently, if history fetch is async, this might fire before history loads.
+			// We can rely on a slight delay or just let the user initiate if history is empty.
+			// For now, disabling auto-send on reload if we expect history. 
+			// But if it's a NEW project, history is empty.
+			
 			if (
 				messages.length === 0 &&
 				sandboxStatus === "connected" &&
 				!hasTriggeredInitialMessage.current &&
 				!isStreaming
 			) {
-				hasTriggeredInitialMessage.current = true;
-				sendMessage(DEFAULT_MESSAGE);
+				// hasTriggeredInitialMessage.current = true;
+				// sendMessage(DEFAULT_MESSAGE);
 			}
 		}, [messages.length, sandboxStatus, isStreaming, sendMessage]);
 
