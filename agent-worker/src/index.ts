@@ -14,6 +14,8 @@ interface Env {
 	AGENT_WORKER_SHARED_SECRET: string;
 	ANTHROPIC_API_KEY: string;
 	DATA_BUCKET: R2Bucket;
+	AWS_ACCESS_KEY_ID: string;
+	AWS_SECRET_ACCESS_KEY: string;
 }
 
 interface ChatRequestBody {
@@ -120,7 +122,7 @@ function filterFileList(files: FileInfo[], workingDir: string): FileInfo[] {
 }
 
 export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		// Handle preview URLs (port-exposed sandbox requests)
 		const proxyResponse = await proxyToSandbox(request, env);
 		if (proxyResponse) {
@@ -163,6 +165,7 @@ export default {
 		const terminalInputMatch = path.match(
 			/^\/v1\/projects\/([^/]+)\/terminal\/input$/
 		);
+		const syncMatch = path.match(/^\/v1\/projects\/([^/]+)\/sync$/);
 
 		const validateProjectId = (id: string): boolean =>
 			/^[a-zA-Z0-9_-]+$/.test(id);
@@ -177,7 +180,8 @@ export default {
 			filesDownloadMatch?.[1] || 
 			filesEventsMatch?.[1] || 
 			terminalMatch?.[1] || 
-			terminalInputMatch?.[1];
+			terminalInputMatch?.[1] ||
+			syncMatch?.[1];
 
 		if (!projectId) {
 			return new Response(JSON.stringify({ error: "Invalid projectId" }), {
@@ -198,11 +202,11 @@ export default {
 		const sandbox = getSandbox(env.Sandbox, sandboxId, { sleepAfter: '5m' });
 
 		if (request.method === "POST" && ensureMatch) {
-			return handleEnsure(ensureMatch[1], request, env, sandbox);
+			return handleEnsure(ensureMatch[1], request, env, sandbox, ctx);
 		}
 
 		if (request.method === "POST" && chatMatch) {
-			return handleChat(chatMatch[1], request, env, sandbox);
+			return handleChat(chatMatch[1], request, env, sandbox, ctx);
 		}
 
 		if (request.method === "GET" && filesListMatch) {
@@ -241,6 +245,10 @@ export default {
 			return handleTerminalInput(terminalInputMatch[1], request, env, sandbox);
 		}
 
+		if (request.method === "POST" && syncMatch) {
+			return handleSync(syncMatch[1], request, env, sandbox);
+		}
+
 		return new Response(JSON.stringify({ error: "Not Found" }), {
 			status: 404,
 			headers: { "Content-Type": "application/json" },
@@ -252,7 +260,8 @@ async function handleEnsure(
 	projectId: string,
 	request: Request,
 	env: Env,
-	sandbox: SandboxInstance
+	sandbox: SandboxInstance,
+	ctx: ExecutionContext
 ): Promise<Response> {
 	try {
 		const sandboxId = `project-${projectId}`;
@@ -260,67 +269,163 @@ async function handleEnsure(
 		const appDir = getAppDir(projectId);
 		const userFilesDir = getUserFilesDir(projectId);
 
-		// 1. Mount R2 bucket (Idempotent check)
+		// 1. Mount R2 bucket to /storage if not already mounted
 		try {
-			await sandbox.mountBucket("studio-bucket", "/workspace", {
-				endpoint: "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com"
+			await sandbox.exec(`mkdir -p /storage`);
+			
+			const endpoint = "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com";
+			const bucketName = "studio-bucket";
+
+			await sandbox.mountBucket(bucketName, "/storage", {
+				endpoint,
+				credentials: {
+					accessKeyId: env.AWS_ACCESS_KEY_ID,
+					secretAccessKey: env.AWS_SECRET_ACCESS_KEY
+				}
 			});
+			console.log(`[${projectId}] R2 bucket mounted to /storage`);
 		} catch (e) {
-			// Ignore if already mounted
+			// Ignore "already mounted" errors
+			const msg = String(e);
+			if (!msg.includes("already in use") && !msg.includes("MOUNT_EXISTS")) {
+				console.warn("Mount bucket warning:", e);
+			}
 		}
 
-		// 2. Create directories (Idempotent)
-		await sandbox.exec(`mkdir -p ${userFilesDir} ${appDir}`);
+		// 2. Sync from storage (if not already synced this session)
+		const appDirExists = await sandbox.exec(`test -d ${appDir} && test -f ${appDir}/package.json`);
+		let restored = false;
+		
+		if (appDirExists.exitCode !== 0) {
+			// Sync from storage to workspace (restore persisted files)
+			restored = await syncFromStorage(sandbox, projectId);
 
-		// 3. Setup App (Idempotent)
-		const checkApp = await sandbox.exec(`test -f ${appDir}/package.json`);
-		if (checkApp.exitCode !== 0) {
-			await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
+			// 3. Create directories & Setup App
+			await sandbox.exec(`mkdir -p ${userFilesDir} ${appDir}`);
+
+			// Copy template if package.json is missing (restore failed or was empty)
+			const checkApp = await sandbox.exec(`test -f ${appDir}/package.json`);
+			if (checkApp.exitCode !== 0) {
+				console.log(`[${projectId}] Copying fresh app template...`);
+				await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
+			} else {
+				// Restore node_modules from template
+				const checkNodeModules = await sandbox.exec(`test -d ${appDir}/node_modules`);
+				if (checkNodeModules.exitCode !== 0) {
+					console.log(`[${projectId}] Restoring node_modules from template...`);
+					// Copy node_modules from the baked image
+					await sandbox.exec(`cp -r /runner/survey-app/node_modules ${appDir}/`);
+				}
+			}
+
+			// 4. Create symlink
+			await sandbox.exec(`ln -sfn ${userFilesDir} ${appDir}/user_files`);
+		} else {
+			console.log(`[${projectId}] Container already warm, skipping sync & setup`);
+			restored = true;
 		}
 
-		// 4. Create symlink (Idempotent)
-		await sandbox.exec(`ln -sfn ${userFilesDir} ${appDir}/user_files`);
-
-		// 5. Start Dev Server (Idempotent)
+		// 5. Start Dev Server (check port first)
 		let serverRunning = false;
+		
 		const healthCheck = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
 		if (healthCheck.stdout.trim() === '200') {
 			serverRunning = true;
+			console.log(`[${projectId}] Dev server already running`);
+		}
+
+		// Concurrency Lock: Prevent multiple workers from starting the server simultaneously
+		const lockFile = "/tmp/ensure.lock";
+		
+		if (!serverRunning) {
+			// Check if another ensure process is running
+			const checkLock = await sandbox.exec(`test -f ${lockFile} && find ${lockFile} -mmin -1`);
+			if (checkLock.exitCode === 0) {
+				console.log(`[${projectId}] Another ensure process is running (lock exists), waiting...`);
+				// Wait for 30s for the other process to finish starting the server
+				for (let i = 0; i < 30; i++) {
+					await sandbox.exec("sleep 1");
+					const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
+					if (check.stdout.trim() === '200') {
+						serverRunning = true;
+						break;
+					}
+					// Also check if lock is gone (process finished/failed)
+					const lockExists = await sandbox.exec(`test -f ${lockFile}`);
+					if (lockExists.exitCode !== 0) {
+						// Lock gone but server not up? Take over
+						break;
+					}
+				}
+				
+				if (serverRunning) {
+					console.log(`[${projectId}] Server started by other process`);
+				} else {
+					console.log(`[${projectId}] Lock expired or other process failed, taking over...`);
+				}
+			}
 		}
 
 		if (!serverRunning) {
-			// Clean up any stale process on the port
-			await sandbox.exec(`lsof -ti :${PREVIEW_PORT} | xargs kill -9 2>/dev/null || true`);
-			await sandbox.exec(`fuser -k ${PREVIEW_PORT}/tcp 2>/dev/null || true`);
+			// Create lock
+			await sandbox.exec(`touch ${lockFile}`);
 			
-			// Start server
-			await sandbox.exec(`cd ${appDir} && PORT=${PREVIEW_PORT} npm run dev -- --turbo --port ${PREVIEW_PORT} &`);
-			
-			// Wait for health check
-			for (let i = 0; i < 20; i++) {
-				await sandbox.exec("sleep 1");
-				const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
-				if (check.stdout.trim() === '200') {
-					serverRunning = true;
-					break;
+			try {
+				console.log(`[${projectId}] Starting dev server...`);
+				
+				// Kill any existing next dev processes
+				await sandbox.exec(`fuser -k -9 ${PREVIEW_PORT}/tcp || true`);
+				await sandbox.exec(`lsof -ti :${PREVIEW_PORT} | xargs kill -9 || true`);
+				await sandbox.exec(`pkill -f "next-server" || true`);
+				await sandbox.exec(`pkill -f "next dev" || true`);
+				
+				// Start server
+				console.log(`[${projectId}] Starting dev server...`);
+				await sandbox.exec(`cd ${appDir} && PORT=${PREVIEW_PORT} npm run dev -- --turbo --port ${PREVIEW_PORT} > /tmp/nextjs.log 2>&1 &`);
+				
+				// Wait for health check 
+				for (let i = 0; i < 30; i++) {
+					await sandbox.exec("sleep 1");
+					const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
+					if (check.stdout.trim() === '200') {
+						serverRunning = true;
+						break;
+					}
 				}
-			}
-			
-			if (!serverRunning) {
-				throw new Error(`Dev server did not bind to assigned port ${PREVIEW_PORT}`);
+				
+				// For Debugging Logs
+				if (!serverRunning) {
+					// Read the log file to see what went wrong
+					const logContent = await sandbox.exec(`cat /tmp/nextjs.log`);
+					console.error(`[${projectId}] Server startup failed. Logs:\n${logContent.stdout}`);
+					
+					return new Response(
+						JSON.stringify({ 
+							error: "Server startup failed", 
+							details: logContent.stdout || "Unknown error (check container logs)",
+							retry: false 
+						}),
+						{ status: 500, headers: { "Content-Type": "application/json" } }
+					);
+				}
+			} finally {
+				// Remove lock file
+				await sandbox.exec(`rm -f ${lockFile}`);
 			}
 		}
 
-		// 6. Start OpenCode server (Idempotent)
+		// 6. Start OpenCode server if not running
 		await ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY);
 
-		// 7. Expose port (Idempotent)
+		// 7. Expose port 
 		let previewUrl: string | undefined;
 		try {
 			const ports = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
 			const existing = ports.find((p) => p.port === PREVIEW_PORT);
 			previewUrl = existing?.url ?? (await sandbox.exposePort(PREVIEW_PORT, { hostname: CUSTOM_DOMAIN })).url;
 		} catch {}
+
+		// 8. Skip initial sync - will sync after first chat message instead
 
 		return new Response(
 			JSON.stringify({ status: "ready", sandboxId, previewUrl }),
@@ -330,6 +435,35 @@ async function handleEnsure(
 		console.error("Ensure failed:", error);
 		return new Response(
 			JSON.stringify({ error: "Failed to ensure sandbox", details: String(error) }),
+			{ status: 500, headers: { "Content-Type": "application/json" } }
+		);
+	}
+}
+
+// ============================================================================
+// Sync Handler (Persist workspace to R2 storage)
+// ============================================================================
+
+async function handleSync(
+	projectId: string,
+	request: Request,
+	env: Env,
+	sandbox: SandboxInstance
+): Promise<Response> {
+	try {
+		console.log(`[${projectId}] Sync request received`);
+		
+		// Sync workspace to storage
+		await syncToStorage(sandbox, projectId);
+		
+		return new Response(
+			JSON.stringify({ status: "synced", projectId }),
+			{ headers: { "Content-Type": "application/json" } }
+		);
+	} catch (error) {
+		console.error("Sync failed:", error);
+		return new Response(
+			JSON.stringify({ error: "Failed to sync", details: String(error) }),
 			{ status: 500, headers: { "Content-Type": "application/json" } }
 		);
 	}
@@ -364,7 +498,8 @@ async function handleChat(
 	projectId: string,
 	request: Request,
 	env: Env,
-	sandbox: SandboxInstance
+	sandbox: SandboxInstance,
+	ctx: ExecutionContext
 ): Promise<Response> {
 	try {
 		const body = (await request.json()) as ChatRequestBody;
@@ -495,13 +630,23 @@ async function handleChat(
 				let promptText = body.message;
 				
 				// If this is a new session and we have history, prepend it for context restoration
+				// Limit to last 10 messages AND truncate long messages to avoid token overflow
+				const MAX_HISTORY_MESSAGES = 10;
+				const MAX_MESSAGE_LENGTH = 500; // Truncate long messages
 				if (isNewSession && body.history && body.history.length > 0) {
-					console.log(`Restoring context for new session ${sessionId} with ${body.history.length} messages`);
-					const transcript = body.history
-						.map(m => `[${m.role === 'user' ? 'User' : 'Assistant'}]: ${m.content}`)
+					const recentHistory = body.history.slice(-MAX_HISTORY_MESSAGES);
+					console.log(`Restoring context for new session ${sessionId} with ${recentHistory.length}/${body.history.length} messages`);
+					const transcript = recentHistory
+						.map(m => {
+							let content = m.content;
+							if (content.length > MAX_MESSAGE_LENGTH) {
+								content = content.substring(0, MAX_MESSAGE_LENGTH) + "... [truncated]";
+							}
+							return `[${m.role === 'user' ? 'User' : 'Assistant'}]: ${content}`;
+						})
 						.join("\n\n");
 					
-					promptText = `Here is the conversation history so far for context:\n\n${transcript}\n\n[User]: ${body.message}`;
+					promptText = `Here is the recent conversation history for context:\n\n${transcript}\n\n[User]: ${body.message}`;
 				}
 
 				const promptBody = JSON.stringify({
@@ -522,6 +667,8 @@ async function handleChat(
 					// Log execution result for debugging
 					if (result.exitCode !== 0) {
 						console.error(`Opencode request failed (exit ${result.exitCode}):`, result.stderr);
+					} else {
+						console.log(`[${projectId}] Opencode response:`, result.stdout.substring(0, 200));
 					}
 
 					// Parse result to check for session errors immediately
@@ -534,15 +681,20 @@ async function handleChat(
 								const newSessionId = await createNewSession();
 								// Update sessionId for the outer scope
 								sessionId = newSessionId;
-									// If we prepended history, retry with history prepended again
-									// But wait, the session ID is new, so we DO want to prepend history.
 									// We need to reconstruct the prompt with history for the new session.
 									let retryPromptText = body.message;
 									if (body.history && body.history.length > 0) {
-										const transcript = body.history
-											.map(m => `[${m.role === 'user' ? 'User' : 'Assistant'}]: ${m.content}`)
+										const recentHistory = body.history.slice(-MAX_HISTORY_MESSAGES);
+										const transcript = recentHistory
+											.map(m => {
+												let content = m.content;
+												if (content.length > MAX_MESSAGE_LENGTH) {
+													content = content.substring(0, MAX_MESSAGE_LENGTH) + "... [truncated]";
+												}
+												return `[${m.role === 'user' ? 'User' : 'Assistant'}]: ${content}`;
+											})
 											.join("\n\n");
-										retryPromptText = `Here is the conversation history so far for context:\n\n${transcript}\n\n[User]: ${body.message}`;
+										retryPromptText = `Here is the recent conversation history for context:\n\n${transcript}\n\n[User]: ${body.message}`;
 									}
 									
 									const retryPromptBody = JSON.stringify({
@@ -684,6 +836,19 @@ async function handleChat(
 							throw new Error("Session expired, please retry");
 						}
 
+						// Check for API errors (rate limits, auth errors, etc.)
+						if (result.error || result.info?.error) {
+							const errorInfo = result.error || result.info?.error;
+							const errorName = errorInfo?.name || errorInfo?.type || "APIError";
+							const errorMessage = errorInfo?.message || errorInfo?.data || JSON.stringify(errorInfo);
+							console.error(`[${projectId}] OpenCode API error:`, errorName, errorMessage);
+							
+							// Send error to client if no text was streamed
+							if (partTextMap.size === 0) {
+								throw new Error(`${errorName}: ${errorMessage}`);
+							}
+						}
+
 						// Fallback: if no text was streamed, use POST response
 						if (partTextMap.size === 0 && result.parts) {
 							for (const part of result.parts) {
@@ -701,8 +866,15 @@ async function handleChat(
 								}
 							}
 						}
+						
+						// If still no text and no error, something went wrong
+						if (partTextMap.size === 0 && !result.parts?.length) {
+							console.warn(`[${projectId}] OpenCode returned empty response:`, messageResult.stdout.substring(0, 300));
+						}
 					} catch (e) {
-						// Ignore parse errors
+						// Re-throw non-parse errors
+						if (!(e instanceof SyntaxError)) throw e;
+						console.warn(`[${projectId}] Failed to parse OpenCode response:`, messageResult.stdout.substring(0, 200));
 					}
 				}
 
@@ -719,6 +891,17 @@ async function handleChat(
 			} finally {
 				if (keepaliveInterval) clearInterval(keepaliveInterval);
 				await writer.close();
+				
+				// Sync to storage when chat session ends
+				ctx.waitUntil(
+					(async () => {
+						try {
+							await syncToStorage(sandbox, projectId);
+						} catch (e) {
+							console.error(`[${projectId}] Post-chat sync failed:`, e);
+						}
+					})()
+				);
 			}
 		})();
 
@@ -747,12 +930,77 @@ function getWorkingDir(projectId: string): string {
 	return `/workspace/projects/${projectId}/working_directory`;
 }
 
+// Storage paths (R2 mounted - persistent)
+function getStorageProjectDir(projectId: string): string {
+	return `/storage/projects/${projectId}`;
+}
+
 function getUserFilesDir(projectId: string): string {
 	return `/workspace/projects/${projectId}/working_directory/user_files`;
 }
 
 function getAppDir(projectId: string): string {
 	return `/workspace/projects/${projectId}/working_directory/app`;
+}
+
+function getWorkspaceProjectDir(projectId: string): string {
+	return `/workspace/projects/${projectId}`;
+}
+
+/**
+ * Sync files from R2 storage to local workspace (on project open)
+ */
+async function syncFromStorage(sandbox: SandboxInstance, projectId: string): Promise<boolean> {
+	const storageDir = getStorageProjectDir(projectId);
+	const workspaceDir = getWorkspaceProjectDir(projectId);
+	
+	// Check if storage has files for this project
+	const checkStorage = await sandbox.exec(`test -d ${storageDir}`);
+	if (checkStorage.exitCode === 0) {
+		console.log(`[${projectId}] Syncing from storage to workspace...`);
+		await sandbox.exec(`mkdir -p ${workspaceDir}`);
+		// Exclude node_modules, .git, and .next to prevent timeouts from syncing massive generated files
+		const rsyncResult = await sandbox.exec(
+			`rsync -av --delete --exclude 'node_modules' --exclude '.git' --exclude '.next' ${storageDir}/ ${workspaceDir}/`
+		);
+		if (rsyncResult.exitCode !== 0) {
+			console.error(`[${projectId}] Sync from storage failed:`, rsyncResult.stderr);
+		}
+		console.log(`[${projectId}] Sync from storage complete`);
+		return true;
+	} else {
+		console.log(`[${projectId}] No existing storage, starting fresh`);
+		return false;
+	}
+}
+
+/**
+ * Sync files from local workspace to R2 storage (for persistence)
+ */
+async function syncToStorage(sandbox: SandboxInstance, projectId: string): Promise<void> {
+	const storageDir = getStorageProjectDir(projectId);
+	const workspaceDir = getWorkspaceProjectDir(projectId);
+	
+	// Check if workspace has files
+	const checkWorkspace = await sandbox.exec(`test -d ${workspaceDir}`);
+	if (checkWorkspace.exitCode !== 0) {
+		console.log(`[${projectId}] No workspace files to sync`);
+		return;
+	}
+	
+	console.log(`[${projectId}] Syncing from workspace to storage...`);
+	await sandbox.exec(`mkdir -p ${storageDir}`);
+	
+	// Use rsync for efficient sync (only changed files)
+	// Exclude node_modules, .git, and .next to prevent timeouts from syncing massive generated files
+	const rsyncResult = await sandbox.exec(
+		`rsync -av --delete --exclude 'node_modules' --exclude '.git' --exclude '.next' ${workspaceDir}/ ${storageDir}/`
+	);
+	if (rsyncResult.exitCode !== 0) {
+		console.error(`[${projectId}] Sync to storage failed:`, rsyncResult.stderr);
+		throw new Error(`Sync failed: ${rsyncResult.stderr}`);
+	}
+	console.log(`[${projectId}] Sync to storage complete`);
 }
 
 async function handleFilesList(
