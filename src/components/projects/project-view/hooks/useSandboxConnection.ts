@@ -4,6 +4,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 export type SandboxStatus = "connecting" | "connected";
 
+// Heartbeat interval: ping every 1 minute to keep sandbox awake
+const HEARTBEAT_INTERVAL_MS = 1 * 60 * 1000;
+
 interface UseSandboxConnectionResult {
 	sandboxStatus: SandboxStatus;
 	hasConnectedOnce: boolean;
@@ -25,12 +28,24 @@ export function useSandboxConnection(
 	const ensureAbortRef = useRef<AbortController | null>(null);
 	const ensureActiveRef = useRef(false);
 	const ensureBackoffMsRef = useRef(500);
+	const startedForProjectRef = useRef<string | null>(null);
+	const heartbeatIntervalRef = useRef<number | null>(null);
 
 	const startEnsureLoop = useCallback(() => {
-		if (ensureActiveRef.current) return;
+		// Guard: don't start if already active for this project
+		if (ensureActiveRef.current && startedForProjectRef.current === projectId) {
+			return;
+		}
+		
+		// If switching projects, reset state
+		if (startedForProjectRef.current !== projectId) {
+			ensureActiveRef.current = false;
+			ensureBackoffMsRef.current = 500;
+		}
+		
 		ensureActiveRef.current = true;
+		startedForProjectRef.current = projectId;
 
-		ensureBackoffMsRef.current = 500;
 		setSandboxStatus("connecting");
 
 		if (ensureTimeoutRef.current) {
@@ -90,8 +105,11 @@ export function useSandboxConnection(
 
 	// Ensure sandbox is ready (and keep retrying until it is)
 	useEffect(() => {
-		ensureActiveRef.current = false;
-		startEnsureLoop();
+		// Only start if we haven't started for this project yet
+		// This prevents duplicate calls in React StrictMode
+		if (startedForProjectRef.current !== projectId) {
+			startEnsureLoop();
+		}
 
 		return () => {
 			if (ensureTimeoutRef.current) {
@@ -100,9 +118,60 @@ export function useSandboxConnection(
 			}
 			ensureAbortRef.current?.abort();
 			ensureAbortRef.current = null;
-			ensureActiveRef.current = false;
+			// Don't reset ensureActiveRef here - let startEnsureLoop manage it
+			// This prevents the StrictMode double-call issue
 		};
-	}, [startEnsureLoop]);
+	}, [projectId, startEnsureLoop]);
+
+	// Heartbeat: ping the sandbox periodically while connected to prevent hibernation
+	useEffect(() => {
+		console.log(`[Heartbeat] Effect running, status: ${sandboxStatus}, projectId: ${projectId}`);
+		
+		// Only start heartbeat when connected
+		if (sandboxStatus !== "connected") {
+			// Clear any existing heartbeat if we're not connected
+			if (heartbeatIntervalRef.current) {
+				console.log("[Heartbeat] Clearing interval - not connected");
+				window.clearInterval(heartbeatIntervalRef.current);
+				heartbeatIntervalRef.current = null;
+			}
+			return;
+		}
+
+		// Don't start another interval if one exists
+		if (heartbeatIntervalRef.current) {
+			console.log("[Heartbeat] Interval already exists, skipping");
+			return;
+		}
+
+		// Send heartbeat pings every 1 minute
+		const sendPing = async () => {
+			console.log(`[Heartbeat] Sending ping to ${projectId}...`);
+			try {
+				await fetch(`/api/projects/${projectId}/sandbox/ping`, {
+					method: "POST",
+				});
+				console.log("[Heartbeat] Ping sent successfully");
+			} catch (e) {
+				// Ping failures are non-critical, just log
+				console.warn("[Heartbeat] Ping failed:", e);
+			}
+		};
+
+		// Send first ping immediately, then at interval
+		console.log(`[Heartbeat] Starting heartbeat, interval: ${HEARTBEAT_INTERVAL_MS}ms`);
+		sendPing();
+		heartbeatIntervalRef.current = window.setInterval(sendPing, HEARTBEAT_INTERVAL_MS);
+
+		// Cleanup on unmount or when status changes
+		return () => {
+			console.log("[Heartbeat] Cleanup - clearing interval");
+			if (heartbeatIntervalRef.current) {
+				window.clearInterval(heartbeatIntervalRef.current);
+				heartbeatIntervalRef.current = null;
+			}
+		};
+	}, [projectId, sandboxStatus]);
 
 	return {
 		sandboxStatus,

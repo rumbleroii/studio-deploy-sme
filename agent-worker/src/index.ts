@@ -166,6 +166,7 @@ export default {
 			/^\/v1\/projects\/([^/]+)\/terminal\/input$/
 		);
 		const syncMatch = path.match(/^\/v1\/projects\/([^/]+)\/sync$/);
+		const pingMatch = path.match(/^\/v1\/projects\/([^/]+)\/ping$/);
 
 		const validateProjectId = (id: string): boolean =>
 			/^[a-zA-Z0-9_-]+$/.test(id);
@@ -181,7 +182,8 @@ export default {
 			filesEventsMatch?.[1] || 
 			terminalMatch?.[1] || 
 			terminalInputMatch?.[1] ||
-			syncMatch?.[1];
+			syncMatch?.[1] ||
+			pingMatch?.[1];
 
 		if (!projectId) {
 			return new Response(JSON.stringify({ error: "Invalid projectId" }), {
@@ -198,8 +200,8 @@ export default {
 		}
 
 		const sandboxId = `project-${projectId}`;
-		// Use a slightly longer timeout for chat requests as they might involve startup
-		const sandbox = getSandbox(env.Sandbox, sandboxId, { sleepAfter: '5m' });
+		// Sandbox sleeps after 30 min of inactivity; frontend heartbeat pings every 1 min to keep it awake
+		const sandbox = getSandbox(env.Sandbox, sandboxId, { sleepAfter: '30m' });
 
 		if (request.method === "POST" && ensureMatch) {
 			return handleEnsure(ensureMatch[1], request, env, sandbox, ctx);
@@ -249,6 +251,10 @@ export default {
 			return handleSync(syncMatch[1], request, env, sandbox);
 		}
 
+		if (request.method === "POST" && pingMatch) {
+			return handlePing(pingMatch[1], sandbox);
+		}
+
 		return new Response(JSON.stringify({ error: "Not Found" }), {
 			status: 404,
 			headers: { "Content-Type": "application/json" },
@@ -256,27 +262,235 @@ export default {
 	},
 };
 
-// Helper: Mount R2 bucket (idempotent - ignores "already mounted" errors)
+// ============================================================================
+// R2 Mount Helpers (with locking and retry for concurrent access)
+// ============================================================================
+
+const MOUNT_LOCK_PATH = "/tmp/.r2_mount_lock";
+const MOUNT_LOCK_TIMEOUT_MS = 30000; // 30 second lock timeout
+const MOUNT_RETRY_CONFIG = {
+	maxAttempts: 5,
+	initialDelayMs: 200,
+	maxDelayMs: 2000,
+	backoffMultiplier: 2,
+};
+
+/**
+ * Acquire a file-based lock for mount operations.
+ * Returns true if lock acquired, false if lock is held by another process.
+ */
+async function acquireMountLock(sandbox: SandboxInstance): Promise<boolean> {
+	const now = Date.now();
+	
+	// Check if lock exists and is still valid
+	const checkResult = await sandbox.exec(`cat ${MOUNT_LOCK_PATH} 2>/dev/null || echo ""`);
+	const lockContent = checkResult.stdout.trim();
+	
+	if (lockContent) {
+		const lockTime = parseInt(lockContent, 10);
+		if (!isNaN(lockTime) && (now - lockTime) < MOUNT_LOCK_TIMEOUT_MS) {
+			// Lock is still valid and held by another process
+			return false;
+		}
+		// Lock is stale, we can take it
+	}
+	
+	// Acquire lock atomically using a temp file and mv (atomic on most filesystems)
+	const tempLockPath = `/tmp/.r2_mount_lock_${now}_${Math.random().toString(36).slice(2)}`;
+	await sandbox.exec(`echo "${now}" > ${tempLockPath}`);
+	
+	// Try to atomically move to lock path (fails if another process got there first)
+	const mvResult = await sandbox.exec(`mv -n ${tempLockPath} ${MOUNT_LOCK_PATH} 2>/dev/null && echo "OK" || echo "FAILED"`);
+	
+	// Clean up temp file if it still exists
+	await sandbox.exec(`rm -f ${tempLockPath}`);
+	
+	if (mvResult.stdout.trim() === "OK") {
+		return true;
+	}
+	
+	// Check if we actually own the lock (our timestamp is in it)
+	const verifyResult = await sandbox.exec(`cat ${MOUNT_LOCK_PATH} 2>/dev/null || echo ""`);
+	return verifyResult.stdout.trim() === String(now);
+}
+
+/**
+ * Release the mount lock
+ */
+async function releaseMountLock(sandbox: SandboxInstance): Promise<void> {
+	await sandbox.exec(`rm -f ${MOUNT_LOCK_PATH}`);
+}
+
+/**
+ * Check if R2 is already mounted and accessible
+ */
+async function isMountHealthy(sandbox: SandboxInstance, mountPath: string): Promise<boolean> {
+	// Check if mount point exists and is a mount (not just an empty dir)
+	const checkResult = await sandbox.exec(`mountpoint -q ${mountPath} 2>/dev/null && echo "MOUNTED" || echo "NOT_MOUNTED"`);
+	if (checkResult.stdout.trim() !== "MOUNTED") {
+		return false;
+	}
+	
+	// Verify we can actually list the mount (catches stale mounts)
+	const lsResult = await sandbox.exec(`ls ${mountPath} >/dev/null 2>&1 && echo "OK" || echo "FAILED"`, { timeout: 5000 });
+	return lsResult.stdout.trim() === "OK";
+}
+
+/**
+ * Aggressively clean mount point before mounting
+ */
+async function cleanMountPoint(sandbox: SandboxInstance, mountPath: string): Promise<void> {
+	// First try to unmount if something is mounted
+	await sandbox.exec(`umount -f ${mountPath} 2>/dev/null || true`);
+	await sandbox.exec(`fusermount -u ${mountPath} 2>/dev/null || true`);
+	
+	// Remove the directory and recreate it
+	await sandbox.exec(`rm -rf ${mountPath}`);
+	await sandbox.exec(`mkdir -p ${mountPath}`);
+}
+
+/**
+ * Check if an error indicates a mount conflict (nonempty, already in use, etc.)
+ */
+function isMountConflictError(error: unknown): boolean {
+	const msg = String(error).toLowerCase();
+	return (
+		msg.includes("not empty") ||
+		msg.includes("nonempty") ||
+		msg.includes("already in use") ||
+		msg.includes("mount_exists") ||
+		msg.includes("busy") ||
+		msg.includes("device or resource busy")
+	);
+}
+
+/**
+ * Check if mount is already successfully completed (idempotent success)
+ */
+function isAlreadyMountedError(error: unknown): boolean {
+	const msg = String(error).toLowerCase();
+	return msg.includes("already in use") || msg.includes("mount_exists");
+}
+
+// Helper: Check if error is a permanent infrastructure issue (no point retrying)
+function isPermanentMountError(error: unknown): boolean {
+	const msg = String(error).toLowerCase();
+	// FUSE not available (local dev mode)
+	if (msg.includes("fuse: device not found") || msg.includes("modprobe fuse")) {
+		return true;
+	}
+	return false;
+}
+
+// Helper: Mount R2 bucket with locking, retry, and aggressive cleanup
 async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> {
 	const endpoint = "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com";
 	const bucketName = "studio-bucket";
 	const mountPath = "/storage";
 
-	try {
-		await sandbox.mountBucket(bucketName, mountPath, {
-			endpoint,
-			credentials: {
-				accessKeyId: env.AWS_ACCESS_KEY_ID,
-				secretAccessKey: env.AWS_SECRET_ACCESS_KEY
+	// Fast path: check if already mounted and healthy
+	if (await isMountHealthy(sandbox, mountPath)) {
+		return;
+	}
+
+	let lastError: unknown;
+	let lockAcquired = false;
+
+	for (let attempt = 0; attempt < MOUNT_RETRY_CONFIG.maxAttempts; attempt++) {
+		try {
+			// Try to acquire lock (with wait on retry)
+			if (attempt > 0) {
+				const delay = Math.min(
+					MOUNT_RETRY_CONFIG.initialDelayMs * Math.pow(MOUNT_RETRY_CONFIG.backoffMultiplier, attempt - 1),
+					MOUNT_RETRY_CONFIG.maxDelayMs
+				);
+				await sleep(delay);
 			}
-		});
-	} catch (e) {
-		const msg = String(e);
-		// Silently ignore "already mounted" - that's expected
-		if (!msg.includes("already in use") && !msg.includes("MOUNT_EXISTS")) {
-			throw e;
+
+			// Wait for lock with timeout
+			const lockStartTime = Date.now();
+			while (!lockAcquired && (Date.now() - lockStartTime) < 5000) {
+				lockAcquired = await acquireMountLock(sandbox);
+				if (!lockAcquired) {
+					await sleep(100); // Brief wait before retry
+				}
+			}
+
+			if (!lockAcquired) {
+				console.log(`Mount lock acquisition timed out (attempt ${attempt + 1}), proceeding anyway...`);
+			}
+
+			// Double-check mount status after acquiring lock (another process may have mounted)
+			if (await isMountHealthy(sandbox, mountPath)) {
+				return;
+			}
+
+			// Clean mount point aggressively before attempting mount
+			await cleanMountPoint(sandbox, mountPath);
+
+			// Attempt the mount
+			await sandbox.mountBucket(bucketName, mountPath, {
+				endpoint,
+				credentials: {
+					accessKeyId: env.AWS_ACCESS_KEY_ID,
+					secretAccessKey: env.AWS_SECRET_ACCESS_KEY
+				}
+			});
+
+			// Verify mount succeeded
+			if (await isMountHealthy(sandbox, mountPath)) {
+				console.log(`R2 bucket mounted successfully (attempt ${attempt + 1})`);
+				return;
+			}
+
+			throw new Error("Mount completed but health check failed");
+
+		} catch (e) {
+			lastError = e;
+			const errorStr = String(e);
+
+			// If already mounted, that's success
+			if (isAlreadyMountedError(e)) {
+				if (await isMountHealthy(sandbox, mountPath)) {
+					return;
+				}
+				// Mount claims to exist but isn't healthy - try to clean and remount
+				console.log(`Mount claims to exist but unhealthy (attempt ${attempt + 1}), cleaning...`);
+				await cleanMountPoint(sandbox, mountPath);
+				continue;
+			}
+
+			// If mount conflict (nonempty, busy), clean and retry
+			if (isMountConflictError(e)) {
+				console.log(`Mount conflict error (attempt ${attempt + 1}): ${errorStr}, cleaning and retrying...`);
+				await cleanMountPoint(sandbox, mountPath);
+				continue;
+			}
+
+			// Check for permanent errors (e.g., FUSE not available in local dev)
+			if (isPermanentMountError(e)) {
+				console.warn(`Mount failed with permanent error (FUSE not available - likely local dev mode), skipping R2 mount`);
+				// Release lock and return without throwing - let the rest of the flow continue
+				if (lockAcquired) {
+					await releaseMountLock(sandbox);
+				}
+				return; // Skip mount in dev mode
+			}
+
+			// Log other errors
+			console.error(`Mount attempt ${attempt + 1} failed:`, errorStr);
+
+		} finally {
+			// Release lock if we acquired it
+			if (lockAcquired) {
+				await releaseMountLock(sandbox);
+				lockAcquired = false;
+			}
 		}
 	}
+
+	// All retries exhausted
+	throw new Error(`Failed to mount R2 bucket after ${MOUNT_RETRY_CONFIG.maxAttempts} attempts: ${lastError}`);
 }
 
 async function isDevServerHealthy(sandbox: SandboxInstance): Promise<boolean> {
@@ -438,11 +652,112 @@ async function handleSync(
 }
 
 // ============================================================================
+// Ping Handler (Lightweight keepalive to prevent sandbox hibernation)
+// ============================================================================
+
+async function handlePing(
+	projectId: string,
+	_sandbox: SandboxInstance // Not used - just receiving the request keeps DO alive
+): Promise<Response> {
+	// NOTE: We intentionally DON'T call sandbox.exec() here because:
+	// 1. Just receiving a request to the Durable Object resets its hibernation timer
+	// 2. sandbox.exec() would block if another operation (like chat) is in progress
+	// 3. This makes pings instant and non-blocking
+	console.log(`[${projectId}] Ping received (keepalive)`);
+	
+	return new Response(
+		JSON.stringify({ status: "ok", projectId, timestamp: Date.now() }),
+		{ headers: { "Content-Type": "application/json" } }
+	);
+}
+
+// ============================================================================
 // Chat Handler (Direct OpenCode HTTP API)
 // ============================================================================
 
 // Store OpenCode session IDs per project
 const opencodeSessions = new Map<string, string>();
+
+// Retry configuration for RPC/stream operations
+const RETRY_CONFIG = {
+	maxAttempts: 3,
+	initialDelayMs: 500,
+	maxDelayMs: 5000,
+	backoffMultiplier: 2,
+};
+
+// Keepalive interval (10s for more aggressive connection health checking)
+const KEEPALIVE_INTERVAL_MS = 10000;
+
+/**
+ * Sleep helper for retry delays
+ */
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Calculate exponential backoff delay
+ */
+function getRetryDelay(attempt: number): number {
+	const delay = RETRY_CONFIG.initialDelayMs * Math.pow(RETRY_CONFIG.backoffMultiplier, attempt);
+	return Math.min(delay, RETRY_CONFIG.maxDelayMs);
+}
+
+/**
+ * Check if an error is retryable (RPC disconnects, stream errors, transient failures)
+ */
+function isRetryableError(error: unknown): boolean {
+	const errorStr = String(error).toLowerCase();
+	return (
+		errorStr.includes('disconnected') ||
+		errorStr.includes('rpc') ||
+		errorStr.includes('stream') ||
+		errorStr.includes('connection') ||
+		errorStr.includes('timeout') ||
+		errorStr.includes('network') ||
+		errorStr.includes('econnreset') ||
+		errorStr.includes('epipe') ||
+		errorStr.includes('socket hang up')
+	);
+}
+
+/**
+ * Connect to OpenCode event stream with retry and exponential backoff
+ */
+async function connectEventStreamWithRetry(
+	sandbox: SandboxInstance,
+	projectId: string
+): Promise<AsyncIterable<SSEEvent>> {
+	let lastError: unknown;
+	
+	for (let attempt = 0; attempt < RETRY_CONFIG.maxAttempts; attempt++) {
+		try {
+			if (attempt > 0) {
+				const delay = getRetryDelay(attempt - 1);
+				console.log(`[${projectId}] Retrying event stream connection (attempt ${attempt + 1}/${RETRY_CONFIG.maxAttempts}) after ${delay}ms`);
+				await sleep(delay);
+			}
+			
+			const stream = await sandbox.execStream(
+				`curl -sN "http://127.0.0.1:${OPENCODE_PORT}/event"`
+			);
+			
+			console.log(`[${projectId}] Event stream connected (attempt ${attempt + 1})`);
+			return parseSSEStream(stream) as AsyncIterable<SSEEvent>;
+		} catch (error) {
+			lastError = error;
+			console.error(`[${projectId}] Event stream connection failed (attempt ${attempt + 1}):`, error);
+			
+			if (!isRetryableError(error) && attempt === 0) {
+				// Non-retryable error on first attempt, throw immediately
+				throw error;
+			}
+		}
+	}
+	
+	throw new Error(`Failed to connect to event stream after ${RETRY_CONFIG.maxAttempts} attempts: ${lastError}`);
+}
 
 // Helper to start OpenCode server if not running
 async function ensureOpencodeServer(
@@ -585,6 +900,13 @@ async function handleChat(
 			// Keepalive interval - declared outside try so it can be cleared in catch/finally
 			let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
 			
+			// Track state across potential reconnections
+			let messageComplete = false;
+			let messageSent = false;
+			let streamReconnectAttempt = 0;
+			const MAX_STREAM_RECONNECTS = 3;
+			const partTextMap = new Map<string, string>();
+			
 			try {
 				// Check provider readiness before sending message
 				// This also serves as a warmup delay for the Anthropic provider connection
@@ -595,7 +917,7 @@ async function handleChat(
 					if (!connected.includes('anthropic')) {
 						console.log(`[${projectId}] Anthropic provider not connected yet, waiting...`);
 						// Wait a bit for provider to initialize
-						await new Promise(resolve => setTimeout(resolve, 1000));
+						await sleep(1000);
 						// Check again
 						const retryCheck = await sandbox.exec(`curl -s "http://127.0.0.1:${OPENCODE_PORT}/provider"`);
 						const retryProviders = JSON.parse(retryCheck.stdout || '{}');
@@ -607,16 +929,7 @@ async function handleChat(
 					console.log(`[${projectId}] Provider check parse error (continuing anyway):`, e);
 				}
 
-				// Connect to OpenCode event stream
-				const eventStream = await sandbox.execStream(
-					`curl -sN "http://127.0.0.1:${OPENCODE_PORT}/event"`
-				);
-
-				// Track state
-				let messageComplete = false;
-				const partTextMap = new Map<string, string>();
-				
-				// Keepalive: send ping every 15 seconds to prevent connection timeout
+				// Keepalive: send ping every 10 seconds to prevent connection timeout (more aggressive than before)
 				keepaliveInterval = setInterval(async () => {
 					if (!messageComplete) {
 						try {
@@ -626,9 +939,9 @@ async function handleChat(
 							if (keepaliveInterval) clearInterval(keepaliveInterval);
 						}
 					}
-				}, 15000);
+				}, KEEPALIVE_INTERVAL_MS);
 
-				// Send the message (async)
+				// Build the prompt text
 				let promptText = body.message;
 				
 				// If this is a new session and we have history, prepend it for context restoration
@@ -659,20 +972,28 @@ async function handleChat(
 					parts: [{ type: "text", text: promptText }],
 				}).replace(/'/g, "'\\''");
 
-				// Helper to check if error is a session corruption issue (403/forbidden)
+				// Helper to check if error is a session corruption issue (needs new session)
 				const isSessionCorrupted = (parsed: any): boolean => {
-					// Check for various error patterns that indicate session corruption
+					// Only session-specific errors need a new session
 					if (parsed.name === "SessionNotFoundError") return true;
 					if (parsed.error?.includes("session")) return true;
+					// Don't treat 403 as session corruption - it's usually a transient API issue
+					return false;
+				};
+				
+				// Helper to check if error is a transient API error (needs retry with delay)
+				const isTransientAPIError = (parsed: any): boolean => {
 					if (parsed.name === "APIError" && parsed.statusCode === 403) return true;
 					if (parsed.error?.type === "forbidden") return true;
 					if (parsed.error?.message?.includes("Request not allowed")) return true;
-					// Check nested error structure from OpenCode
-					if (parsed.info?.error?.name === "APIError") return true;
+					if (parsed.info?.error?.name === "APIError" && parsed.info?.error?.statusCode === 403) return true;
+					// Rate limits
+					if (parsed.statusCode === 429 || parsed.info?.error?.statusCode === 429) return true;
 					return false;
 				};
 
-				// Helper to execute message with retry on session error
+				// Helper to execute message with retry on errors
+				const MAX_API_RETRIES = 3;
 				const executeMessage = async (currentSessionId: string, retryCount = 0): Promise<any> => {
 					// Use verbose curl to capture connection errors
 					const result = await sandbox.exec(
@@ -686,12 +1007,33 @@ async function handleChat(
 						console.log(`[${projectId}] Opencode response:`, result.stdout.substring(0, 200));
 					}
 
-					// Parse result to check for session errors immediately
+					// Parse result to check for errors
 					if (result.stdout) {
 						try {
 							const parsed = JSON.parse(result.stdout);
 							
-							// Check for corrupted session (403, forbidden, session not found)
+							// First check for transient API errors (403, 429) - retry with delay
+							if (isTransientAPIError(parsed) && retryCount < MAX_API_RETRIES) {
+								const delayMs = Math.min(1000 * Math.pow(2, retryCount), 8000); // 1s, 2s, 4s, 8s
+								console.log(`[${projectId}] Transient API error (attempt ${retryCount + 1}/${MAX_API_RETRIES}), retrying in ${delayMs}ms...`);
+								
+								// Notify client about retry
+								try {
+									await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+										type: "api_retry", 
+										attempt: retryCount + 1,
+										maxAttempts: MAX_API_RETRIES,
+										delayMs 
+									})}\n\n`));
+								} catch {}
+								
+								await sleep(delayMs);
+								
+								// Retry same request
+								return executeMessage(currentSessionId, retryCount + 1);
+							}
+							
+							// Then check for session corruption - need new session
 							if (isSessionCorrupted(parsed) && retryCount < 2) {
 								console.log(`[${projectId}] Session ${currentSessionId} corrupted (attempt ${retryCount + 1}), deleting and recreating...`);
 								
@@ -750,13 +1092,85 @@ async function handleChat(
 					return result;
 				};
 
-				const messagePromise = executeMessage(sessionId);
+			// Main streaming loop with reconnection support
+			let messagePromise: Promise<any> | null = null;
+			let sseBuffer = "";
+			let messageResolved = false;
+			let messageError: Error | null = null;
+			
+			// Inactivity timeout: if no events for 30 seconds, check if message failed
+			const STREAM_INACTIVITY_TIMEOUT_MS = 30000;
+			let lastActivityTime = Date.now();
+			let inactivityCheckInterval: ReturnType<typeof setInterval> | null = null;
+			
+			// Outer loop for stream reconnection
+			streamLoop: while (!messageComplete && streamReconnectAttempt < MAX_STREAM_RECONNECTS) {
+				try {
+					// Connect to event stream with retry
+					const eventStream = await connectEventStreamWithRetry(sandbox, projectId);
+					
+					// Send the message only on first connection (not reconnects)
+					if (!messageSent) {
+						messagePromise = executeMessage(sessionId);
+						messageSent = true;
+						console.log(`[${projectId}] Message sent to session ${sessionId}`);
+						
+						// Track when the message promise resolves (for early error detection)
+						messagePromise.then((result) => {
+							messageResolved = true;
+							// Check if result contains an error
+							if (result?.stdout) {
+								try {
+									const parsed = JSON.parse(result.stdout);
+									// Check for various error patterns
+									const hasError = parsed.error || 
+										parsed.info?.error ||
+										(parsed.info?.error?.name === "APIError") ||
+										(parsed.info?.error?.statusCode === 403);
+									
+									if (hasError) {
+										const errorInfo = parsed.error || parsed.info?.error;
+										const errorMsg = errorInfo?.message || 
+											errorInfo?.data || 
+											(errorInfo?.statusCode === 403 ? "API request forbidden (403)" : null) ||
+											JSON.stringify(errorInfo);
+										messageError = new Error(errorMsg);
+										console.log(`[${projectId}] Message completed with error: ${errorMsg.substring(0, 100)}`);
+									}
+								} catch {}
+							}
+						}).catch((err) => {
+							messageResolved = true;
+							messageError = err;
+						});
+					} else {
+						console.log(`[${projectId}] Reconnected to event stream (attempt ${streamReconnectAttempt + 1}), waiting for existing message response`);
+					}
 
-				// Process SSE events
-				let sseBuffer = "";
-				for await (const rawEvent of parseSSEStream(eventStream)) {
-					if (messageComplete) break;
-					const event = rawEvent as SSEEvent;
+					// Start inactivity check
+					inactivityCheckInterval = setInterval(() => {
+						const inactiveFor = Date.now() - lastActivityTime;
+						if (inactiveFor > STREAM_INACTIVITY_TIMEOUT_MS && messageResolved && messageError) {
+							console.log(`[${projectId}] Stream inactive for ${inactiveFor}ms and message has error, breaking...`);
+							// We can't break from here, but we'll flag it and the loop will check
+						}
+					}, 5000);
+
+					// Process SSE events
+					for await (const rawEvent of eventStream) {
+						if (messageComplete) break streamLoop;
+						
+						// Check if the message failed - use shorter timeout (5s) when error is known
+						const errorTimeout = messageError ? 5000 : STREAM_INACTIVITY_TIMEOUT_MS;
+						if (messageError && (Date.now() - lastActivityTime > errorTimeout)) {
+							console.log(`[${projectId}] Breaking stream loop due to message error and ${errorTimeout}ms inactivity`);
+							if (inactivityCheckInterval) clearInterval(inactivityCheckInterval);
+							throw messageError;
+						}
+						
+						// Update activity timestamp
+						lastActivityTime = Date.now();
+							const event = rawEvent as SSEEvent;
 
 					if (event.type === "stdout" && event.data) {
 						sseBuffer += event.data;
@@ -853,15 +1267,74 @@ async function handleChat(
 							}
 						}
 					} else if (event.type === "error") {
+						// Check if this is a retryable stream error
+						const errorStr = event.error || "";
+						if (isRetryableError(errorStr) && streamReconnectAttempt < MAX_STREAM_RECONNECTS - 1) {
+							console.log(`[${projectId}] Stream error (retryable): ${errorStr}, will reconnect...`);
+							streamReconnectAttempt++;
+							continue streamLoop;
+						}
 						throw new Error(`Stream error: ${event.error}`);
 					} else if (event.type === "complete") {
-						break;
+						// Stream completed normally - exit the loop
+						break streamLoop;
 					}
 				}
+				
+				// If we exit the for-await loop without completion, it may be a disconnect
+				if (!messageComplete) {
+					console.log(`[${projectId}] Event stream ended unexpectedly, checking if complete...`);
+					// Give a brief moment to check if the message actually completed
+					await sleep(500);
+					
+					// If message has an error, throw it now
+					if (messageError) {
+						if (inactivityCheckInterval) clearInterval(inactivityCheckInterval);
+						throw messageError;
+					}
+				}
+				
+				// Clean up inactivity check
+				if (inactivityCheckInterval) clearInterval(inactivityCheckInterval);
+				
+				// Normal stream completion, exit outer loop
+				break streamLoop;
+				
+				} catch (streamError) {
+				// Clean up inactivity check on error
+				if (inactivityCheckInterval) clearInterval(inactivityCheckInterval);
+					// Handle stream-level errors with reconnection
+					const errorStr = String(streamError);
+					console.error(`[${projectId}] Stream processing error (attempt ${streamReconnectAttempt + 1}/${MAX_STREAM_RECONNECTS}):`, errorStr);
+					
+					if (isRetryableError(streamError) && streamReconnectAttempt < MAX_STREAM_RECONNECTS - 1) {
+						streamReconnectAttempt++;
+						const delay = getRetryDelay(streamReconnectAttempt - 1);
+						console.log(`[${projectId}] Retryable stream error, reconnecting in ${delay}ms...`);
+						
+						// Send a notification to the client about reconnection
+						try {
+							await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+								type: "reconnecting", 
+								attempt: streamReconnectAttempt,
+								maxAttempts: MAX_STREAM_RECONNECTS 
+							})}\n\n`));
+						} catch {
+							// Writer may be closed
+						}
+						
+						await sleep(delay);
+						continue;
+					}
+					
+					// Non-retryable error or max retries reached
+					throw streamError;
+				}
+				} // end while streamLoop
 
 				// Wait for message to complete and check for errors
-				const messageResult = await messagePromise;
-				if (messageResult.stdout) {
+				const messageResult = messagePromise ? await messagePromise : null;
+				if (messageResult?.stdout) {
 					try {
 						const result = JSON.parse(messageResult.stdout);
 						// We handled retry in executeMessage, but check one last time
