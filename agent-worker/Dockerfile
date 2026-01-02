@@ -19,8 +19,6 @@ COPY src/survey-app /runner/survey-app
 WORKDIR /runner/survey-app
 RUN npm install
 
-# Install system utilities
-RUN apt-get update && apt-get install -y rsync && rm -rf /var/lib/apt/lists/*
 
 # Expose ports: 3000 (health), 3001 (Next.js), 4096 (OpenCode)
 EXPOSE 3000

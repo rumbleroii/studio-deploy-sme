@@ -256,6 +256,68 @@ export default {
 	},
 };
 
+// Helper: Mount R2 bucket (idempotent - ignores "already mounted" errors)
+async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> {
+	const endpoint = "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com";
+	const bucketName = "studio-bucket";
+	const mountPath = "/storage";
+
+	try {
+		await sandbox.mountBucket(bucketName, mountPath, {
+			endpoint,
+			credentials: {
+				accessKeyId: env.AWS_ACCESS_KEY_ID,
+				secretAccessKey: env.AWS_SECRET_ACCESS_KEY
+			}
+		});
+	} catch (e) {
+		const msg = String(e);
+		// Silently ignore "already mounted" - that's expected
+		if (!msg.includes("already in use") && !msg.includes("MOUNT_EXISTS")) {
+			throw e;
+		}
+	}
+}
+
+async function isDevServerHealthy(sandbox: SandboxInstance): Promise<boolean> {
+	const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
+	return check.stdout.trim() === '200';
+}
+
+async function startDevServer(sandbox: SandboxInstance, appDir: string, projectId: string): Promise<void> {
+	// Kill any existing processes on the port
+	await sandbox.exec(`pkill -f "next-server" || true`);
+	await sandbox.exec(`pkill -f "next dev" || true`);
+	await sandbox.exec(`fuser -k -9 ${PREVIEW_PORT}/tcp 2>/dev/null || true`);
+
+	// Start server in background
+	await sandbox.exec(`cd ${appDir} && PORT=${PREVIEW_PORT} npm run dev -- --turbo --port ${PREVIEW_PORT} > /tmp/nextjs.log 2>&1 &`);
+
+	// Wait for health check (up to 30s)
+	for (let i = 0; i < 30; i++) {
+		await sandbox.exec("sleep 1");
+		if (await isDevServerHealthy(sandbox)) {
+			console.log(`[${projectId}] Dev server started`);
+			return;
+		}
+	}
+
+	const logContent = await sandbox.exec(`cat /tmp/nextjs.log`);
+	console.error(`[${projectId}] Server startup failed. Logs:\n${logContent.stdout}`);
+	throw new Error("Server startup failed after 30s");
+}
+
+async function getPreviewUrl(sandbox: SandboxInstance): Promise<string | undefined> {
+	try {
+		const ports = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
+		const existing = ports.find((p) => p.port === PREVIEW_PORT);
+		if (existing) return existing.url;
+		return (await sandbox.exposePort(PREVIEW_PORT, { hostname: CUSTOM_DOMAIN })).url;
+	} catch {
+		return undefined;
+	}
+}
+
 async function handleEnsure(
 	projectId: string,
 	request: Request,
@@ -265,174 +327,80 @@ async function handleEnsure(
 ): Promise<Response> {
 	try {
 		const sandboxId = `project-${projectId}`;
-		// sandbox passed from caller
 		const appDir = getAppDir(projectId);
 		const userFilesDir = getUserFilesDir(projectId);
+		const storageDir = getStorageProjectDir(projectId);
 
-		// 1. Mount R2 bucket to /storage if not already mounted
-		try {
-			await sandbox.exec(`mkdir -p /storage`);
-			
-			const endpoint = "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com";
-			const bucketName = "studio-bucket";
+		// Step 1: Mount R2 bucket
+		console.log(`[${projectId}] Step 1: Mounting R2 bucket...`);
+		await mountR2Bucket(sandbox, env);
 
-			await sandbox.mountBucket(bucketName, "/storage", {
-				endpoint,
-				credentials: {
-					accessKeyId: env.AWS_ACCESS_KEY_ID,
-					secretAccessKey: env.AWS_SECRET_ACCESS_KEY
-				}
-			});
-			console.log(`[${projectId}] R2 bucket mounted to /storage`);
-		} catch (e) {
-			// Ignore "already mounted" errors
-			const msg = String(e);
-			if (!msg.includes("already in use") && !msg.includes("MOUNT_EXISTS")) {
-				console.warn("Mount bucket warning:", e);
-			}
-		}
+		// Step 2: Check container state
+		console.log(`[${projectId}] Step 2: Checking container state...`);
+		const storageCheck = await sandbox.exec(`test -d ${storageDir}`);
+		const hasStorage = storageCheck.exitCode === 0;
 
-		// 2. Sync from storage (if not already synced this session)
-		const appDirExists = await sandbox.exec(`test -d ${appDir} && test -f ${appDir}/package.json`);
-		let restored = false;
-		
-		if (appDirExists.exitCode !== 0) {
-			// Sync from storage to workspace (restore persisted files)
-			restored = await syncFromStorage(sandbox, projectId);
+		const appCheck = await sandbox.exec(`test -f ${appDir}/package.json`);
+		const isWarm = appCheck.exitCode === 0;
 
-			// 3. Create directories & Setup App
+		// Step 3: Setup workspace (only if cold)
+		if (!isWarm) {
+			console.log(`[${projectId}] Step 3: Cold container - setting up workspace...`);
 			await sandbox.exec(`mkdir -p ${userFilesDir} ${appDir}`);
 
-			// Copy template if package.json is missing (restore failed or was empty)
-			const checkApp = await sandbox.exec(`test -f ${appDir}/package.json`);
-			if (checkApp.exitCode !== 0) {
-				console.log(`[${projectId}] Copying fresh app template...`);
-				await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
-			} else {
-				// Restore node_modules from template
-				const checkNodeModules = await sandbox.exec(`test -d ${appDir}/node_modules`);
-				if (checkNodeModules.exitCode !== 0) {
-					console.log(`[${projectId}] Restoring node_modules from template...`);
-					// Copy node_modules from the baked image
-					await sandbox.exec(`cp -r /runner/survey-app/node_modules ${appDir}/`);
+			if (hasStorage) {
+				// Existing project: restore from storage (copies template + extracts tarball)
+				console.log(`[${projectId}]   - Restoring from storage...`);
+				const restored = await syncFromStorage(sandbox, projectId);
+				
+				// Safety fallback: if restore failed or node_modules missing, copy from template
+				if (!restored) {
+					console.log(`[${projectId}]   - Restore failed, copying template...`);
+					await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
 				}
+			} else {
+				// New project: copy template and init storage
+				console.log(`[${projectId}]   - Creating from template...`);
+				await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
+				
+				console.log(`[${projectId}]   - Initializing storage...`);
+				await syncToStorage(sandbox, projectId);
 			}
 
-			// 4. Create symlink
+			// Symlink user_files
 			await sandbox.exec(`ln -sfn ${userFilesDir} ${appDir}/user_files`);
 		} else {
-			console.log(`[${projectId}] Container already warm, skipping sync & setup`);
-			restored = true;
-		}
-
-		// 5. Start Dev Server (check port first)
-		let serverRunning = false;
-		
-		const healthCheck = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
-		if (healthCheck.stdout.trim() === '200') {
-			serverRunning = true;
-			console.log(`[${projectId}] Dev server already running`);
-		}
-
-		// Concurrency Lock: Prevent multiple workers from starting the server simultaneously
-		const lockFile = "/tmp/ensure.lock";
-		
-		if (!serverRunning) {
-			// Check if another ensure process is running
-			const checkLock = await sandbox.exec(`test -f ${lockFile} && find ${lockFile} -mmin -1`);
-			if (checkLock.exitCode === 0) {
-				console.log(`[${projectId}] Another ensure process is running (lock exists), waiting...`);
-				// Wait for 30s for the other process to finish starting the server
-				for (let i = 0; i < 30; i++) {
-					await sandbox.exec("sleep 1");
-					const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
-					if (check.stdout.trim() === '200') {
-						serverRunning = true;
-						break;
-					}
-					// Also check if lock is gone (process finished/failed)
-					const lockExists = await sandbox.exec(`test -f ${lockFile}`);
-					if (lockExists.exitCode !== 0) {
-						// Lock gone but server not up? Take over
-						break;
-					}
-				}
-				
-				if (serverRunning) {
-					console.log(`[${projectId}] Server started by other process`);
-				} else {
-					console.log(`[${projectId}] Lock expired or other process failed, taking over...`);
-				}
+			console.log(`[${projectId}] Step 3: Container warm - skipping workspace setup`);
+			// Ensure storage initialized for warm projects without it
+			if (!hasStorage) {
+				console.log(`[${projectId}]   - Initializing storage for warm project...`);
+				await syncToStorage(sandbox, projectId);
 			}
 		}
 
-		if (!serverRunning) {
-			// Create lock
-			await sandbox.exec(`touch ${lockFile}`);
-			
-			try {
-				console.log(`[${projectId}] Starting dev server...`);
-				
-				// Kill any existing next dev processes
-				await sandbox.exec(`fuser -k -9 ${PREVIEW_PORT}/tcp || true`);
-				await sandbox.exec(`lsof -ti :${PREVIEW_PORT} | xargs kill -9 || true`);
-				await sandbox.exec(`pkill -f "next-server" || true`);
-				await sandbox.exec(`pkill -f "next dev" || true`);
-				
-				// Start server
-				console.log(`[${projectId}] Starting dev server...`);
-				await sandbox.exec(`cd ${appDir} && PORT=${PREVIEW_PORT} npm run dev -- --turbo --port ${PREVIEW_PORT} > /tmp/nextjs.log 2>&1 &`);
-				
-				// Wait for health check 
-				for (let i = 0; i < 30; i++) {
-					await sandbox.exec("sleep 1");
-					const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
-					if (check.stdout.trim() === '200') {
-						serverRunning = true;
-						break;
-					}
-				}
-				
-				// For Debugging Logs
-				if (!serverRunning) {
-					// Read the log file to see what went wrong
-					const logContent = await sandbox.exec(`cat /tmp/nextjs.log`);
-					console.error(`[${projectId}] Server startup failed. Logs:\n${logContent.stdout}`);
-					
-					return new Response(
-						JSON.stringify({ 
-							error: "Server startup failed", 
-							details: logContent.stdout || "Unknown error (check container logs)",
-							retry: false 
-						}),
-						{ status: 500, headers: { "Content-Type": "application/json" } }
-					);
-				}
-			} finally {
-				// Remove lock file
-				await sandbox.exec(`rm -f ${lockFile}`);
-			}
+		// Step 4: Start dev server
+		console.log(`[${projectId}] Step 4: Ensuring dev server...`);
+		if (!await isDevServerHealthy(sandbox)) {
+			await startDevServer(sandbox, appDir, projectId);
+		} else {
+			console.log(`[${projectId}]   - Already running`);
 		}
 
-		// 6. Start OpenCode server if not running
+		// Step 5: Start OpenCode server
+		console.log(`[${projectId}] Step 5: Ensuring OpenCode server...`);
 		await ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY);
 
-		// 7. Expose port 
-		let previewUrl: string | undefined;
-		try {
-			const ports = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
-			const existing = ports.find((p) => p.port === PREVIEW_PORT);
-			previewUrl = existing?.url ?? (await sandbox.exposePort(PREVIEW_PORT, { hostname: CUSTOM_DOMAIN })).url;
-		} catch {}
+		// Step 6: Get preview URL
+		console.log(`[${projectId}] Step 6: Getting preview URL...`);
+		const previewUrl = await getPreviewUrl(sandbox);
 
-		// 8. Skip initial sync - will sync after first chat message instead
-
+		console.log(`[${projectId}] Ensure complete`);
 		return new Response(
 			JSON.stringify({ status: "ready", sandboxId, previewUrl }),
 			{ headers: { "Content-Type": "application/json" } }
 		);
 	} catch (error) {
-		console.error("Ensure failed:", error);
+		console.error(`[${projectId}] Ensure failed:`, error);
 		return new Response(
 			JSON.stringify({ error: "Failed to ensure sandbox", details: String(error) }),
 			{ status: 500, headers: { "Content-Type": "application/json" } }
@@ -557,6 +525,19 @@ async function handleChat(
 			}
 		};
 
+		// Helper to delete a session from OpenCode
+		const deleteSession = async (sessionIdToDelete: string): Promise<void> => {
+			try {
+				console.log(`[${projectId}] Deleting corrupted session: ${sessionIdToDelete}`);
+				await sandbox.exec(
+					`curl -s -X DELETE "http://127.0.0.1:${OPENCODE_PORT}/session/${sessionIdToDelete}"`
+				);
+				opencodeSessions.delete(projectId);
+			} catch (e) {
+				console.error(`[${projectId}] Failed to delete session:`, e);
+			}
+		};
+
 		// Helper to create a new session
 		const createNewSession = async (): Promise<string> => {
 			const createCmd = `curl -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '{"title":"Project ${projectId}"}'`;
@@ -605,6 +586,27 @@ async function handleChat(
 			let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
 			
 			try {
+				// Check provider readiness before sending message
+				// This also serves as a warmup delay for the Anthropic provider connection
+				const providerCheck = await sandbox.exec(`curl -s "http://127.0.0.1:${OPENCODE_PORT}/provider"`);
+				try {
+					const providers = JSON.parse(providerCheck.stdout || '{}');
+					const connected = providers.connected || [];
+					if (!connected.includes('anthropic')) {
+						console.log(`[${projectId}] Anthropic provider not connected yet, waiting...`);
+						// Wait a bit for provider to initialize
+						await new Promise(resolve => setTimeout(resolve, 1000));
+						// Check again
+						const retryCheck = await sandbox.exec(`curl -s "http://127.0.0.1:${OPENCODE_PORT}/provider"`);
+						const retryProviders = JSON.parse(retryCheck.stdout || '{}');
+						if (!retryProviders.connected?.includes('anthropic')) {
+							console.error(`[${projectId}] Anthropic provider still not connected:`, retryProviders.connected);
+						}
+					}
+				} catch (e) {
+					console.log(`[${projectId}] Provider check parse error (continuing anyway):`, e);
+				}
+
 				// Connect to OpenCode event stream
 				const eventStream = await sandbox.execStream(
 					`curl -sN "http://127.0.0.1:${OPENCODE_PORT}/event"`
@@ -652,13 +654,26 @@ async function handleChat(
 				const promptBody = JSON.stringify({
 					model: {
 						providerID: "anthropic",
-						modelID: "claude-sonnet-4-20250514",
+						modelID: "claude-sonnet-4-5",
 					},
 					parts: [{ type: "text", text: promptText }],
 				}).replace(/'/g, "'\\''");
 
+				// Helper to check if error is a session corruption issue (403/forbidden)
+				const isSessionCorrupted = (parsed: any): boolean => {
+					// Check for various error patterns that indicate session corruption
+					if (parsed.name === "SessionNotFoundError") return true;
+					if (parsed.error?.includes("session")) return true;
+					if (parsed.name === "APIError" && parsed.statusCode === 403) return true;
+					if (parsed.error?.type === "forbidden") return true;
+					if (parsed.error?.message?.includes("Request not allowed")) return true;
+					// Check nested error structure from OpenCode
+					if (parsed.info?.error?.name === "APIError") return true;
+					return false;
+				};
+
 				// Helper to execute message with retry on session error
-				const executeMessage = async (currentSessionId: string): Promise<any> => {
+				const executeMessage = async (currentSessionId: string, retryCount = 0): Promise<any> => {
 					// Use verbose curl to capture connection errors
 					const result = await sandbox.exec(
 						`curl -v -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session/${currentSessionId}/message?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '${promptBody}'`
@@ -675,40 +690,59 @@ async function handleChat(
 					if (result.stdout) {
 						try {
 							const parsed = JSON.parse(result.stdout);
-							if (parsed.name === "SessionNotFoundError" || parsed.error?.includes("session")) {
-								console.log(`Session ${currentSessionId} not found, recreating...`);
-								opencodeSessions.delete(projectId);
+							
+							// Check for corrupted session (403, forbidden, session not found)
+							if (isSessionCorrupted(parsed) && retryCount < 2) {
+								console.log(`[${projectId}] Session ${currentSessionId} corrupted (attempt ${retryCount + 1}), deleting and recreating...`);
+								
+								// Delete the corrupted session
+								await deleteSession(currentSessionId);
+								
+								// Create fresh session
 								const newSessionId = await createNewSession();
-								// Update sessionId for the outer scope
 								sessionId = newSessionId;
-									// We need to reconstruct the prompt with history for the new session.
-									let retryPromptText = body.message;
-									if (body.history && body.history.length > 0) {
-										const recentHistory = body.history.slice(-MAX_HISTORY_MESSAGES);
-										const transcript = recentHistory
-											.map(m => {
-												let content = m.content;
-												if (content.length > MAX_MESSAGE_LENGTH) {
-													content = content.substring(0, MAX_MESSAGE_LENGTH) + "... [truncated]";
-												}
-												return `[${m.role === 'user' ? 'User' : 'Assistant'}]: ${content}`;
-											})
-											.join("\n\n");
-										retryPromptText = `Here is the recent conversation history for context:\n\n${transcript}\n\n[User]: ${body.message}`;
-									}
-									
-									const retryPromptBody = JSON.stringify({
-										model: {
-											providerID: "anthropic",
-											modelID: "claude-sonnet-4-20250514",
-										},
-										parts: [{ type: "text", text: retryPromptText }],
-									}).replace(/'/g, "'\\''");
-
-									return await sandbox.exec(
-										`curl -v -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session/${newSessionId}/message?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '${retryPromptBody}'`
-									);
+								
+								// Reconstruct prompt with history for the new session
+								let retryPromptText = body.message;
+								if (body.history && body.history.length > 0) {
+									const recentHistory = body.history.slice(-MAX_HISTORY_MESSAGES);
+									const transcript = recentHistory
+										.map(m => {
+											let content = m.content;
+											if (content.length > MAX_MESSAGE_LENGTH) {
+												content = content.substring(0, MAX_MESSAGE_LENGTH) + "... [truncated]";
+											}
+											return `[${m.role === 'user' ? 'User' : 'Assistant'}]: ${content}`;
+										})
+										.join("\n\n");
+									retryPromptText = `Here is the recent conversation history for context:\n\n${transcript}\n\n[User]: ${body.message}`;
 								}
+								
+								const retryPromptBody = JSON.stringify({
+									model: {
+										providerID: "anthropic",
+										modelID: "claude-sonnet-4-5",
+									},
+									parts: [{ type: "text", text: retryPromptText }],
+								}).replace(/'/g, "'\\''");
+
+								// Retry with new session (recursive with incremented retry count)
+								const retryResult = await sandbox.exec(
+									`curl -v -s -X POST "http://127.0.0.1:${OPENCODE_PORT}/session/${newSessionId}/message?directory=${encodeURIComponent(appDir)}" -H "Content-Type: application/json" -d '${retryPromptBody}'`
+								);
+								
+								// Check if retry also failed with corruption
+								if (retryResult.stdout) {
+									try {
+										const retryParsed = JSON.parse(retryResult.stdout);
+										if (isSessionCorrupted(retryParsed)) {
+											console.error(`[${projectId}] Session still corrupted after retry, may need manual intervention`);
+										}
+									} catch {}
+								}
+								
+								return retryResult;
+							}
 						} catch (e) {
 							// Ignore parse errors here, let main loop handle it
 						}
@@ -953,33 +987,42 @@ function getWorkspaceProjectDir(projectId: string): string {
 async function syncFromStorage(sandbox: SandboxInstance, projectId: string): Promise<boolean> {
 	const storageDir = getStorageProjectDir(projectId);
 	const workspaceDir = getWorkspaceProjectDir(projectId);
+	const tarballPath = `${storageDir}/workspace.tar.gz`;
 	
-	// Check if storage has files for this project
-	const checkStorage = await sandbox.exec(`test -d ${storageDir}`);
-	if (checkStorage.exitCode === 0) {
-		console.log(`[${projectId}] Syncing from storage to workspace...`);
-		await sandbox.exec(`mkdir -p ${workspaceDir}`);
-		// Exclude node_modules, .git, and .next to prevent timeouts from syncing massive generated files
-		const rsyncResult = await sandbox.exec(
-			`rsync -av --delete --exclude 'node_modules' --exclude '.git' --exclude '.next' ${storageDir}/ ${workspaceDir}/`
-		);
-		if (rsyncResult.exitCode !== 0) {
-			console.error(`[${projectId}] Sync from storage failed:`, rsyncResult.stderr);
-		}
-		console.log(`[${projectId}] Sync from storage complete`);
-		return true;
-	} else {
-		console.log(`[${projectId}] No existing storage, starting fresh`);
+	// Check if tarball exists
+	const checkTarball = await sandbox.exec(`test -f ${tarballPath}`);
+	if (checkTarball.exitCode !== 0) {
+		console.log(`[${projectId}] No tarball found, starting fresh`);
 		return false;
 	}
+	
+	console.log(`[${projectId}] Restoring from tarball...`);
+	await sandbox.exec(`mkdir -p ${workspaceDir}`);
+	
+	// Copy template as base, then overlay user changes from tarball
+	await sandbox.exec(`cp -r /runner/survey-app/. ${workspaceDir}/`);
+	
+	const extractResult = await sandbox.exec(
+		`tar -xzf ${tarballPath} -C ${workspaceDir}`
+	);
+	if (extractResult.exitCode !== 0) {
+		console.error(`[${projectId}] Tarball extract failed:`, extractResult.stderr);
+		return false;
+	}
+	
+	console.log(`[${projectId}] Restore from tarball complete`);
+	return true;
 }
 
 /**
  * Sync files from local workspace to R2 storage (for persistence)
+ * Only stores delta from template to minimize storage and transfer time
  */
 async function syncToStorage(sandbox: SandboxInstance, projectId: string): Promise<void> {
 	const storageDir = getStorageProjectDir(projectId);
 	const workspaceDir = getWorkspaceProjectDir(projectId);
+	const tarballPath = `${storageDir}/workspace.tar.gz`;
+	const tempTarball = `/tmp/workspace-${projectId}.tar.gz`;
 	
 	// Check if workspace has files
 	const checkWorkspace = await sandbox.exec(`test -d ${workspaceDir}`);
@@ -988,19 +1031,33 @@ async function syncToStorage(sandbox: SandboxInstance, projectId: string): Promi
 		return;
 	}
 	
-	console.log(`[${projectId}] Syncing from workspace to storage...`);
-	await sandbox.exec(`mkdir -p ${storageDir}`);
+	console.log(`[${projectId}] Creating workspace tarball...`);
 	
-	// Use rsync for efficient sync (only changed files)
-	// Exclude node_modules, .git, and .next to prevent timeouts from syncing massive generated files
-	const rsyncResult = await sandbox.exec(
-		`rsync -av --delete --exclude 'node_modules' --exclude '.git' --exclude '.next' ${workspaceDir}/ ${storageDir}/`
+	// Exclude node_modules, .git, .next (these are either baked in template or generated)
+	const tarResult = await sandbox.exec(
+		`cd ${workspaceDir} && tar -czf ${tempTarball} ` +
+		`--exclude='node_modules' --exclude='.git' --exclude='.next' ` +
+		`--exclude='*.log' --exclude='.turbo' ` +
+		`.`
 	);
-	if (rsyncResult.exitCode !== 0) {
-		console.error(`[${projectId}] Sync to storage failed:`, rsyncResult.stderr);
-		throw new Error(`Sync failed: ${rsyncResult.stderr}`);
+	if (tarResult.exitCode !== 0) {
+		console.error(`[${projectId}] Tarball creation failed:`, tarResult.stderr);
+		throw new Error(`Tarball creation failed: ${tarResult.stderr}`);
 	}
-	console.log(`[${projectId}] Sync to storage complete`);
+	
+	// Get tarball size for logging
+	const sizeResult = await sandbox.exec(`stat -c%s ${tempTarball} 2>/dev/null || stat -f%z ${tempTarball}`);
+	const sizeKB = Math.round(parseInt(sizeResult.stdout.trim()) / 1024);
+	console.log(`[${projectId}] Tarball size: ${sizeKB}KB`);
+	
+	await sandbox.exec(`mkdir -p ${storageDir}`);
+	const mvResult = await sandbox.exec(`mv ${tempTarball} ${tarballPath}`);
+	if (mvResult.exitCode !== 0) {
+		console.error(`[${projectId}] Tarball move to storage failed:`, mvResult.stderr);
+		throw new Error(`Sync failed: ${mvResult.stderr}`);
+	}
+	
+	console.log(`[${projectId}] Sync to storage complete (${sizeKB}KB tarball)`);
 }
 
 async function handleFilesList(
