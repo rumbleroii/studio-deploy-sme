@@ -544,7 +544,7 @@ export function ProjectView({
 									/>
 									) : viewMode === "preview" ? (
 										<PreviewPanel
-											previewUrl={`${previewUrl}s/preview`}
+											previewUrl={`${previewUrl}survey`}
 											isLoadingPreview={isLoadingPreview}
 											className="flex-1"
 										/>

@@ -66,3 +66,27 @@ model ProjectMessage {
   @@map("project_messages")
 }
 
+enum SurveyStatus {
+  incomplete
+  complete
+  terminated
+}
+
+model SurveyResponse {
+  id           String        @id @default(auto()) @map("_id") @db.ObjectId
+  surveyId     String        // Survey identifier
+  projectId    String        @db.ObjectId
+  respondentId String        // Unique ID for this respondent
+  responses    Json          // Array of {questionId, value, answeredAt}
+  status       SurveyStatus  @default(incomplete)
+  metadata     Json?         // Optional: {startedAt, completedAt, deviceInfo, etc}
+  submittedAt  DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([surveyId])
+  @@index([projectId])
+  @@index([respondentId])
+  @@index([status])
+  @@map("survey_responses")
+}
+

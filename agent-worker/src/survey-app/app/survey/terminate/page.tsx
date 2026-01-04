@@ -1,10 +1,16 @@
 'use client';
 
-import React from 'react';
-import { useSurvey } from '../../../../lib/survey-context';
+import React, { useEffect } from 'react';
+import { useSurvey } from '../../../lib/survey-context';
+import { isProduction, clearRespondentId } from '../../../lib/api';
 
 export default function TerminatePage() {
   const { clearResponses } = useSurvey();
+
+  // Clear respondent ID on mount
+  useEffect(() => {
+    clearRespondentId();
+  }, []);
 
   const handleReturn = () => {
     clearResponses();

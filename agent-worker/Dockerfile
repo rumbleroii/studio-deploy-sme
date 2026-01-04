@@ -18,6 +18,8 @@ COPY src/survey-app /runner/survey-app
 # Install dependencies (no build - dev mode for hot reload)
 WORKDIR /runner/survey-app
 RUN npm install
+# Generate Prisma client (postinstall script should handle this, but ensure it runs)
+RUN npx prisma generate || true
 
 
 # Expose ports: 3000 (health), 3001 (Next.js), 4096 (OpenCode)

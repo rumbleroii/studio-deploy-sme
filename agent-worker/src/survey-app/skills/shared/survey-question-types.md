@@ -939,7 +939,7 @@ opinions and experiences.
 - Question ID badge
 - Type badge
 - Termination message
-- "Return to Home" button (redirects to `/s/preview`)
+- "Return to Home" button (redirects to `/survey`)
 
 **Example**:
 ```
@@ -948,7 +948,7 @@ opinions and experiences.
 Thank you for your interest in this survey. Unfortunately, you do not meet the
 qualification criteria for this particular study. We appreciate your time.
 
-[Return to Home] → /s/preview
+[Return to Home] → /survey
 ```
 
 **Use Cases**:
@@ -958,7 +958,7 @@ qualification criteria for this particular study. We appreciate your time.
 
 **Navigation**:
 - No "Previous" or "Next" buttons
-- "Return to Home" button redirects to `/s/preview`
+- "Return to Home" button redirects to `/survey`
 
 ---
 

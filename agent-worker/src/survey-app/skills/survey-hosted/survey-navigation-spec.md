@@ -449,7 +449,7 @@ Navigation:
 - Next evaluates termination logic
 - No Previous button on termination screen
 - Progress stops at termination
-- "Return to Home" button redirects to `/s/preview`
+- "Return to Home" button redirects to `/survey`
 ```
 
 ---

@@ -2,8 +2,9 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { sampleSurvey } from '../../../data/sample-survey';
-import { useSurvey } from '../../../lib/survey-context';
+import { sampleSurvey } from '../../data/sample-survey';
+import { useSurvey } from '../../lib/survey-context';
+import { isProduction, clearRespondentId } from '../../lib/api';
 
 interface PageProps {
   params: Promise<{ surveyId: string }>;
@@ -23,9 +24,12 @@ export default function SurveyWelcome({ params }: PageProps) {
     // Clear any previous responses
     clearResponses();
 
+    // Clear respondent ID
+    clearRespondentId();
+
     // Navigate to first question
     const firstQuestion = survey.sections[0].questions[0];
-    router.push(`/s/preview/question?q=${firstQuestion.id}`);
+    router.push(`/survey/question?q=${firstQuestion.id}`);
   };
 
   return (

@@ -32,12 +32,12 @@ Before starting, ensure you have:
 
 ### Step 1: Create Route Structure
 
-**CRITICAL: Use the existing `../src/survey-app/app/s/preview/` route structure**
+**CRITICAL: Use the existing `../src/survey-app/app/survey/` route structure**
 
 The boilerplate already has these routes:
 
 ```
-../src/survey-app/app/s/preview/
+../src/survey-app/app/survey/
 ├── page.tsx                    # Welcome screen
 ├── layout.tsx                  # Survey layout
 ├── question/page.tsx           # Question screens (uses ?q= query param)
@@ -46,11 +46,11 @@ The boilerplate already has these routes:
 ```
 
 **IMPORTANT ROUTING RULES:**
-1. **ALWAYS use `/s/preview/` as the base route** for hosted surveys
-2. **Welcome screen**: `/s/preview`
-3. **Question screen**: `/s/preview/question?q={questionId}` (uses query parameter, not dynamic route)
-4. **Complete screen**: `/s/preview/complete`
-5. **Terminate screen**: `/s/preview/terminate`
+1. **ALWAYS use `/survey/` as the base route** for hosted surveys
+2. **Welcome screen**: `/survey`
+3. **Question screen**: `/survey/question?q={questionId}` (uses query parameter, not dynamic route)
+4. **Complete screen**: `/survey/complete`
+5. **Terminate screen**: `/survey/terminate`
 
 **NEVER use:**
 - ❌ `/s/${surveyId}/` routes (surveyId will be undefined)
@@ -60,9 +60,9 @@ The boilerplate already has these routes:
 **Navigation Examples:**
 ```typescript
 // ✅ CORRECT
-router.push(`/s/preview/question?q=${nextQuestionId}`);
-router.push(`/s/preview/complete`);
-router.push(`/s/preview/terminate`);
+router.push(`/survey/question?q=${nextQuestionId}`);
+router.push(`/survey/complete`);
+router.push(`/survey/terminate`);
 
 // ❌ WRONG - Don't use surveyId in path
 router.push(`/s/${surveyId}/question?q=${nextQuestionId}`);
