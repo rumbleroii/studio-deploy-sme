@@ -3,6 +3,8 @@ import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
+// Allow 300s for long streaming operations
+export const maxDuration = 300;
 
 type TraceSource = "frontend" | "nextjs" | "worker" | "runner";
 

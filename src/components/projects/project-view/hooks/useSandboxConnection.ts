@@ -7,6 +7,9 @@ export type SandboxStatus = "connecting" | "connected";
 // Heartbeat interval: ping every 1 minute to keep sandbox awake
 const HEARTBEAT_INTERVAL_MS = 1 * 60 * 1000;
 
+// Reconnection delay after visibility change (give browser time to stabilize)
+const VISIBILITY_RECONNECT_DELAY_MS = 500;
+
 interface UseSandboxConnectionResult {
 	sandboxStatus: SandboxStatus;
 	hasConnectedOnce: boolean;
@@ -105,11 +108,10 @@ export function useSandboxConnection(
 
 	// Ensure sandbox is ready (and keep retrying until it is)
 	useEffect(() => {
-		// Only start if we haven't started for this project yet
-		// This prevents duplicate calls in React StrictMode
-		if (startedForProjectRef.current !== projectId) {
-			startEnsureLoop();
-		}
+		// Always start ensure loop on mount - reset refs to allow reconnection
+		startedForProjectRef.current = null;
+		ensureActiveRef.current = false;
+		startEnsureLoop();
 
 		return () => {
 			if (ensureTimeoutRef.current) {
@@ -118,10 +120,44 @@ export function useSandboxConnection(
 			}
 			ensureAbortRef.current?.abort();
 			ensureAbortRef.current = null;
-			// Don't reset ensureActiveRef here - let startEnsureLoop manage it
-			// This prevents the StrictMode double-call issue
+			// Reset refs on unmount so remount will trigger reconnection
+			startedForProjectRef.current = null;
+			ensureActiveRef.current = false;
 		};
 	}, [projectId, startEnsureLoop]);
+
+	// Reconnect when page becomes visible again (user returns to tab/app)
+	useEffect(() => {
+		const triggerReconnect = () => {
+			// Force reconnection check
+			ensureActiveRef.current = false;
+			startEnsureLoop();
+		};
+
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === "visible") {
+				console.log("[Sandbox] Page visible - checking connection...");
+				// Small delay to let browser stabilize
+				setTimeout(() => {
+					triggerReconnect();
+				}, VISIBILITY_RECONNECT_DELAY_MS);
+			}
+		};
+
+		const handleOnline = () => {
+			console.log("[Sandbox] Network online - reconnecting...");
+			setSandboxStatus("connecting");
+			triggerReconnect();
+		};
+
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+		window.addEventListener("online", handleOnline);
+
+		return () => {
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
+			window.removeEventListener("online", handleOnline);
+		};
+	}, [startEnsureLoop]);
 
 	// Heartbeat: ping the sandbox periodically while connected to prevent hibernation
 	useEffect(() => {

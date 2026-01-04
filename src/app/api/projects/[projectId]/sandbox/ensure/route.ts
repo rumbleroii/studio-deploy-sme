@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+// Allow 120s for cold starts (worker cold start can be ~40s)
+export const maxDuration = 120;
+
 /**
  * Query Docker API to get the host port mapped to a container port.
  * Only works in local dev where Docker socket is accessible.
@@ -61,17 +64,27 @@ export async function POST(
 			return new NextResponse("Internal Server Error", { status: 500 });
 		}
 
-		const response = await fetch(
-			`${workerUrl}/v1/projects/${projectId}/ensure`,
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Shared-Secret": sharedSecret,
-				},
-				body: JSON.stringify({}),
-			}
-		);
+		// Create abort controller with 90s timeout (cold start can be ~40s)
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+		let response: Response;
+		try {
+			response = await fetch(
+				`${workerUrl}/v1/projects/${projectId}/ensure`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Shared-Secret": sharedSecret,
+					},
+					body: JSON.stringify({}),
+					signal: controller.signal,
+				}
+			);
+		} finally {
+			clearTimeout(timeoutId);
+		}
 
 		if (!response.ok) {
 			const errorText = await response.text();

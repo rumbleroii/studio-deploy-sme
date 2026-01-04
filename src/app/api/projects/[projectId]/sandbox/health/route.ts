@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
-// Ping should be fast
-export const maxDuration = 10;
+// Allow 30s for health checks
+export const maxDuration = 30;
 
 /**
- * Lightweight ping endpoint to keep the sandbox alive.
- * Called periodically by the frontend while the project is open.
+ * Check the health of a sandbox container.
+ * Returns status of workspace, dev server, OpenCode, and storage mount.
  */
-export async function POST(
+export async function GET(
 	request: NextRequest,
 	props: { params: Promise<{ projectId: string }> }
 ) {
@@ -18,7 +18,7 @@ export async function POST(
 		const user = await requireAuth();
 		const { projectId } = params;
 
-		// Quick auth check - just verify the project exists and user owns it
+		// Verify project exists and user owns it
 		const project = await prisma.project.findUnique({
 			where: { id: projectId },
 			select: { createdById: true },
@@ -28,7 +28,7 @@ export async function POST(
 			return new NextResponse("Not Found", { status: 404 });
 		}
 
-		// Call the Worker's ping endpoint
+		// Call the Worker's health endpoint
 		const workerUrl = process.env.AGENT_WORKER_URL;
 		const sharedSecret = process.env.AGENT_WORKER_SHARED_SECRET;
 
@@ -37,9 +37,9 @@ export async function POST(
 		}
 
 		const response = await fetch(
-			`${workerUrl}/v1/projects/${projectId}/ping`,
+			`${workerUrl}/v1/projects/${projectId}/health`,
 			{
-				method: "POST",
+				method: "GET",
 				headers: {
 					"Content-Type": "application/json",
 					"X-Shared-Secret": sharedSecret,
@@ -48,18 +48,16 @@ export async function POST(
 		);
 
 		if (!response.ok) {
-			// Don't fail the whole request - ping is best-effort
-			console.warn(`Ping failed for ${projectId}:`, response.status);
-			return NextResponse.json({ status: "ok", projectId });
+			const text = await response.text();
+			console.error(`Health check failed for ${projectId}:`, response.status, text);
+			return new NextResponse(`Health check failed: ${text}`, { status: response.status });
 		}
 
 		const data = await response.json();
 		return NextResponse.json(data);
 	} catch (error) {
-		// Ping failures shouldn't break the app
-		console.warn("Ping error:", error);
-		return NextResponse.json({ status: "ok" });
+		console.error("Health check error:", error);
+		return new NextResponse("Internal Server Error", { status: 500 });
 	}
 }
-
 

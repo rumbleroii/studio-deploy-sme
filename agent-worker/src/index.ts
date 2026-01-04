@@ -6,7 +6,7 @@ import {
 } from "@cloudflare/sandbox";
 export { Sandbox };
 
-// OpenCode server runs on port 4096 inside the container
+// OpenCode server runs on port 4096
 const OPENCODE_PORT = 4096;
 
 interface Env {
@@ -16,6 +16,8 @@ interface Env {
 	DATA_BUCKET: R2Bucket;
 	AWS_ACCESS_KEY_ID: string;
 	AWS_SECRET_ACCESS_KEY: string;
+	R2_ENDPOINT: string;
+	R2_BUCKET_NAME: string;
 }
 
 interface ChatRequestBody {
@@ -136,7 +138,7 @@ export default {
 		const secret = request.headers.get("X-Shared-Secret");
 		if (secret !== env.AGENT_WORKER_SHARED_SECRET) {
 			return new Response(JSON.stringify({ error: "Unauthorized" }), {
-				status: 401,
+			status: 401,
 				headers: { "Content-Type": "application/json" },
 			});
 		}
@@ -167,6 +169,8 @@ export default {
 		);
 		const syncMatch = path.match(/^\/v1\/projects\/([^/]+)\/sync$/);
 		const pingMatch = path.match(/^\/v1\/projects\/([^/]+)\/ping$/);
+		const resetMatch = path.match(/^\/v1\/projects\/([^/]+)\/reset$/);
+		const healthMatch = path.match(/^\/v1\/projects\/([^/]+)\/health$/);
 
 		const validateProjectId = (id: string): boolean =>
 			/^[a-zA-Z0-9_-]+$/.test(id);
@@ -183,7 +187,9 @@ export default {
 			terminalMatch?.[1] || 
 			terminalInputMatch?.[1] ||
 			syncMatch?.[1] ||
-			pingMatch?.[1];
+			pingMatch?.[1] ||
+			resetMatch?.[1] ||
+			healthMatch?.[1];
 
 		if (!projectId) {
 			return new Response(JSON.stringify({ error: "Invalid projectId" }), {
@@ -255,6 +261,14 @@ export default {
 			return handlePing(pingMatch[1], sandbox);
 		}
 
+		if (request.method === "POST" && resetMatch) {
+			return handleReset(resetMatch[1], sandbox, env);
+		}
+
+		if (request.method === "GET" && healthMatch) {
+			return handleHealth(healthMatch[1], sandbox);
+		}
+
 		return new Response(JSON.stringify({ error: "Not Found" }), {
 			status: 404,
 			headers: { "Content-Type": "application/json" },
@@ -269,7 +283,7 @@ export default {
 const MOUNT_LOCK_PATH = "/tmp/.r2_mount_lock";
 const MOUNT_LOCK_TIMEOUT_MS = 30000; // 30 second lock timeout
 const MOUNT_RETRY_CONFIG = {
-	maxAttempts: 5,
+	maxAttempts: 3,
 	initialDelayMs: 200,
 	maxDelayMs: 2000,
 	backoffMultiplier: 2,
@@ -325,15 +339,23 @@ async function releaseMountLock(sandbox: SandboxInstance): Promise<void> {
  * Check if R2 is already mounted and accessible
  */
 async function isMountHealthy(sandbox: SandboxInstance, mountPath: string): Promise<boolean> {
-	// Check if mount point exists and is a mount (not just an empty dir)
-	const checkResult = await sandbox.exec(`mountpoint -q ${mountPath} 2>/dev/null && echo "MOUNTED" || echo "NOT_MOUNTED"`);
-	if (checkResult.stdout.trim() !== "MOUNTED") {
+	try {
+		// First just try to access the mount - this is the most reliable check
+		const accessCheck = await sandbox.exec(`ls ${mountPath} >/dev/null 2>&1 && echo "OK" || echo "FAILED"`, { timeout: 5000 });
+		if (accessCheck.stdout.trim() === "OK") {
+			return true;
+		}
+		
+		// Fallback: check if it's a mount point
+		const checkResult = await sandbox.exec(`mountpoint -q ${mountPath} 2>/dev/null && echo "MOUNTED" || echo "NOT_MOUNTED"`);
+		if (checkResult.stdout.trim() === "MOUNTED") {
+			return false;
+		}
+		
+		return false;
+	} catch {
 		return false;
 	}
-	
-	// Verify we can actually list the mount (catches stale mounts)
-	const lsResult = await sandbox.exec(`ls ${mountPath} >/dev/null 2>&1 && echo "OK" || echo "FAILED"`, { timeout: 5000 });
-	return lsResult.stdout.trim() === "OK";
 }
 
 /**
@@ -369,7 +391,11 @@ function isMountConflictError(error: unknown): boolean {
  */
 function isAlreadyMountedError(error: unknown): boolean {
 	const msg = String(error).toLowerCase();
-	return msg.includes("already in use") || msg.includes("mount_exists");
+	return (
+		msg.includes("already in use") || 
+		msg.includes("mount_exists") ||
+		msg.includes("invalidmountconfigerror")
+	);
 }
 
 // Helper: Check if error is a permanent infrastructure issue (no point retrying)
@@ -382,10 +408,10 @@ function isPermanentMountError(error: unknown): boolean {
 	return false;
 }
 
-// Helper: Mount R2 bucket with locking, retry, and aggressive cleanup
+// Helper: Mount R2 bucket with locking and retry
 async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> {
-	const endpoint = "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com";
-	const bucketName = "studio-bucket";
+	const endpoint = env.R2_ENDPOINT;
+	const bucketName = env.R2_BUCKET_NAME;
 	const mountPath = "/storage";
 
 	// Fast path: check if already mounted and healthy
@@ -398,7 +424,7 @@ async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> 
 
 	for (let attempt = 0; attempt < MOUNT_RETRY_CONFIG.maxAttempts; attempt++) {
 		try {
-			// Try to acquire lock (with wait on retry)
+			// Backoff delay on retries
 			if (attempt > 0) {
 				const delay = Math.min(
 					MOUNT_RETRY_CONFIG.initialDelayMs * Math.pow(MOUNT_RETRY_CONFIG.backoffMultiplier, attempt - 1),
@@ -407,17 +433,17 @@ async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> 
 				await sleep(delay);
 			}
 
-			// Wait for lock with timeout
+			// Acquire lock (with timeout)
 			const lockStartTime = Date.now();
 			while (!lockAcquired && (Date.now() - lockStartTime) < 5000) {
 				lockAcquired = await acquireMountLock(sandbox);
 				if (!lockAcquired) {
-					await sleep(100); // Brief wait before retry
+					await sleep(100);
 				}
 			}
 
 			if (!lockAcquired) {
-				console.log(`Mount lock acquisition timed out (attempt ${attempt + 1}), proceeding anyway...`);
+				throw new Error("Failed to acquire mount lock within timeout");
 			}
 
 			// Double-check mount status after acquiring lock (another process may have mounted)
@@ -425,7 +451,7 @@ async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> 
 				return;
 			}
 
-			// Clean mount point aggressively before attempting mount
+			// Clean mount point before attempting mount
 			await cleanMountPoint(sandbox, mountPath);
 
 			// Attempt the mount
@@ -449,18 +475,33 @@ async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> 
 			lastError = e;
 			const errorStr = String(e);
 
-			// If already mounted, that's success
+			// If already mounted, the SDK knows best - just verify we can access it
 			if (isAlreadyMountedError(e)) {
-				if (await isMountHealthy(sandbox, mountPath)) {
+				console.log(`Mount reports already in use, verifying accessibility...`);
+				
+				// Give it a moment for mount to stabilize
+				await sleep(500);
+				
+				// Try to access the mount directly
+				const accessCheck = await sandbox.exec(`ls ${mountPath} >/dev/null 2>&1 && echo "OK" || echo "FAILED"`, { timeout: 5000 });
+				if (accessCheck.stdout.trim() === "OK") {
+					console.log(`Mount is accessible, treating as success`);
 					return;
 				}
-				// Mount claims to exist but isn't healthy - try to clean and remount
-				console.log(`Mount claims to exist but unhealthy (attempt ${attempt + 1}), cleaning...`);
-				await cleanMountPoint(sandbox, mountPath);
+				
+				// If still not accessible, the mount might be stale - try unmounting via SDK workaround
+				console.log(`Mount claimed but not accessible, attempting recovery...`);
+				
+				// Try forceful cleanup
+				await sandbox.exec(`fusermount -uz ${mountPath} 2>/dev/null || true`);
+				await sandbox.exec(`umount -l ${mountPath} 2>/dev/null || true`);
+				await sleep(500);
+				
+				// Retry the mount on next iteration
 				continue;
 			}
 
-			// If mount conflict (nonempty, busy), clean and retry
+			// If mount conflict, clean and retry
 			if (isMountConflictError(e)) {
 				console.log(`Mount conflict error (attempt ${attempt + 1}): ${errorStr}, cleaning and retrying...`);
 				await cleanMountPoint(sandbox, mountPath);
@@ -470,7 +511,6 @@ async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> 
 			// Check for permanent errors (e.g., FUSE not available in local dev)
 			if (isPermanentMountError(e)) {
 				console.warn(`Mount failed with permanent error (FUSE not available - likely local dev mode), skipping R2 mount`);
-				// Release lock and return without throwing - let the rest of the flow continue
 				if (lockAcquired) {
 					await releaseMountLock(sandbox);
 				}
@@ -494,8 +534,15 @@ async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> 
 }
 
 async function isDevServerHealthy(sandbox: SandboxInstance): Promise<boolean> {
-	const check = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`);
-	return check.stdout.trim() === '200';
+	try {
+		const check = await sandbox.exec(
+			`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`,
+			{ timeout: 3000 }
+		);
+		return check.stdout.trim() === '200';
+	} catch {
+		return false;
+	}
 }
 
 async function startDevServer(sandbox: SandboxInstance, appDir: string, projectId: string): Promise<void> {
@@ -532,6 +579,28 @@ async function getPreviewUrl(sandbox: SandboxInstance): Promise<string | undefin
 	}
 }
 
+async function getPreviewUrlCached(sandbox: SandboxInstance): Promise<string | undefined> {
+	try {
+		const ports = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
+		const existing = ports.find((p) => p.port === PREVIEW_PORT);
+		return existing?.url;
+	} catch {
+		return undefined;
+	}
+}
+
+async function isOpencodeHealthy(sandbox: SandboxInstance): Promise<boolean> {
+	try {
+		const checkResult = await sandbox.exec(
+			`curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${OPENCODE_PORT}/ 2>/dev/null || echo "000"`,
+			{ timeout: 3000 }
+		);
+		return checkResult.stdout.trim() === '200';
+	} catch {
+		return false;
+	}
+}
+
 async function handleEnsure(
 	projectId: string,
 	request: Request,
@@ -543,72 +612,113 @@ async function handleEnsure(
 		const sandboxId = `project-${projectId}`;
 		const appDir = getAppDir(projectId);
 		const userFilesDir = getUserFilesDir(projectId);
-		const storageDir = getStorageProjectDir(projectId);
 
-		// Step 1: Mount R2 bucket
-		console.log(`[${projectId}] Step 1: Mounting R2 bucket...`);
-		await mountR2Bucket(sandbox, env);
-
-		// Step 2: Check container state
-		console.log(`[${projectId}] Step 2: Checking container state...`);
-		const storageCheck = await sandbox.exec(`test -d ${storageDir}`);
-		const hasStorage = storageCheck.exitCode === 0;
-
-		const appCheck = await sandbox.exec(`test -f ${appDir}/package.json`);
+		// =====================================================================
+		// FAST PATH: Check if container is warm with all services running
+		// =====================================================================
+		const appCheck = await sandbox.exec(`test -f ${appDir}/package.json`, { timeout: 3000 });
 		const isWarm = appCheck.exitCode === 0;
 
-		// Step 3: Setup workspace (only if cold)
-		if (!isWarm) {
-			console.log(`[${projectId}] Step 3: Cold container - setting up workspace...`);
-			await sandbox.exec(`mkdir -p ${userFilesDir} ${appDir}`);
+		if (isWarm) {
+			// Parallel health checks - much faster than sequential
+			const [devServerHealthy, opencodeHealthy, cachedPreviewUrl] = await Promise.all([
+				isDevServerHealthy(sandbox),
+				isOpencodeHealthy(sandbox),
+				getPreviewUrlCached(sandbox)
+			]);
 
-			if (hasStorage) {
-				// Existing project: restore from storage (copies template + extracts tarball)
-				console.log(`[${projectId}]   - Restoring from storage...`);
-				const restored = await syncFromStorage(sandbox, projectId);
-				
-				// Safety fallback: if restore failed or node_modules missing, copy from template
-				if (!restored) {
-					console.log(`[${projectId}]   - Restore failed, copying template...`);
-					await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
+			// If everything is running, return immediately (fast path ~50-100ms)
+			if (devServerHealthy && opencodeHealthy && cachedPreviewUrl) {
+				console.log(`[${projectId}] Fast-path: all services running`);
+				return new Response(
+					JSON.stringify({ status: "ready", sandboxId, previewUrl: cachedPreviewUrl }),
+					{ headers: { "Content-Type": "application/json" } }
+				);
+			}
+
+			// Some services need starting - do minimal work in parallel
+			console.log(`[${projectId}] Warm container - starting missing services (dev:${devServerHealthy}, opencode:${opencodeHealthy}, preview:${!!cachedPreviewUrl})`);
+			
+			const startPromises: Promise<void>[] = [];
+			
+			if (!devServerHealthy) {
+				startPromises.push(startDevServer(sandbox, appDir, projectId));
+			}
+			if (!opencodeHealthy) {
+				startPromises.push(ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY));
+			}
+
+			// Start services in parallel
+			await Promise.all(startPromises);
+
+			// Get preview URL (expose if needed)
+			const previewUrl = cachedPreviewUrl || await getPreviewUrl(sandbox);
+
+			// Check if we need to init storage (rare case: warm container without R2 backup)
+			ctx.waitUntil((async () => {
+				const hasStorage = await checkProjectExistsInR2(env.DATA_BUCKET, projectId);
+				if (!hasStorage) {
+					console.log(`[${projectId}] Background: initializing storage for warm project`);
+					await syncToStorage(sandbox, projectId);
 				}
-			} else {
-				// New project: copy template and init storage
-				console.log(`[${projectId}]   - Creating from template...`);
+			})());
+
+			console.log(`[${projectId}] Warm ensure complete`);
+			return new Response(
+				JSON.stringify({ status: "ready", sandboxId, previewUrl }),
+				{ headers: { "Content-Type": "application/json" } }
+			);
+		}
+
+		// =====================================================================
+		// COLD PATH: Full initialization (container just started)
+		// =====================================================================
+		console.log(`[${projectId}] Cold container - full initialization...`);
+
+		// Step 1: Mount R2 and check storage in parallel
+		const [, hasStorage] = await Promise.all([
+			mountR2Bucket(sandbox, env),
+			checkProjectExistsInR2(env.DATA_BUCKET, projectId)
+		]);
+		console.log(`[${projectId}] R2 mounted, storage exists: ${hasStorage}`);
+
+		// Step 2: Setup workspace
+		await sandbox.exec(`mkdir -p ${userFilesDir} ${appDir}`);
+
+		if (hasStorage) {
+			// Existing project: restore from storage
+			console.log(`[${projectId}] Restoring from storage...`);
+			const restored = await syncFromStorage(sandbox, projectId);
+			
+			if (!restored) {
+				console.log(`[${projectId}] Restore failed, copying template...`);
 				await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
-				
-				console.log(`[${projectId}]   - Initializing storage...`);
-				await syncToStorage(sandbox, projectId);
 			}
-
-			// Symlink user_files
-			await sandbox.exec(`ln -sfn ${userFilesDir} ${appDir}/user_files`);
 		} else {
-			console.log(`[${projectId}] Step 3: Container warm - skipping workspace setup`);
-			// Ensure storage initialized for warm projects without it
-			if (!hasStorage) {
-				console.log(`[${projectId}]   - Initializing storage for warm project...`);
-				await syncToStorage(sandbox, projectId);
-			}
+			// New project: copy template
+			console.log(`[${projectId}] Creating from template...`);
+			await sandbox.exec(`cp -r /runner/survey-app/. ${appDir}/`);
+			
+			// Defer initial sync to background (don't block response)
+			ctx.waitUntil(
+				syncToStorage(sandbox, projectId).catch(e => 
+					console.error(`[${projectId}] Background sync failed:`, e)
+				)
+			);
 		}
 
-		// Step 4: Start dev server
-		console.log(`[${projectId}] Step 4: Ensuring dev server...`);
-		if (!await isDevServerHealthy(sandbox)) {
-			await startDevServer(sandbox, appDir, projectId);
-		} else {
-			console.log(`[${projectId}]   - Already running`);
-		}
+		// Symlink user_files
+		await sandbox.exec(`ln -sfn ${userFilesDir} ${appDir}/user_files`);
 
-		// Step 5: Start OpenCode server
-		console.log(`[${projectId}] Step 5: Ensuring OpenCode server...`);
-		await ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY);
+		// Step 3: Start services in parallel (biggest win for cold start)
+		console.log(`[${projectId}] Starting services in parallel...`);
+		const [previewUrl] = await Promise.all([
+			getPreviewUrl(sandbox),
+			startDevServer(sandbox, appDir, projectId),
+			ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY)
+		]);
 
-		// Step 6: Get preview URL
-		console.log(`[${projectId}] Step 6: Getting preview URL...`);
-		const previewUrl = await getPreviewUrl(sandbox);
-
-		console.log(`[${projectId}] Ensure complete`);
+		console.log(`[${projectId}] Cold ensure complete`);
 		return new Response(
 			JSON.stringify({ status: "ready", sandboxId, previewUrl }),
 			{ headers: { "Content-Type": "application/json" } }
@@ -669,6 +779,211 @@ async function handlePing(
 		JSON.stringify({ status: "ok", projectId, timestamp: Date.now() }),
 		{ headers: { "Content-Type": "application/json" } }
 	);
+}
+
+// ============================================================================
+// Reset Handler (Fix broken containers)
+// ============================================================================
+
+/**
+ * Reset a broken container to a clean state.
+ * This kills all processes, unmounts storage, deletes workspace,
+ * and clears cached session state. Next ensure will restore from R2.
+ */
+async function handleReset(
+	projectId: string,
+	sandbox: SandboxInstance,
+	env: Env
+): Promise<Response> {
+	console.log(`[${projectId}] Reset requested - cleaning up container...`);
+	
+	const results: string[] = [];
+	
+	try {
+		// 1. Kill OpenCode server
+		console.log(`[${projectId}] Killing OpenCode server...`);
+		await sandbox.exec(`pkill -f "opencode" 2>/dev/null || true`, { timeout: 5000 });
+		results.push("OpenCode killed");
+		
+		// 2. Kill dev server
+		console.log(`[${projectId}] Killing dev server...`);
+		await sandbox.exec(`pkill -f "next-server" 2>/dev/null || true`, { timeout: 5000 });
+		await sandbox.exec(`pkill -f "next dev" 2>/dev/null || true`, { timeout: 5000 });
+		await sandbox.exec(`fuser -k -9 3001/tcp 2>/dev/null || true`, { timeout: 5000 });
+		results.push("Dev server killed");
+		
+		// 3. Unmount R2 storage
+		console.log(`[${projectId}] Unmounting storage...`);
+		await sandbox.exec(`fusermount -u /storage 2>/dev/null || true`, { timeout: 5000 });
+		await sandbox.exec(`umount -f /storage 2>/dev/null || true`, { timeout: 5000 });
+		results.push("Storage unmounted");
+		
+		// 4. Delete workspace (will be restored from R2 on next ensure)
+		console.log(`[${projectId}] Deleting workspace...`);
+		const workspaceDir = `/workspace/projects/${projectId}`;
+		await sandbox.exec(`rm -rf ${workspaceDir}`, { timeout: 30000 });
+		results.push("Workspace deleted");
+		
+		// 5. Clear cached OpenCode session
+		opencodeSessions.delete(projectId);
+		results.push("Session cache cleared");
+		
+		// 6. Kill any remaining processes for this project
+		await sandbox.exec(`pkill -f "${projectId}" 2>/dev/null || true`, { timeout: 5000 });
+		
+		// 7. Verify R2 has backup (so we can restore)
+		const hasBackup = await checkProjectExistsInR2(env.DATA_BUCKET, projectId);
+		
+		console.log(`[${projectId}] Reset complete. R2 backup exists: ${hasBackup}`);
+		
+		return new Response(
+			JSON.stringify({
+				status: "reset_complete",
+				projectId,
+				results,
+				hasR2Backup: hasBackup,
+				nextStep: "Call /ensure to restore from R2 or create fresh"
+			}),
+			{ headers: { "Content-Type": "application/json" } }
+		);
+	} catch (error) {
+		console.error(`[${projectId}] Reset failed:`, error);
+		return new Response(
+			JSON.stringify({
+				status: "reset_failed",
+				projectId,
+				results,
+				error: String(error)
+			}),
+			{ status: 500, headers: { "Content-Type": "application/json" } }
+		);
+	}
+}
+
+// ============================================================================
+// Health Handler (Check container state)
+// ============================================================================
+
+/**
+ * Check the health of a container - useful for diagnosing issues
+ */
+async function handleHealth(
+	projectId: string,
+	sandbox: SandboxInstance
+): Promise<Response> {
+	console.log(`[${projectId}] Health check requested`);
+	
+	const health: Record<string, unknown> = {
+		projectId,
+		timestamp: Date.now(),
+		checks: {}
+	};
+	
+	try {
+		// Check if workspace exists
+		const workspaceDir = `/workspace/projects/${projectId}`;
+		const workspaceCheck = await sandbox.exec(`test -d ${workspaceDir} && echo "exists" || echo "missing"`, { timeout: 5000 });
+		(health.checks as Record<string, unknown>).workspace = workspaceCheck.stdout.trim();
+		
+		// Check if app has package.json
+		const appDir = `/workspace/projects/${projectId}/working_directory/app`;
+		const appCheck = await sandbox.exec(`test -f ${appDir}/package.json && echo "exists" || echo "missing"`, { timeout: 5000 });
+		(health.checks as Record<string, unknown>).app = appCheck.stdout.trim();
+		
+		// Check if storage is mounted
+		const mountCheck = await sandbox.exec(`mountpoint -q /storage 2>/dev/null && echo "mounted" || echo "not_mounted"`, { timeout: 5000 });
+		(health.checks as Record<string, unknown>).storage = mountCheck.stdout.trim();
+		
+		// Check if dev server is running
+		const devServerCheck = await sandbox.exec(`curl -s -o /dev/null -w '%{http_code}' http://localhost:3001 2>/dev/null || echo "000"`, { timeout: 5000 });
+		const devServerStatus = devServerCheck.stdout.trim();
+		(health.checks as Record<string, unknown>).devServer = devServerStatus === "200" ? "running" : `not_running (${devServerStatus})`;
+		
+		// Check if OpenCode is running
+		const opencodeCheck = await sandbox.exec(`curl -s http://127.0.0.1:4096/ 2>/dev/null || echo "NOT_RUNNING"`, { timeout: 5000 });
+		(health.checks as Record<string, unknown>).opencode = opencodeCheck.stdout.includes("NOT_RUNNING") ? "not_running" : "running";
+		
+		// Check cached session
+		const cachedSession = opencodeSessions.get(projectId);
+		(health.checks as Record<string, unknown>).cachedSession = cachedSession || "none";
+		
+		// Check OpenCode sessions from server
+		const sessionsCheck = await sandbox.exec(`curl -s "http://127.0.0.1:4096/session" 2>/dev/null || echo "[]"`, { timeout: 5000 });
+		try {
+			const sessions = JSON.parse(sessionsCheck.stdout || '[]');
+			const sessionList = Array.isArray(sessions) 
+				? sessions 
+				: Object.entries(sessions).map(([id, data]) => ({ id, ...(data as object) }));
+			(health.checks as Record<string, unknown>).opencodeSessions = sessionList.length;
+			(health.checks as Record<string, unknown>).sessionDetails = sessionList.map((s: Record<string, unknown>) => ({
+				id: s.id || s.ID,
+				path: s.path || s.directory,
+				title: s.title
+			}));
+			
+			// Get full session data for the first session (to understand structure)
+			if (sessionList.length > 0) {
+				const firstSessionId = sessionList[0].id || sessionList[0].ID;
+				if (firstSessionId) {
+					const fullSessionCheck = await sandbox.exec(
+						`curl -s "http://127.0.0.1:4096/session/${firstSessionId}" 2>/dev/null || echo "{}"`, 
+						{ timeout: 10000 }
+					);
+					try {
+						const fullSession = JSON.parse(fullSessionCheck.stdout || '{}');
+						// Show keys and sample of each to understand structure
+						(health.checks as Record<string, unknown>).sessionStructure = {
+							keys: Object.keys(fullSession),
+							hasMessages: 'messages' in fullSession,
+							messageCount: Array.isArray(fullSession.messages) ? fullSession.messages.length : 'N/A',
+							// Show first message structure if available
+							sampleMessage: Array.isArray(fullSession.messages) && fullSession.messages.length > 0 
+								? { keys: Object.keys(fullSession.messages[0]), role: fullSession.messages[0].role }
+								: null
+						};
+					} catch {
+						(health.checks as Record<string, unknown>).sessionStructure = "error parsing full session";
+					}
+				}
+			}
+		} catch {
+			(health.checks as Record<string, unknown>).opencodeSessions = "error parsing";
+		}
+		
+		// Check OpenCode data directory structure (for debugging session persistence)
+		const opencodeDataCheck = await sandbox.exec(`ls -la /root/.opencode/ 2>/dev/null || echo "NOT_FOUND"`, { timeout: 5000 });
+		(health.checks as Record<string, unknown>).opencodeDataDir = opencodeDataCheck.stdout.trim();
+		
+		// Check if there's a .opencode in the working directory
+		const projectOpencodeCheck = await sandbox.exec(`ls -la ${appDir}/.opencode/ 2>/dev/null || echo "NOT_FOUND"`, { timeout: 5000 });
+		(health.checks as Record<string, unknown>).projectOpencodeDir = projectOpencodeCheck.stdout.trim();
+		
+		// Determine overall health
+		const checks = health.checks as Record<string, unknown>;
+		const isHealthy = 
+			checks.workspace === "exists" &&
+			checks.app === "exists" &&
+			checks.devServer === "running" &&
+			checks.opencode === "running";
+		
+		health.status = isHealthy ? "healthy" : "unhealthy";
+		health.recommendation = isHealthy ? null : "Consider calling /reset to fix this container";
+		
+		return new Response(
+			JSON.stringify(health),
+			{ headers: { "Content-Type": "application/json" } }
+		);
+	} catch (error) {
+		console.error(`[${projectId}] Health check failed:`, error);
+		return new Response(
+			JSON.stringify({
+				...health,
+				status: "error",
+				error: String(error)
+			}),
+			{ status: 500, headers: { "Content-Type": "application/json" } }
+		);
+	}
 }
 
 // ============================================================================
@@ -1442,6 +1757,20 @@ function getStorageProjectDir(projectId: string): string {
 	return `/storage/projects/${projectId}`;
 }
 
+// R2 key for project workspace tarball
+function getR2WorkspaceKey(projectId: string): string {
+	return `projects/${projectId}/workspace.tar.gz`;
+}
+
+/**
+ * Check if project exists in R2 storage directly (doesn't rely on S3FS mount)
+ */
+async function checkProjectExistsInR2(bucket: R2Bucket, projectId: string): Promise<boolean> {
+	const key = getR2WorkspaceKey(projectId);
+	const object = await bucket.head(key);
+	return object !== null;
+}
+
 function getUserFilesDir(projectId: string): string {
 	return `/workspace/projects/${projectId}/working_directory/user_files`;
 }
@@ -1937,22 +2266,41 @@ async function handleFilesEvents(
 		const encoder = new TextEncoder();
 
 		(async () => {
+			let writerClosed = false;
+			
+			// Helper to safely write to the stream (handles client disconnect gracefully)
+			const safeWrite = async (data: string): Promise<boolean> => {
+				if (writerClosed) return false;
+				try {
+					await writer.write(encoder.encode(data));
+					return true;
+				} catch (e) {
+					// "Controller is already closed" means client disconnected - this is expected
+					const msg = String(e);
+					if (msg.includes("Controller is already closed") || msg.includes("closed")) {
+						writerClosed = true;
+						return false;
+					}
+					throw e; // Re-throw unexpected errors
+				}
+			};
+			
 			try {
 				for await (const rawEvent of parseSSEStream(stream)) {
+					if (writerClosed) break; // Exit early if client disconnected
+					
 					const event = rawEvent as SSEEvent;
 					if (event.type === "stdout" && event.data) {
 						const lines = event.data.split("\n").filter(Boolean);
 						for (const line of lines) {
+							if (writerClosed) break;
+							
 							// Check if watcher is unavailable
 							if (line.trim() === "WATCHER_UNAVAILABLE") {
-								await writer.write(
-									encoder.encode(
-										`data: ${JSON.stringify({
-											type: "error",
-											error: "File watcher not available",
-										})}\n\n`
-									)
-								);
+								if (!await safeWrite(`data: ${JSON.stringify({
+									type: "error",
+									error: "File watcher not available",
+								})}\n\n`)) break;
 								continue;
 							}
 
@@ -1985,43 +2333,39 @@ async function handleFilesEvents(
 
 							const isDir = eventType.includes("ISDIR");
 
-							await writer.write(
-								encoder.encode(
-									`data: ${JSON.stringify({
-										type: "fs_event",
-										op,
-										path: relativePath,
-										isDir,
-									})}\n\n`
-								)
-							);
+							if (!await safeWrite(`data: ${JSON.stringify({
+								type: "fs_event",
+								op,
+								path: relativePath,
+								isDir,
+							})}\n\n`)) break;
 						}
 					} else if (event.type === "complete") {
-						await writer.write(
-							encoder.encode(
-								`data: ${JSON.stringify({
-									type: "complete",
-								})}\n\n`
-							)
-						);
+						await safeWrite(`data: ${JSON.stringify({
+							type: "complete",
+						})}\n\n`);
 					} else if (event.type === "error") {
-						await writer.write(
-							encoder.encode(
-								`data: ${JSON.stringify({
-									type: "error",
-									error: event.error,
-								})}\n\n`
-							)
-						);
+						await safeWrite(`data: ${JSON.stringify({
+							type: "error",
+							error: event.error,
+						})}\n\n`);
 					}
 				}
 			} catch (error) {
-				// Likely aborted by client disconnect
-				if ((error as Error).name !== "AbortError") {
+				// Likely aborted by client disconnect - this is expected behavior
+				const errorName = (error as Error).name;
+				const errorMsg = String(error);
+				if (errorName !== "AbortError" && !errorMsg.includes("Controller is already closed")) {
 					console.error("Files events stream error:", error);
 				}
 			} finally {
-				await writer.close();
+				if (!writerClosed) {
+					try {
+						await writer.close();
+					} catch {
+						// Writer may already be closed, ignore
+					}
+				}
 			}
 		})();
 

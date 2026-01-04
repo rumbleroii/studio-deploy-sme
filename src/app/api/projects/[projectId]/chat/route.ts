@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+// Allow 300s for long chat operations (AI can take time)
+export const maxDuration = 300;
+
 export async function GET(
 	request: NextRequest,
 	props: { params: Promise<{ projectId: string }> }
@@ -95,6 +98,7 @@ export async function POST(
 			);
 		}
 
+		// No timeout for streaming - use AbortController from request signal
 		const workerResponse = await fetch(
 			`${workerUrl}/v1/projects/${projectId}/chat`,
 			{
@@ -108,6 +112,8 @@ export async function POST(
 					sessionId: sessionId || project.claudeSessionId,
 					history, // Pass history to worker
 				}),
+				// Pass through client's abort signal for cancellation
+				signal: request.signal,
 			}
 		);
 
