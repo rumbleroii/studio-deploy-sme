@@ -525,14 +525,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 		// 	const DEFAULT_MESSAGE = "Create the survey UI by using the questionnaire for reference";
 		//
 		// 	// Only trigger if: no messages, sandbox is connected, not already triggered, not currently streaming
-		// 	// We check hasTriggeredInitialMessage to prevent double sending
-		// 	// IMPORTANT: We must wait for history fetch to complete. 
-		// 	// If we fetch history and it's empty, THEN we send.
-		// 	// Currently, if history fetch is async, this might fire before history loads.
-		// 	// We can rely on a slight delay or just let the user initiate if history is empty.
-		// 	// For now, disabling auto-send on reload if we expect history. 
-		// 	// But if it's a NEW project, history is empty.
-		// 	
 		// 	if (
 		// 		messages.length === 0 &&
 		// 		sandboxStatus === "connected" &&

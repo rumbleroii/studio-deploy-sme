@@ -9,6 +9,9 @@ RUN curl -fsSL https://opencode.ai/install -o /tmp/install-opencode.sh \
     && rm /tmp/install-opencode.sh \
     && opencode --version
 
+# Install Vercel CLI globally
+RUN npm install -g vercel && vercel --version
+
 # Create directories
 RUN mkdir -p /runner/survey-app /workspace/projects
 

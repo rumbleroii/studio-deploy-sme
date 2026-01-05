@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import type { SubmitPayload, SubmitResponse } from '../../../types/api';
-import { prisma } from '../../../lib/db';
+import { getDb, COLLECTIONS } from '../../../lib/mongodb';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,13 +16,6 @@ export async function POST(request: NextRequest) {
     if (!body.surveyId) {
       return NextResponse.json(
         { success: false, error: 'Missing required field: surveyId' },
-        { status: 400 }
-      );
-    }
-
-    if (!body.projectId) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required field: projectId' },
         { status: 400 }
       );
     }
@@ -43,62 +36,33 @@ export async function POST(request: NextRequest) {
 
     // Generate respondentId if not provided (first submission)
     const respondentId = body.respondentId || generateRespondentId();
+    const now = new Date().toISOString();
 
-    // Save to MongoDB using Prisma (if available)
-    // Gracefully handle cases where MongoDB is not available (e.g., in containers without DB access)
-    try {
-      const existingResponse = await prisma.surveyResponse.findFirst({
-        where: {
+    // Connect to MongoDB and save
+    const db = await getDb();
+    const collection = db.collection(COLLECTIONS.RESPONSES);
+
+    // Upsert: Update if respondentId exists, otherwise insert
+    await collection.updateOne(
+      { surveyId: body.surveyId, respondentId },
+      {
+        $set: {
           surveyId: body.surveyId,
-          projectId: body.projectId,
-          respondentId: respondentId,
+          respondentId,
+          responses: body.responses,
+          status: body.status,
+          currentQuestionId: body.currentQuestionId,
+          visitedQuestions: body.visitedQuestions,
+          updatedAt: now,
         },
-      });
+        $setOnInsert: {
+          createdAt: now,
+        },
+      },
+      { upsert: true }
+    );
 
-      if (existingResponse) {
-        // Update existing response
-        await prisma.surveyResponse.update({
-          where: { id: existingResponse.id },
-          data: {
-            responses: body.responses,
-            status: body.status,
-            metadata: body.metadata || undefined,
-            updatedAt: new Date(),
-          },
-        });
-      } else {
-        // Create new response
-        await prisma.surveyResponse.create({
-          data: {
-            surveyId: body.surveyId,
-            projectId: body.projectId,
-            respondentId: respondentId,
-            responses: body.responses,
-            status: body.status,
-            metadata: body.metadata || undefined,
-          },
-        });
-      }
-    } catch (dbError: any) {
-      // Check if it's a connection error (MongoDB not available)
-      const errorMessage = String(dbError?.message || dbError || '');
-      const isConnectionError = 
-        errorMessage.includes('Connection refused') ||
-        errorMessage.includes('Server selection timeout') ||
-        errorMessage.includes('No available servers') ||
-        errorMessage.includes('ECONNREFUSED') ||
-        !process.env.MONGODB_URI;
-
-      if (isConnectionError) {
-        // MongoDB not available - log warning but don't fail the request
-        // In production, you should configure MONGODB_URI to point to MongoDB Atlas or a reachable instance
-        console.warn('[Submit API] MongoDB not available, skipping database save:', errorMessage);
-        // Continue without database - response will still be returned successfully
-      } else {
-        // Other database errors should be thrown
-        throw dbError;
-      }
-    }
+    console.log(`Saved response for survey ${body.surveyId}, respondent ${respondentId}`);
 
     // Return success response
     const response: SubmitResponse = {
@@ -123,7 +87,6 @@ export async function POST(request: NextRequest) {
 
 /**
  * Generate a unique respondent ID
- * TODO: Replace with proper UUID generation or use MongoDB's ObjectId
  */
 function generateRespondentId(): string {
   return `resp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;

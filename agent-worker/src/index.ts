@@ -168,6 +168,8 @@ export default {
 			/^\/v1\/projects\/([^/]+)\/terminal\/input$/
 		);
 		const syncMatch = path.match(/^\/v1\/projects\/([^/]+)\/sync$/);
+		const buildMatch = path.match(/^\/v1\/projects\/([^/]+)\/build$/);
+		const deployVercelMatch = path.match(/^\/v1\/projects\/([^/]+)\/deploy-vercel$/);
 		const pingMatch = path.match(/^\/v1\/projects\/([^/]+)\/ping$/);
 		const resetMatch = path.match(/^\/v1\/projects\/([^/]+)\/reset$/);
 		const healthMatch = path.match(/^\/v1\/projects\/([^/]+)\/health$/);
@@ -187,6 +189,8 @@ export default {
 			terminalMatch?.[1] || 
 			terminalInputMatch?.[1] ||
 			syncMatch?.[1] ||
+			buildMatch?.[1] ||
+			deployVercelMatch?.[1] ||
 			pingMatch?.[1] ||
 			resetMatch?.[1] ||
 			healthMatch?.[1];
@@ -255,6 +259,14 @@ export default {
 
 		if (request.method === "POST" && syncMatch) {
 			return handleSync(syncMatch[1], request, env, sandbox);
+		}
+
+		if (request.method === "POST" && buildMatch) {
+			return handleBuild(buildMatch[1], env, sandbox);
+		}
+
+		if (request.method === "POST" && deployVercelMatch) {
+			return handleDeployVercel(deployVercelMatch[1], env, sandbox);
 		}
 
 		if (request.method === "POST" && pingMatch) {
@@ -1298,12 +1310,21 @@ async function handleChat(
 				
 				// Helper to check if error is a transient API error (needs retry with delay)
 				const isTransientAPIError = (parsed: any): boolean => {
+					// Direct APIError format
 					if (parsed.name === "APIError" && parsed.statusCode === 403) return true;
 					if (parsed.error?.type === "forbidden") return true;
 					if (parsed.error?.message?.includes("Request not allowed")) return true;
-					if (parsed.info?.error?.name === "APIError" && parsed.info?.error?.statusCode === 403) return true;
-					// Rate limits
-					if (parsed.statusCode === 429 || parsed.info?.error?.statusCode === 429) return true;
+					// OpenCode nested format: error is at info.error.data.statusCode (not info.error.statusCode)
+					if (parsed.info?.error?.name === "APIError") {
+						const statusCode = parsed.info?.error?.data?.statusCode || parsed.info?.error?.statusCode;
+						if (statusCode === 403) return true;
+					}
+					if (parsed.info?.error?.data?.message?.includes("Request not allowed")) return true;
+					// Rate limits - check all possible locations
+					const rateLimit = parsed.statusCode === 429 || 
+						parsed.info?.error?.statusCode === 429 || 
+						parsed.info?.error?.data?.statusCode === 429;
+					if (rateLimit) return true;
 					return false;
 				};
 
@@ -2527,6 +2548,273 @@ async function handleTerminalInput(
 				status: 500,
 				headers: { "Content-Type": "application/json" },
 			}
+		);
+	}
+}
+
+// ============================================================================
+// Build Handler - Build survey app for deployment
+// ============================================================================
+
+interface BuildFile {
+	path: string;
+	content: string; // base64 encoded
+	size: number;
+}
+
+async function handleBuild(
+	projectId: string,
+	env: Env,
+	sandbox: SandboxInstance
+): Promise<Response> {
+	try {
+		const appDir = getAppDir(projectId);
+
+		console.log(`[${projectId}] Building survey app...`);
+
+		// Check if app exists
+		const checkApp = await sandbox.exec(`test -f ${appDir}/package.json`);
+		if (checkApp.exitCode !== 0) {
+			return new Response(
+				JSON.stringify({ error: "Survey app not found. Run ensure first." }),
+				{ status: 400, headers: { "Content-Type": "application/json" } }
+			);
+		}
+
+		// Update next.config.js to enable static export
+		const nextConfigPath = `${appDir}/next.config.js`;
+		const exportConfig = `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: 'export',
+  trailingSlash: true,
+  images: {
+    unoptimized: true,
+  },
+}
+
+module.exports = nextConfig
+`;
+		await sandbox.writeFile(nextConfigPath, exportConfig, { encoding: "utf-8" });
+
+		// Install dependencies if needed
+		const checkNodeModules = await sandbox.exec(`test -d ${appDir}/node_modules`);
+		if (checkNodeModules.exitCode !== 0) {
+			console.log(`[${projectId}] Installing dependencies...`);
+			const installResult = await sandbox.exec(`cd ${appDir} && npm install`, {
+				timeout: 120000, // 2 minutes
+			});
+			if (installResult.exitCode !== 0) {
+				console.error(`[${projectId}] npm install failed:`, installResult.stderr || installResult.stdout);
+				return new Response(
+					JSON.stringify({
+						error: "Failed to install dependencies",
+						details: installResult.stderr || installResult.stdout,
+					}),
+					{ status: 500, headers: { "Content-Type": "application/json" } }
+				);
+			}
+		}
+
+		// Build the app
+		console.log(`[${projectId}] Running build...`);
+		const buildResult = await sandbox.exec(`cd ${appDir} && npm run build`, {
+			timeout: 180000, // 3 minutes
+		});
+
+		if (buildResult.exitCode !== 0) {
+			console.error(`[${projectId}] Build failed:`, buildResult.stderr || buildResult.stdout);
+			return new Response(
+				JSON.stringify({
+					error: "Build failed",
+					details: buildResult.stderr || buildResult.stdout,
+				}),
+				{ status: 500, headers: { "Content-Type": "application/json" } }
+			);
+		}
+
+		console.log(`[${projectId}] Build completed, collecting output files...`);
+
+		// Get list of files in the out directory
+		const outDir = `${appDir}/out`;
+		const checkOut = await sandbox.exec(`test -d ${outDir}`);
+		if (checkOut.exitCode !== 0) {
+			return new Response(
+				JSON.stringify({ error: "Build output directory not found" }),
+				{ status: 500, headers: { "Content-Type": "application/json" } }
+			);
+		}
+
+		// List all files recursively
+		const listResult = await sandbox.exec(
+			`find ${outDir} -type f -exec stat -c '%s %n' {} \\;`
+		);
+
+		if (listResult.exitCode !== 0) {
+			return new Response(
+				JSON.stringify({
+					error: "Failed to list build output",
+					details: listResult.stderr,
+				}),
+				{ status: 500, headers: { "Content-Type": "application/json" } }
+			);
+		}
+
+		const files: BuildFile[] = [];
+		const fileLines = listResult.stdout.trim().split("\n").filter(Boolean);
+
+		for (const line of fileLines) {
+			const spaceIndex = line.indexOf(" ");
+			if (spaceIndex === -1) continue;
+
+			const size = parseInt(line.substring(0, spaceIndex), 10);
+			const fullPath = line.substring(spaceIndex + 1);
+			const relativePath = fullPath.replace(outDir + "/", "");
+
+			// Skip very large files (> 25MB) - Cloudflare has limits
+			if (size > 25 * 1024 * 1024) {
+				console.warn(`[${projectId}] Skipping large file: ${relativePath} (${size} bytes)`);
+				continue;
+			}
+
+			// Read file content as base64
+			const catResult = await sandbox.exec(`base64 -w 0 "${fullPath}"`);
+			if (catResult.exitCode === 0 && catResult.stdout) {
+				files.push({
+					path: relativePath,
+					content: catResult.stdout,
+					size,
+				});
+			}
+		}
+
+		console.log(`[${projectId}] Collected ${files.length} files for deployment`);
+
+		return new Response(
+			JSON.stringify({
+				success: true,
+				files,
+				totalFiles: files.length,
+				totalSize: files.reduce((sum, f) => sum + f.size, 0),
+			}),
+			{ headers: { "Content-Type": "application/json" } }
+		);
+	} catch (error) {
+		console.error(`[${projectId}] Build failed:`, error);
+		return new Response(
+			JSON.stringify({ error: "Build failed", details: String(error) }),
+			{ status: 500, headers: { "Content-Type": "application/json" } }
+		);
+	}
+}
+
+// ============================================================================
+// Vercel Deploy Handler - Deploy survey app to Vercel
+// ============================================================================
+
+interface EnvWithVercel extends Env {
+	VERCEL_TOKEN?: string;
+	MONGODB_URI?: string;
+}
+
+async function handleDeployVercel(
+	projectId: string,
+	env: Env,
+	sandbox: SandboxInstance
+): Promise<Response> {
+	try {
+		const appDir = getAppDir(projectId);
+
+		console.log(`[${projectId}] Deploying survey app to Vercel...`);
+
+		// Check if app exists
+		const checkApp = await sandbox.exec(`test -f ${appDir}/package.json`);
+		if (checkApp.exitCode !== 0) {
+			return new Response(
+				JSON.stringify({ error: "Survey app not found. Run ensure first." }),
+				{ status: 400, headers: { "Content-Type": "application/json" } }
+			);
+		}
+
+		// Check if VERCEL_TOKEN is available
+		const vercelToken = (env as EnvWithVercel).VERCEL_TOKEN;
+		if (!vercelToken) {
+			return new Response(
+				JSON.stringify({ error: "VERCEL_TOKEN not configured" }),
+				{ status: 500, headers: { "Content-Type": "application/json" } }
+			);
+		}
+
+		// Remove user_files symlink before deploy (it points to local path that doesn't exist on Vercel)
+		await sandbox.exec(`rm -f ${appDir}/user_files`);
+
+		// Deploy to Vercel using CLI with environment variables
+		// --build-env for NEXT_PUBLIC_* (build-time, client-side)
+		// -e for runtime vars (server-side, like MONGODB_URI)
+		console.log(`[${projectId}] Running Vercel deploy...`);
+		const mongoUri = (env as EnvWithVercel).MONGODB_URI;
+		const buildEnvVars = [
+			`--build-env NEXT_PUBLIC_DEPLOYMENT=production`,
+			`--build-env NEXT_PUBLIC_SURVEY_ID=${projectId}`,
+		].join(" ");
+		const runtimeEnvVars = [
+			mongoUri ? `-e MONGODB_URI="${mongoUri}"` : "",
+		].filter(Boolean).join(" ");
+		const deployCmd = `cd ${appDir} && vercel deploy --yes --prod --token=${vercelToken} ${buildEnvVars} ${runtimeEnvVars} 2>&1`;
+		const deployResult = await sandbox.exec(deployCmd, {
+			timeout: 300000, // 5 minutes timeout for build + deploy
+		});
+
+		console.log(`[${projectId}] Vercel output:`, deployResult.stdout);
+
+		if (deployResult.exitCode !== 0) {
+			console.error(`[${projectId}] Vercel deployment failed:`, deployResult.stdout || deployResult.stderr);
+			return new Response(
+				JSON.stringify({
+					success: false,
+					error: "Vercel deployment failed",
+					details: deployResult.stdout || deployResult.stderr,
+				}),
+				{ status: 500, headers: { "Content-Type": "application/json" } }
+			);
+		}
+
+		// Parse the Production URL from output
+		// Format: "Production: https://app-xxxxx.vercel.app [41s]"
+		const output = deployResult.stdout || "";
+		const productionMatch = output.match(/Production:\s+(https:\/\/[^\s\[]+)/);
+		const deployedUrl = productionMatch?.[1];
+		
+		// Extract inspector URL from output (optional, for debugging)
+		const inspectMatch = output.match(/Inspect:\s+(https:\/\/[^\s\[]+)/);
+		const inspectorUrl = inspectMatch?.[1];
+
+		if (!deployedUrl) {
+			console.error(`[${projectId}] Could not parse production URL from Vercel output`);
+			return new Response(
+				JSON.stringify({
+					success: false,
+					error: "Deployment succeeded but could not find production URL",
+					details: output,
+				}),
+				{ status: 500, headers: { "Content-Type": "application/json" } }
+			);
+		}
+
+		console.log(`[${projectId}] Deployment successful: ${deployedUrl}`);
+
+		return new Response(
+			JSON.stringify({
+				success: true,
+				url: deployedUrl,
+				inspectorUrl,
+			}),
+			{ headers: { "Content-Type": "application/json" } }
+		);
+	} catch (error) {
+		console.error(`[${projectId}] Vercel deployment failed:`, error);
+		return new Response(
+			JSON.stringify({ error: "Vercel deployment failed", details: String(error) }),
+			{ status: 500, headers: { "Content-Type": "application/json" } }
 		);
 	}
 }

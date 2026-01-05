@@ -14,6 +14,7 @@ import {
   submitResponses,
   buildSubmitPayload,
   setRespondentId as saveRespondentId,
+  SURVEY_ID,
 } from '../../../lib/api';
 
 // Lazy load QuestionRenderer for better performance
@@ -35,19 +36,10 @@ const QuestionLoader = () => (
   </div>
 );
 
-interface PageProps {
-  params: Promise<{ surveyId: string }>;
-}
-
-export default function QuestionPage({ params }: PageProps) {
+export default function QuestionPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const questionId = searchParams.get('q');
-  const [surveyId, setSurveyId] = React.useState<string>('');
-
-  React.useEffect(() => {
-    params.then((p) => setSurveyId(p.surveyId));
-  }, [params]);
 
   const { responses, addVisitedQuestion, visitedQuestions, progress, setProgress } = useSurvey();
   const [error, setError] = useState<string>('');
@@ -158,11 +150,9 @@ export default function QuestionPage({ params }: PageProps) {
           status = 'terminated';
         }
 
-        // Submit responses to API
-        // TODO: Get actual surveyId and projectId from URL params or environment
+        // Submit responses to API using environment constants
         const payload = buildSubmitPayload(
-          surveyId || '6952b7d8be66383d9b54fa99',
-          process.env.NEXT_PUBLIC_PROJECT_ID || '6952b7d8be66383d9b54fa99',
+          SURVEY_ID,
           responses,
           status,
           currentQuestion.id,
@@ -248,23 +238,20 @@ export default function QuestionPage({ params }: PageProps) {
 
         {/* Navigation Buttons */}
         <div className="flex justify-between items-center">
-          {/* Hide back button in production mode */}
-          {!isProduction && (
-            <button
-              onClick={handlePrevious}
-              disabled={!canGoPrevious || isSubmitting}
-              className={`button button-secondary ${
-                !canGoPrevious || isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              ← Previous
-            </button>
-          )}
+          <button
+            onClick={handlePrevious}
+            disabled={!canGoPrevious}
+            className={`button button-secondary ${
+              !canGoPrevious ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+          >
+            ← Previous
+          </button>
 
           <button
             onClick={handleNext}
             disabled={isSubmitting}
-            className={`button button-primary ${isProduction && !isSubmitting ? 'ml-auto' : ''} ${
+            className={`button button-primary ${
               isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >

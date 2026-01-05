@@ -17,7 +17,7 @@ export async function GET() {
     // For now, return healthy status
     const response: HealthCheckResponse = {
       status: 'healthy',
-      surveyId: process.env.SURVEY_ID || 'unknown',
+      surveyId: process.env.NEXT_PUBLIC_SURVEY_ID || 'unknown',
       timestamp: new Date().toISOString(),
       version: 1,
     };

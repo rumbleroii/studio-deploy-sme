@@ -31,8 +31,12 @@ export function useSandboxConnection(
 	const ensureAbortRef = useRef<AbortController | null>(null);
 	const ensureActiveRef = useRef(false);
 	const ensureBackoffMsRef = useRef(500);
+	const ensureRetryCountRef = useRef(0);
 	const startedForProjectRef = useRef<string | null>(null);
 	const heartbeatIntervalRef = useRef<number | null>(null);
+	
+	// Max retries before giving up (prevents infinite loops)
+	const MAX_ENSURE_RETRIES = 20;
 
 	const startEnsureLoop = useCallback(() => {
 		// Guard: don't start if already active for this project
@@ -44,6 +48,7 @@ export function useSandboxConnection(
 		if (startedForProjectRef.current !== projectId) {
 			ensureActiveRef.current = false;
 			ensureBackoffMsRef.current = 500;
+			ensureRetryCountRef.current = 0;
 		}
 		
 		ensureActiveRef.current = true;
@@ -84,11 +89,22 @@ export function useSandboxConnection(
 
 				ensureActiveRef.current = false;
 				ensureBackoffMsRef.current = 500;
+				ensureRetryCountRef.current = 0;
 				setSandboxStatus("connected");
 				setHasConnectedOnce(true);
 				setIsLoadingPreview(false);
 			} catch {
 				if (ensureAbortRef.current?.signal.aborted) return;
+
+				ensureRetryCountRef.current += 1;
+				
+				// Stop retrying after max attempts to prevent infinite loops
+				if (ensureRetryCountRef.current >= MAX_ENSURE_RETRIES) {
+					console.warn(`[Sandbox] Max retries (${MAX_ENSURE_RETRIES}) reached, stopping ensure loop`);
+					ensureActiveRef.current = false;
+					setSandboxStatus("connecting"); // Stay in connecting state
+					return;
+				}
 
 				setSandboxStatus("connecting");
 				const delay = ensureBackoffMsRef.current;

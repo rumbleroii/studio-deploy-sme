@@ -106,7 +106,7 @@ export async function POST(
 				// Try to auto-detect from Docker
 				const mappedPort = await getDockerMappedPort(3001);
 				if (mappedPort) {
-					data.previewUrl = `http://localhost:${mappedPort}`;
+					data.previewUrl = `http://localhost:${mappedPort}/`;
 					console.log("Set previewUrl from Docker:", data.previewUrl);
 				}
 			}

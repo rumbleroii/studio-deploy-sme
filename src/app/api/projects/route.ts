@@ -74,7 +74,6 @@ export async function POST(request: Request) {
 		const project = await prisma.project.create({
 			data: {
 				name: name.trim(),
-				sandboxId: null,
 				createdById: user.id,
 			},
 		});

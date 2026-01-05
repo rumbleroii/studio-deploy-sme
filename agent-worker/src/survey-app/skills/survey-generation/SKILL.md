@@ -33,12 +33,14 @@ Use this skill when the user:
 ## ⚠️ User Communication Guidelines
 
 **NEVER mention to the user:**
+
 - ❌ Port numbers (e.g., "port 3001", "running on 3001")
 - ❌ localhost URLs (e.g., "localhost:3001", "http://localhost")
 - ❌ Server technical details (e.g., "server is running on", "visit http://")
 - ❌ Command line instructions or technical setup
 
 **ALWAYS communicate:**
+
 - ✅ "The survey is ready for preview"
 - ✅ "Survey generation is complete"
 - ✅ "You can now test the survey"
@@ -184,18 +186,25 @@ Questionnaires use different formats for text substitution. Detect and convert A
 **CRITICAL - Hidden Variables Detection:**
 
 When parsing questionnaires, look for hidden/computed variables:
+
 - **Explicit**: "Hidden Variable", "Computed Field", "URL Parameter", "Random Assignment"
 - **Implicit**: Calculations shown to respondent, "Your total is $[CALCULATED]", URL tracking, A/B tests, timestamps
 
 **Convert to schema and use with piping:**
+
 ```typescript
 // In schema
 hiddenVariables: [
-  { id: "var_total", type: "computed", formula: "SUM(Q10.selected_prices)", computeOn: "Q10" }
-]
+  {
+    id: "var_total",
+    type: "computed",
+    formula: "SUM(Q10.selected_prices)",
+    computeOn: "Q10",
+  },
+];
 
 // In question text
-text: "Your total is $[INSERT VARIABLE.var_total]. Does this work?"
+text: "Your total is $[INSERT VARIABLE.var_total]. Does this work?";
 ```
 
 - **See**: `../shared/survey-logic-spec.md` Section 6 for complete specification (types, formulas, examples)
@@ -246,6 +255,7 @@ From `survey-generation-guide.md`, verify:
 **IMPORTANT - Internal Implementation Details (DO NOT mention to user):**
 
 When starting the development server:
+
 - **CRITICAL: Check if port 3001 is already running FIRST**
 - If port 3001 is already in use, **DO NOT kill it** - the server is already running
 - Only start the server if port 3001 is NOT in use: `PORT=3001 npm run dev`
@@ -253,55 +263,24 @@ When starting the development server:
 
 **Check if server is running:**
 
-**User Communication:**
-- Simply confirm: "The survey is ready for preview"
-- Do NOT mention: port numbers, localhost, URLs, or technical setup details
-- Keep responses non-technical and user-friendly
-#### Port Management Rules
-
-1. **Default Port**: Always use port 3001
-2. **Handle Conflicts**: If port 3001 is in use, terminate old instance and use 3001 to run the new instance.
-3. **No Alternatives**: Never use ports like 3000, 3002, etc. Always use port 3001.
-
-#### Start
 ```bash
 lsof -ti:3001
 # If this returns a process ID, server is already running - DO NOT start again
 # If this returns nothing, start the server: PORT=3001 npm run dev
 ```
 
-**CRITICAL - Cache Issue Fix:**
-
-If the user reports that changes are not reflecting (even after prompting to clear cache), follow these steps:
-
-```bash
-# Step 1: Stop the server if running
-lsof -ti:3001 && kill -9 $(lsof -ti:3001)
-
-# Step 2: Navigate to survey-app directory
-cd agent-worker/src/survey-app
-
-# Step 3: Remove Next.js cache
-rm -rf .next
-
-# Step 4: Clear node modules cache (optional but recommended)
-rm -rf node_modules/.cache
-
-# Step 5: Restart the server
-PORT=3001 npm run dev
-```
-
-**When to clear cache:**
-- ✅ Changes to survey schema not reflecting
-- ✅ Old questions still showing after updates
-- ✅ User reports stale/cached content
-- ✅ Updates to components or routes not visible
-- ❌ Do NOT clear cache on every generation (only when needed)
-
 **User Communication:**
+
 - Simply confirm: "The survey is ready for preview"
 - Do NOT mention: port numbers, localhost, URLs, technical setup details, or cache clearing
 - Keep responses non-technical and user-friendly
+
+#### Port Management Rules
+
+- ✅ Always check if port 3001 is running first: `lsof -ti:3001`
+- ❌ **DO NOT kill the port** if server is already running
+- ❌ **DO NOT restart** a running server unnecessarily
+- ✅ Only start if port 3001 is free
 
 ## API Integration
 
@@ -312,6 +291,7 @@ PORT=3001 npm run dev
 The hosted survey at `/survey/` submits responses to API endpoints **only in production mode**:
 
 1. **POST /api/submit** - Called after EVERY question (Next button click) in production
+
    - Saves responses incrementally to database
    - Generates and returns `respondentId` on first submission
    - Tracks survey status: 'incomplete' | 'complete' | 'terminated'
@@ -328,6 +308,7 @@ NEXT_PUBLIC_DEPLOYMENT=production   # API calls enabled
 ```
 
 **What the flag controls:**
+
 - **API submission** (disabled in development, enabled in production)
 - **RespondentId tracking** (not tracked in development, tracked in production)
 - **Database saves** (no database in development, saves in production)
@@ -337,101 +318,21 @@ NEXT_PUBLIC_DEPLOYMENT=production   # API calls enabled
 ### RespondentId Management
 
 **Production mode only:**
+
 - Automatically generated on first submission
 - Stored in localStorage for session persistence
 - Sent with all subsequent API calls
 - Cleared on survey completion or termination
 
 **Development mode:**
+
 - NOT tracked or stored
 - Allows local testing without database requirements
-
-### Database Configuration (Required for Production Mode)
-
-**CRITICAL:** Production mode requires MongoDB setup. Always verify database is configured.
-
-**Step 1: Check if MONGODB_URI exists:**
-```bash
-grep MONGODB_URI .env.local
-# If not found, database setup is needed
-```
-
-**Step 2: Set up MongoDB (if missing):**
-
-**For Local Development:**
-```bash
-# macOS
-brew tap mongodb/brew
-brew install mongodb-community
-brew services start mongodb-community
-
-# Ubuntu/Linux
-sudo apt-get install mongodb
-sudo systemctl start mongodb
-
-# Verify MongoDB is running
-mongosh  # Should connect successfully
-```
-
-**Step 3: Configure environment variable:**
-
-Add to `.env.local`:
-```bash
-# Local MongoDB
-MONGODB_URI="mongodb://localhost:27017/survey-studio"
-
-# OR MongoDB Atlas (cloud)
-MONGODB_URI="mongodb+srv://<username>:<password>@<cluster>.mongodb.net/survey-studio"
-
-# Production mode settings
-NEXT_PUBLIC_DEPLOYMENT=production
-NODE_ENV=production
-```
-
-**Step 4: Generate Prisma Client:**
-```bash
-npx prisma generate
-```
-
-**Step 5: Verify connection (optional but recommended):**
-```bash
-npx prisma db push
-# Should succeed without errors
-```
-
-**When to setup database:**
-- ✅ Always setup if `NEXT_PUBLIC_DEPLOYMENT=production`
-- ✅ Setup when user wants API submission/data persistence
-- ❌ Skip if only testing authoring view in development mode
-
-**Common Errors and Fixes:**
-
-**Error: "Submit endpoint failing"**
-- Check `MONGODB_URI` is in `.env.local`
-- Verify MongoDB is running: `pgrep mongod` or `brew services list | grep mongodb`
-- Regenerate Prisma client: `npx prisma generate`
-
-**Error: "Can't reach database server"**
-- Start MongoDB: `brew services start mongodb-community`
-- Check connection string format in `.env.local`
-- For Atlas: verify IP whitelist and credentials
-
-**Error: "PrismaClient is unable to run"**
-- Run: `npx prisma generate`
-- Restart dev server
-
-**Error: "Environment variable not found: MONGODB_URI"**
-- Create `.env.local` if missing
-- Add `MONGODB_URI` to the file
-- Restart dev server
-
-**Reference:** See `DATABASE-SETUP.md` for complete setup guide and troubleshooting.
-
----
 
 ### Implementation Details
 
 All API functionality is consolidated in:
+
 - `lib/api.ts` - All API functions
 - `types/api.ts` - TypeScript types for API contracts
 - `app/api/submit/route.ts` - POST endpoint
@@ -546,28 +447,37 @@ For complete documentation, see `../survey-hosted/API-IMPLEMENTATION.md`.
 - Delete loading.tsx files or loading states
 - Add heavy dependencies without dynamic imports
 - **Remove or modify API integration** in hosted survey routes
-- Add environment checks around API submission (APIs must always be called)
+- **Remove environment checks around API submission** (must check `isProduction` before calling APIs)
 - Remove respondentId management from localStorage
+- Call APIs in development mode (APIs should only be called when `isProduction === true`)
 - **Kill port 3001 if the server is already running** - check first with `lsof -ti:3001`, do NOT kill if running
 - Clear cache on every generation (only clear when user reports stale content)
-- **Forget to setup database for production mode** - always check `MONGODB_URI` exists and MongoDB is running when `NEXT_PUBLIC_DEPLOYMENT=production`
+- **Edit production files** - Never modify these core files:
+  - `lib/mongodb.ts` - Database connection (auto-configured during deployment)
+  - `lib/api.ts` - API utilities (production-ready)
+  - `app/api/submit/route.ts` - Submit endpoint (production-ready)
+  - `app/api/health/route.ts` - Health check endpoint (production-ready)
+  - `types/api.ts` - API type definitions (production-ready)
 
 ## Cache Troubleshooting
 
 **Proactive Cache Clearing Scenarios:**
 
 Clear cache BEFORE starting server if making these types of changes:
+
 - ✅ Major schema restructuring (adding/removing multiple questions)
 - ✅ Changing question types or logic structure
 - ✅ Modifying route patterns or navigation flow
 - ✅ Updating core component interfaces
 
 **Reactive Cache Clearing:**
+
 - ✅ User reports changes not reflecting
 - ✅ Old questions/content still visible after updates
 - ✅ Browser refresh doesn't show new content
 
 **Command:**
+
 ```bash
 cd agent-worker/src/survey-app
 rm -rf .next node_modules/.cache
@@ -593,6 +503,7 @@ A successful survey generation means:
 - Notes sections included with correct styling
 
 **Production Mode Additional Criteria:**
+
 - [ ] `MONGODB_URI` configured in `.env.local` (if production mode)
 - [ ] MongoDB is running and accessible
 - [ ] Prisma client generated successfully

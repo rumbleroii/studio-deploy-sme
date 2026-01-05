@@ -10,9 +10,11 @@ export default function CompletePage() {
   const searchParams = useSearchParams();
   const isTimeout = searchParams.get('timeout') === 'true';
 
-  // Clear respondent ID on mount
+  // Clear respondent ID on mount (production mode only)
   useEffect(() => {
-    clearRespondentId();
+    if (isProduction) {
+      clearRespondentId();
+    }
   }, []);
 
   const handleStartNew = () => {

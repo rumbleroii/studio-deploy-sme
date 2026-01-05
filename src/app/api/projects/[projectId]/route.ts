@@ -17,7 +17,6 @@ export async function GET(request: Request, { params }: RouteParams) {
 			select: {
 				id: true,
 				name: true,
-				sandboxId: true,
 				claudeSessionId: true,
 				createdById: true,
 				createdAt: true,

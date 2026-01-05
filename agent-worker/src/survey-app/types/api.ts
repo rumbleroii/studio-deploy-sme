@@ -29,9 +29,8 @@ export type SurveyStatus = 'incomplete' | 'complete' | 'terminated';
 
 // ─── Submit Payload (Request) ───
 export interface SubmitPayload {
-  // Survey identification
+  // Survey identification (used as key in MongoDB)
   surveyId: string;
-  projectId: string;
 
   // Respondent identification
   respondentId?: string;  // Omit on first call, include on subsequent
@@ -44,9 +43,6 @@ export interface SubmitPayload {
   status: SurveyStatus;
   currentQuestionId?: string;
   visitedQuestions: string[];
-
-  // Optional metadata (device info, timestamps, etc)
-  metadata?: Record<string, unknown>;
 }
 
 // ─── Submit Response ───

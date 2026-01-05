@@ -13,6 +13,12 @@ enum Role {
   admin
 }
 
+enum DeploymentStatus {
+  draft     
+  deployed  
+  error    
+}
+
 model User {
   id             String    @id @default(auto()) @map("_id") @db.ObjectId
   supabaseUserId String    @unique
@@ -26,16 +32,25 @@ model User {
 }
 
 model Project {
-  id                    String          @id @default(auto()) @map("_id") @db.ObjectId
-  name                  String
-  sandboxId             String?
-  claudeSessionId       String?
-  createdById           String          @db.ObjectId
-  createdBy             User            @relation("CreatedBy", fields: [createdById], references: [id])
-  messages              ProjectMessage[]
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  name            String
+  claudeSessionId String?
+  createdById     String   @db.ObjectId
+  createdBy       User     @relation("CreatedBy", fields: [createdById], references: [id])
+  messages        ProjectMessage[]
 
+  deploymentStatus  DeploymentStatus @default(draft)
+  deployedUrl       String?          
+  deployedAt        DateTime?
+  surveyVersion     Int              @default(1)  
+  lastHealthCheck   DateTime?
+  healthCheckStatus Boolean?         
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdById])
+  @@index([deploymentStatus])
   @@map("projects")
 }
 

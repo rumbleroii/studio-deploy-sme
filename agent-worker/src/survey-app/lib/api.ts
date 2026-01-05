@@ -11,8 +11,13 @@ import type {
   SurveyStatus
 } from '../types/api';
 
-// ─── Environment Flag ───
+// ─── Environment Constants ───
 export const isProduction = process.env.NEXT_PUBLIC_DEPLOYMENT === 'production';
+
+// Survey identifier from environment (set during deployment)
+// Falls back to default for local development
+// This is the key used to store/retrieve responses in MongoDB
+export const SURVEY_ID = process.env.NEXT_PUBLIC_SURVEY_ID || 'sample-survey';
 
 // ─── API Endpoints ───
 
@@ -98,7 +103,6 @@ export function clearRespondentId(): void {
  */
 export function buildSubmitPayload(
   surveyId: string,
-  projectId: string,
   responses: Record<string, unknown>,
   status: SurveyStatus,
   currentQuestionId: string | undefined,
@@ -125,7 +129,6 @@ export function buildSubmitPayload(
 
   return {
     surveyId,
-    projectId,
     respondentId,
     responses: responseArray,
     status,

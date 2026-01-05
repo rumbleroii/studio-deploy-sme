@@ -7,9 +7,11 @@ import { isProduction, clearRespondentId } from '../../../lib/api';
 export default function TerminatePage() {
   const { clearResponses } = useSurvey();
 
-  // Clear respondent ID on mount
+  // Clear respondent ID on mount (production mode only)
   useEffect(() => {
-    clearRespondentId();
+    if (isProduction) {
+      clearRespondentId();
+    }
   }, []);
 
   const handleReturn = () => {
