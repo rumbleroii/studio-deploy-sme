@@ -4,6 +4,12 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 export type SandboxStatus = "connecting" | "connected";
 
+// Heartbeat interval: ping every 1 minute to keep sandbox awake
+const HEARTBEAT_INTERVAL_MS = 1 * 60 * 1000;
+
+// Reconnection delay after visibility change (give browser time to stabilize)
+const VISIBILITY_RECONNECT_DELAY_MS = 500;
+
 interface UseSandboxConnectionResult {
 	sandboxStatus: SandboxStatus;
 	hasConnectedOnce: boolean;
@@ -25,12 +31,29 @@ export function useSandboxConnection(
 	const ensureAbortRef = useRef<AbortController | null>(null);
 	const ensureActiveRef = useRef(false);
 	const ensureBackoffMsRef = useRef(500);
+	const ensureRetryCountRef = useRef(0);
+	const startedForProjectRef = useRef<string | null>(null);
+	const heartbeatIntervalRef = useRef<number | null>(null);
+	
+	// Max retries before giving up (prevents infinite loops)
+	const MAX_ENSURE_RETRIES = 20;
 
 	const startEnsureLoop = useCallback(() => {
-		if (ensureActiveRef.current) return;
+		// Guard: don't start if already active for this project
+		if (ensureActiveRef.current && startedForProjectRef.current === projectId) {
+			return;
+		}
+		
+		// If switching projects, reset state
+		if (startedForProjectRef.current !== projectId) {
+			ensureActiveRef.current = false;
+			ensureBackoffMsRef.current = 500;
+			ensureRetryCountRef.current = 0;
+		}
+		
 		ensureActiveRef.current = true;
+		startedForProjectRef.current = projectId;
 
-		ensureBackoffMsRef.current = 500;
 		setSandboxStatus("connecting");
 
 		if (ensureTimeoutRef.current) {
@@ -66,11 +89,22 @@ export function useSandboxConnection(
 
 				ensureActiveRef.current = false;
 				ensureBackoffMsRef.current = 500;
+				ensureRetryCountRef.current = 0;
 				setSandboxStatus("connected");
 				setHasConnectedOnce(true);
 				setIsLoadingPreview(false);
 			} catch {
 				if (ensureAbortRef.current?.signal.aborted) return;
+
+				ensureRetryCountRef.current += 1;
+				
+				// Stop retrying after max attempts to prevent infinite loops
+				if (ensureRetryCountRef.current >= MAX_ENSURE_RETRIES) {
+					console.warn(`[Sandbox] Max retries (${MAX_ENSURE_RETRIES}) reached, stopping ensure loop`);
+					ensureActiveRef.current = false;
+					setSandboxStatus("connecting"); // Stay in connecting state
+					return;
+				}
 
 				setSandboxStatus("connecting");
 				const delay = ensureBackoffMsRef.current;
@@ -90,6 +124,8 @@ export function useSandboxConnection(
 
 	// Ensure sandbox is ready (and keep retrying until it is)
 	useEffect(() => {
+		// Always start ensure loop on mount - reset refs to allow reconnection
+		startedForProjectRef.current = null;
 		ensureActiveRef.current = false;
 		startEnsureLoop();
 
@@ -100,9 +136,94 @@ export function useSandboxConnection(
 			}
 			ensureAbortRef.current?.abort();
 			ensureAbortRef.current = null;
+			// Reset refs on unmount so remount will trigger reconnection
+			startedForProjectRef.current = null;
 			ensureActiveRef.current = false;
 		};
+	}, [projectId, startEnsureLoop]);
+
+	// Reconnect when page becomes visible again (user returns to tab/app)
+	useEffect(() => {
+		const triggerReconnect = () => {
+			// Force reconnection check
+			ensureActiveRef.current = false;
+			startEnsureLoop();
+		};
+
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === "visible") {
+				console.log("[Sandbox] Page visible - checking connection...");
+				// Small delay to let browser stabilize
+				setTimeout(() => {
+					triggerReconnect();
+				}, VISIBILITY_RECONNECT_DELAY_MS);
+			}
+		};
+
+		const handleOnline = () => {
+			console.log("[Sandbox] Network online - reconnecting...");
+			setSandboxStatus("connecting");
+			triggerReconnect();
+		};
+
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+		window.addEventListener("online", handleOnline);
+
+		return () => {
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
+			window.removeEventListener("online", handleOnline);
+		};
 	}, [startEnsureLoop]);
+
+	// Heartbeat: ping the sandbox periodically while connected to prevent hibernation
+	useEffect(() => {
+		console.log(`[Heartbeat] Effect running, status: ${sandboxStatus}, projectId: ${projectId}`);
+		
+		// Only start heartbeat when connected
+		if (sandboxStatus !== "connected") {
+			// Clear any existing heartbeat if we're not connected
+			if (heartbeatIntervalRef.current) {
+				console.log("[Heartbeat] Clearing interval - not connected");
+				window.clearInterval(heartbeatIntervalRef.current);
+				heartbeatIntervalRef.current = null;
+			}
+			return;
+		}
+
+		// Don't start another interval if one exists
+		if (heartbeatIntervalRef.current) {
+			console.log("[Heartbeat] Interval already exists, skipping");
+			return;
+		}
+
+		// Send heartbeat pings every 1 minute
+		const sendPing = async () => {
+			console.log(`[Heartbeat] Sending ping to ${projectId}...`);
+			try {
+				await fetch(`/api/projects/${projectId}/sandbox/ping`, {
+					method: "POST",
+				});
+				console.log("[Heartbeat] Ping sent successfully");
+			} catch (e) {
+				// Ping failures are non-critical, just log
+				console.warn("[Heartbeat] Ping failed:", e);
+			}
+		};
+
+		// Send first ping immediately, then at interval
+		console.log(`[Heartbeat] Starting heartbeat, interval: ${HEARTBEAT_INTERVAL_MS}ms`);
+		sendPing();
+		heartbeatIntervalRef.current = window.setInterval(sendPing, HEARTBEAT_INTERVAL_MS);
+
+		// Cleanup on unmount or when status changes
+		return () => {
+			console.log("[Heartbeat] Cleanup - clearing interval");
+			if (heartbeatIntervalRef.current) {
+				window.clearInterval(heartbeatIntervalRef.current);
+				heartbeatIntervalRef.current = null;
+			}
+		};
+	}, [projectId, sandboxStatus]);
 
 	return {
 		sandboxStatus,

@@ -17,7 +17,7 @@ export const PreviewPanel = memo(function PreviewPanel({
 	isEditInProgress = false,
 	className,
 }: PreviewPanelProps) {
-	const [previewEndpoint, setPreviewEndpoint] = useState<"/" | "/s/preview">("/");
+	const [previewEndpoint, setPreviewEndpoint] = useState<"/" | "/survey">("/");
 	const [iframeKey, setIframeKey] = useState(0);
 	const [iframeStatus, setIframeStatus] = useState<"loading" | "ready" | "error">("loading");
 	const iframeRef = useRef<HTMLIFrameElement>(null);

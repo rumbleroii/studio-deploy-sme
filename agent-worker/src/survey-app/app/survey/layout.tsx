@@ -1,4 +1,4 @@
-import { SurveyProvider } from '../../../lib/survey-context';
+import { SurveyProvider } from '../../lib/survey-context';
 
 export default function SurveyLayout({
   children,

@@ -38,6 +38,42 @@ export function NewProjectDialog() {
 		setFiles((prev) => [...prev, ...selectedFiles]);
 	};
 
+	// Helper: Convert PDF/DOCX to markdown using the extract-text API
+	const convertDocumentToMarkdown = async (file: File): Promise<{ name: string; content: string } | null> => {
+		try {
+			const formData = new FormData();
+			formData.append("file", file);
+
+			const response = await fetch("/api/extract-text", {
+				method: "POST",
+				body: formData,
+			});
+
+			if (!response.ok) {
+				console.warn(`Failed to convert ${file.name}:`, await response.text());
+				return null;
+			}
+
+			const { text } = await response.json();
+			
+			// Create markdown filename
+			const baseName = file.name.replace(/\.(pdf|docx)$/i, "");
+			return {
+				name: `${baseName}.md`,
+				content: text,
+			};
+		} catch (error) {
+			console.error(`Error converting ${file.name}:`, error);
+			return null;
+		}
+	};
+
+	// Helper: Check if file should be converted
+	const shouldConvertFile = (filename: string): boolean => {
+		const ext = filename.toLowerCase();
+		return ext.endsWith(".pdf") || ext.endsWith(".docx");
+	};
+
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 
@@ -73,22 +109,49 @@ export function NewProjectDialog() {
 		setCreating(true);
 
 		try {
-			// Convert files to base64 for upload
-			const uploadedFiles =
-				inputMode === "upload" && files.length > 0
-					? await Promise.all(
-							files.map(async (file) => {
-								const arrayBuffer = await file.arrayBuffer();
-								const bytes = new Uint8Array(arrayBuffer);
-								let binary = "";
-								for (let i = 0; i < bytes.byteLength; i++) {
-									binary += String.fromCharCode(bytes[i]);
-								}
-								const base64 = btoa(binary);
-								return { name: file.name, contentBase64: base64 };
-							})
-					  )
-					: undefined;
+			// Process files: convert PDF/DOCX to markdown, keep others as-is
+			let uploadedFiles: Array<{ name: string; contentBase64: string }> | undefined;
+			
+			if (inputMode === "upload" && files.length > 0) {
+				const processedFiles: Array<{ name: string; contentBase64: string }> = [];
+				
+				for (const file of files) {
+					// Check if this is a PDF or DOCX that needs conversion
+					if (shouldConvertFile(file.name)) {
+						toast({
+							title: "Converting document",
+							description: `Converting ${file.name} to text...`,
+						});
+						
+						const converted = await convertDocumentToMarkdown(file);
+						if (!converted) {
+							// Conversion failed - stop project creation
+							toast({
+								variant: "destructive",
+								title: "Conversion failed",
+								description: `Could not convert ${file.name}. Please try a different file or format.`,
+							});
+							setCreating(false);
+							return;
+						}
+						// Return converted markdown as base64
+						const base64 = btoa(unescape(encodeURIComponent(converted.content)));
+						processedFiles.push({ name: converted.name, contentBase64: base64 });
+					} else {
+						// For non-convertible files, upload as-is
+						const arrayBuffer = await file.arrayBuffer();
+						const bytes = new Uint8Array(arrayBuffer);
+						let binary = "";
+						for (let i = 0; i < bytes.byteLength; i++) {
+							binary += String.fromCharCode(bytes[i]);
+						}
+						const base64 = btoa(binary);
+						processedFiles.push({ name: file.name, contentBase64: base64 });
+					}
+				}
+				
+				uploadedFiles = processedFiles;
+			}
 
 			const res = await fetch("/api/projects", {
 				method: "POST",

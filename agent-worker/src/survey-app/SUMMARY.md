@@ -27,7 +27,7 @@ This Next.js application successfully implements a complete survey system based 
   - Exact theme specifications from survey-ui-theme.md
 
 ### 3. Hosted Survey Experience
-- **Routes**: `/s/preview/*`
+- **Routes**: `/survey/*`
 - **Files**:
   - `app/s/[surveyId]/page.tsx` - Welcome screen
   - `app/s/[surveyId]/question/page.tsx` - Question screens

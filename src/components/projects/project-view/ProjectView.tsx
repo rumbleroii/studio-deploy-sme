@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { ArrowLeft, PanelRightClose, PanelRight, FileText, Eye, Globe, Loader2, RefreshCw, User, Users, Users2, File, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 import { useSandboxConnection } from "./hooks/useSandboxConnection";
 import { useProjectFiles } from "./hooks/useProjectFiles";
@@ -45,9 +46,12 @@ export function ProjectView({
 	const [isFixingIssues, setIsFixingIssues] = useState(false);
 	const [isPublished, setIsPublished] = useState(false);
 	const [inviteModalOpen, setInviteModalOpen] = useState(false);
-	const [isEditInProgress, setIsEditInProgress] = useState(false)
+	const [isEditInProgress, setIsEditInProgress] = useState(false);
+	const [isPublishing, setIsPublishing] = useState(false);
+	const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
 
 	const chatPanelRef = useRef<ChatPanelHandle>(null);
+	const { toast } = useToast();
 
 	// Dummy QA checks data with proper codes
 	const dummyQAChecks = [
@@ -64,7 +68,49 @@ export function ProjectView({
 	];
 
 	const handleInviteParticipants = async () => {
-		setInviteModalOpen(true);
+		// If already published and we have a URL, just open the modal
+		if (deployedUrl) {
+			setInviteModalOpen(true);
+			return;
+		}
+
+		// Otherwise, publish first
+		setIsPublishing(true);
+		try {
+			const response = await fetch(`/api/projects/${project.id}/publish`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+			});
+
+			const data = await response.json();
+
+			if (!response.ok || !data.success) {
+				toast({
+					variant: "destructive",
+					title: "Failed to publish",
+					description: data.error || "Could not publish the survey",
+				});
+				return;
+			}
+
+			// Success - store the URL and open modal
+			setDeployedUrl(data.deployedUrl);
+			toast({
+				title: "Survey published!",
+				description: `Version ${data.surveyVersion} is now live`,
+			});
+			setInviteModalOpen(true);
+		} catch (error) {
+			toast({
+				variant: "destructive",
+				title: "Failed to publish",
+				description: "An unexpected error occurred",
+			});
+		} finally {
+			setIsPublishing(false);
+		}
 	};
 
 	const handleReviewAndPublish = async () => {
@@ -121,12 +167,48 @@ export function ProjectView({
 			// Simulate fixing process
 			await new Promise(resolve => setTimeout(resolve, 2000));
 			setIsFixingIssues(false);
-			setIsPublished(true)
-			setIsRunningQA(false)
 		}
 		
-		// Keep showing checks after completion
-		// setIsRunningQA(false); // Keep this commented to show checks permanently
+		setIsRunningQA(false);
+		
+		// QA complete - now publish the survey
+		setIsPublishing(true);
+		try {
+			const response = await fetch(`/api/projects/${project.id}/publish`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+			});
+
+			const data = await response.json();
+
+			if (!response.ok || !data.success) {
+				toast({
+					variant: "destructive",
+					title: "Failed to publish",
+					description: data.error || "Could not publish the survey",
+				});
+				return;
+			}
+
+			// Success - store the URL and open modal
+			setDeployedUrl(data.deployedUrl);
+			setIsPublished(true);
+			toast({
+				title: "Survey published!",
+				description: `Version ${data.surveyVersion} is now live`,
+			});
+			setInviteModalOpen(true);
+		} catch (error) {
+			toast({
+				variant: "destructive",
+				title: "Failed to publish",
+				description: "An unexpected error occurred",
+			});
+		} finally {
+			setIsPublishing(false);
+		}
 	};
 
 	// Sandbox connection hook
@@ -292,12 +374,17 @@ export function ProjectView({
 					className="bg-burgundy-500 hover:bg-burgundy-600 text-white h-9 px-4 gap-2"
 					size="sm"
 					onClick={isPublished ? handleInviteParticipants : handleReviewAndPublish}
-					disabled={isRunningQA}
+					disabled={isRunningQA || isPublishing}
 				>
 					{isRunningQA ? (
 						<>
 							<Loader2 className="h-4 w-4 animate-spin" />
 							Running Quality Checks
+						</>
+					) : isPublishing ? (
+						<>
+							<Loader2 className="h-4 w-4 animate-spin" />
+							Publishing...
 						</>
 					) : isPublished && !isRunningQA ? (
 						<>
@@ -544,7 +631,7 @@ export function ProjectView({
 									/>
 									) : viewMode === "preview" ? (
 										<PreviewPanel
-											previewUrl={`${previewUrl}s/preview`}
+											previewUrl={`${previewUrl}survey`}
 											isLoadingPreview={isLoadingPreview}
 											className="flex-1"
 										/>
@@ -593,7 +680,7 @@ export function ProjectView({
 			<InviteParticipantsModal
 				open={inviteModalOpen}
 				onOpenChange={setInviteModalOpen}
-				surveyUrl={`survey.metaforms.app/${project.id}`}
+				surveyUrl={deployedUrl || `https://surveys.metaforms.ai/s/${project.id}`}
 			/>
 		</div>
 	);

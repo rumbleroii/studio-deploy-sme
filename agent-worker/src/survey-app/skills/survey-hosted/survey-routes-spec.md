@@ -454,8 +454,8 @@ export function TerminationScreen({ survey }: { survey: Survey }) {
   const router = useRouter();
 
   const handleReturnHome = () => {
-    // CRITICAL: Return to home redirects to /s/preview
-    router.push('/s/preview');
+    // CRITICAL: Return to home redirects to /survey
+    router.push('/survey');
   };
 
   return (
@@ -478,7 +478,7 @@ export function TerminationScreen({ survey }: { survey: Survey }) {
 }
 ```
 
-**Important**: The "Return to Home" button must redirect to `/s/preview`, not to any other route.
+**Important**: The "Return to Home" button must redirect to `/survey`, not to any other route.
 
 ---
 
@@ -590,7 +590,7 @@ if (response.surveyId !== surveyId) {
 ```typescript
 // Prevent accessing completed survey
 if (response.completedAt) {
-  redirect(`/s/preview/complete?responseId=${response.id}`);
+  redirect(`/survey/complete?responseId=${response.id}`);
 }
 ```
 

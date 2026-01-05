@@ -30,6 +30,24 @@ Use this skill when the user:
 - Mentions "questionnaire" and "survey" together
 - Requests a survey authoring or design view
 
+## ⚠️ User Communication Guidelines
+
+**NEVER mention to the user:**
+
+- ❌ Port numbers (e.g., "port 3001", "running on 3001")
+- ❌ localhost URLs (e.g., "localhost:3001", "http://localhost")
+- ❌ Server technical details (e.g., "server is running on", "visit http://")
+- ❌ Command line instructions or technical setup
+
+**ALWAYS communicate:**
+
+- ✅ "The survey is ready for preview"
+- ✅ "Survey generation is complete"
+- ✅ "You can now test the survey"
+- ✅ Keep all responses simple and non-technical
+
+---
+
 ## Instructions
 
 ### Step 1: Understand the Boilerplate Application
@@ -43,7 +61,7 @@ app/
 ├── app/
 │   ├── page.tsx                    # Authoring view
 │   ├── globals.css                 # THEME (preserve exactly)
-│   └── s/preview/                  # Hosted survey routes
+│   └── survey/                  # Hosted survey routes
 ├── components/                      # Reusable components
 │   ├── Badge.tsx, QuestionCard.tsx, QuestionRenderer.tsx, etc.
 ├── data/                           # Survey schemas
@@ -112,7 +130,7 @@ When user uploads a questionnaire:
 2. **Follow complete-generation-checklist.md** - CRITICAL to avoid missing questions
 3. **Detect piping patterns** - Questionnaires use various formats (see below)
 4. **Read existing schema files** in `app/data/` for format reference
-5. **Create new survey schema file** in `app/data/[survey-name]-survey.ts`
+5. **update existing sample-survey.ts file** in `app/data/sample-survey.ts`
 6. **Follow exact TypeScript structure** from existing schemas
 7. **Include all**: metadata, sections, questions, options, logic, notes
 
@@ -162,7 +180,34 @@ Questionnaires use different formats for text substitution. Detect and convert A
   - `"You selected {Q5 option}"` → `"You selected [INSERT Q5 LABEL]"`
   - `"Total: $Q4 sum$"` → `"Total: $[INSERT Q4.SUM]"`
 - **See**: `survey-generation-guide.md` Section C1 for complete patterns
+- **See**: `../shared/survey-logic-spec.md` Section 5 for comprehensive piping documentation
 - **Works in**: Both questionnaire view (authoring) and respondent view automatically
+
+**CRITICAL - Hidden Variables Detection:**
+
+When parsing questionnaires, look for hidden/computed variables:
+
+- **Explicit**: "Hidden Variable", "Computed Field", "URL Parameter", "Random Assignment"
+- **Implicit**: Calculations shown to respondent, "Your total is $[CALCULATED]", URL tracking, A/B tests, timestamps
+
+**Convert to schema and use with piping:**
+
+```typescript
+// In schema
+hiddenVariables: [
+  {
+    id: "var_total",
+    type: "computed",
+    formula: "SUM(Q10.selected_prices)",
+    computeOn: "Q10",
+  },
+];
+
+// In question text
+text: "Your total is $[INSERT VARIABLE.var_total]. Does this work?";
+```
+
+- **See**: `../shared/survey-logic-spec.md` Section 6 for complete specification (types, formulas, examples)
 
 ### Step 4: Update or Create Files in app
 
@@ -207,91 +252,93 @@ From `survey-generation-guide.md`, verify:
 
 ### Step 6: Start Development Server
 
-**CRITICAL: Always run on port 3001**
+**IMPORTANT - Internal Implementation Details (DO NOT mention to user):**
 
-When starting the development server or testing the survey:
+When starting the development server:
+
+- **CRITICAL: Check if port 3001 is already running FIRST**
+- If port 3001 is already in use, **DO NOT kill it** - the server is already running
+- Only start the server if port 3001 is NOT in use: `PORT=3001 npm run dev`
+- Never mention port numbers, localhost URLs, or technical details to the user
+
+**Check if server is running:**
+
+```bash
+lsof -ti:3001
+# If this returns a process ID, server is already running - DO NOT start again
+# If this returns nothing, start the server: PORT=3001 npm run dev
+```
+
+**User Communication:**
+
+- Simply confirm: "The survey is ready for preview"
+- Do NOT mention: port numbers, localhost, URLs, technical setup details, or cache clearing
+- Keep responses non-technical and user-friendly
 
 #### Port Management Rules
 
-1. **Default Port**: Always use port 3001
-2. **Handle Conflicts**: If port 3001 is in use, terminate old instance and use 3001 to run the new instance.
-3. **No Alternatives**: Never use ports like 3000, 3002, etc. Always use port 3001.
+- ✅ Always check if port 3001 is running first: `lsof -ti:3001`
+- ❌ **DO NOT kill the port** if server is already running
+- ❌ **DO NOT restart** a running server unnecessarily
+- ✅ Only start if port 3001 is free
 
-#### Starting Process
+## API Integration
 
-**Standard sequence:**
+**IMPORTANT:** The survey app includes full API integration for production deployments.
+
+### Overview
+
+The hosted survey at `/survey/` submits responses to API endpoints **only in production mode**:
+
+1. **POST /api/submit** - Called after EVERY question (Next button click) in production
+
+   - Saves responses incrementally to database
+   - Generates and returns `respondentId` on first submission
+   - Tracks survey status: 'incomplete' | 'complete' | 'terminated'
+
+2. **GET /api/health** - Health check for studio app
+   - Verifies survey is live and accessible
+   - Returns survey status, ID, timestamp, and version
+
+### Environment Flag Behavior
+
 ```bash
-# Step 1: Check if port 3001 is in use
-lsof -ti:3001
-
-# Step 2: If a process exists, kill it
-kill -9 $(lsof -ti:3001)
-
-# Step 3: Start dev server on port 3001
-PORT=3001 npm run dev
+NEXT_PUBLIC_DEPLOYMENT=development  # NO API calls
+NEXT_PUBLIC_DEPLOYMENT=production   # API calls enabled
 ```
 
-**Quick command** (handles all steps):
-```bash
-# Kill any process on 3001 and start dev server
-lsof -ti:3001 && kill -9 $(lsof -ti:3001) || true && PORT=3001 npm run dev
-```
+**What the flag controls:**
 
-#### Common Scenarios
+- **API submission** (disabled in development, enabled in production)
+- **RespondentId tracking** (not tracked in development, tracked in production)
+- **Database saves** (no database in development, saves in production)
 
-**Scenario 1: Port Already in Use**
-```bash
-# Error: Port 3001 is already in use
-# Solution: Kill and restart
-kill -9 $(lsof -ti:3001) && PORT=3001 npm run dev
-```
+**Note:** Back button is always visible in both development and production modes.
 
-**Scenario 2: Starting Fresh**
-```bash
-# Clean start with port check
-lsof -ti:3001 && kill -9 $(lsof -ti:3001) || true
-PORT=3001 npm run dev
-```
+### RespondentId Management
 
-**Scenario 3: Multiple Terminal Sessions**
-- If dev server is in another terminal, kill it first
-- Use: `kill -9 $(lsof -ti:3001)`
-- Then start new instance
+**Production mode only:**
 
-#### Why Port 3001?
+- Automatically generated on first submission
+- Stored in localStorage for session persistence
+- Sent with all subsequent API calls
+- Cleared on survey completion or termination
 
-- **Consistency**: All URLs and references use port 3001
-- **Dedicated Port**: Separate from default Next.js port (3000)
-- **Preview URLs**: Configured for localhost:3001
-- **Testing**: Test scripts expect port 3001
+**Development mode:**
 
-#### Important Notes
+- NOT tracked or stored
+- Allows local testing without database requirements
 
-- **Always specify port**: Use `PORT=3001 npm run dev`
-- **Check for conflicts**: If port 3001 is busy, kill old processes before starting
-- **Port 3001 is mandatory** for local development
-- **Consistency matters** for URL references and testing
+### Implementation Details
 
-#### Troubleshooting
+All API functionality is consolidated in:
 
-**Port still shows as in use:**
-```bash
-# Force kill with sudo (use cautiously)
-sudo lsof -ti:3001 | xargs kill -9
+- `lib/api.ts` - All API functions
+- `types/api.ts` - TypeScript types for API contracts
+- `app/api/submit/route.ts` - POST endpoint
+- `app/api/health/route.ts` - GET endpoint
 
-# Or find specific process
-lsof -i:3001
-# Then kill by PID: kill -9 <PID>
-```
-
-**Prisma issues:**
-```bash
-# Regenerate Prisma client
-npx prisma generate
-
-# Then start dev server
-PORT=3001 npm run dev
-```
+For complete documentation, see `../survey-hosted/API-IMPLEMENTATION.md`.
 
 ## Key Files Reference
 
@@ -380,6 +427,10 @@ PORT=3001 npm run dev
 - Use lazy loading for heavy components with Suspense fallbacks
 - Add loading.tsx files for new routes
 - **USE RESEARCH MANAGER TERMINOLOGY ONLY** - Never expose technical terms like "skip logic", "code logic", "variables" (see ../shared/survey-terminology-spec.md)
+- **Preserve API integration** - Never remove or modify API calls in `/survey/question/page.tsx`
+- Ensure `/api/submit` is called after every Next button click (only when `isProduction === true`)
+- Maintain respondentId management via localStorage (production mode only)
+- Keep environment flag checks around API submission logic (`if (isProduction)`)
 
 ### Never:
 
@@ -395,6 +446,45 @@ PORT=3001 npm run dev
 - Remove lazy loading or Suspense wrappers from components
 - Delete loading.tsx files or loading states
 - Add heavy dependencies without dynamic imports
+- **Remove or modify API integration** in hosted survey routes
+- **Remove environment checks around API submission** (must check `isProduction` before calling APIs)
+- Remove respondentId management from localStorage
+- Call APIs in development mode (APIs should only be called when `isProduction === true`)
+- **Kill port 3001 if the server is already running** - check first with `lsof -ti:3001`, do NOT kill if running
+- Clear cache on every generation (only clear when user reports stale content)
+- **Edit production files** - Never modify these core files:
+  - `lib/mongodb.ts` - Database connection (auto-configured during deployment)
+  - `lib/api.ts` - API utilities (production-ready)
+  - `app/api/submit/route.ts` - Submit endpoint (production-ready)
+  - `app/api/health/route.ts` - Health check endpoint (production-ready)
+  - `types/api.ts` - API type definitions (production-ready)
+
+## Cache Troubleshooting
+
+**Proactive Cache Clearing Scenarios:**
+
+Clear cache BEFORE starting server if making these types of changes:
+
+- ✅ Major schema restructuring (adding/removing multiple questions)
+- ✅ Changing question types or logic structure
+- ✅ Modifying route patterns or navigation flow
+- ✅ Updating core component interfaces
+
+**Reactive Cache Clearing:**
+
+- ✅ User reports changes not reflecting
+- ✅ Old questions/content still visible after updates
+- ✅ Browser refresh doesn't show new content
+
+**Command:**
+
+```bash
+cd agent-worker/src/survey-app
+rm -rf .next node_modules/.cache
+PORT=3001 npm run dev
+```
+
+---
 
 ## Success Criteria
 
@@ -411,6 +501,14 @@ A successful survey generation means:
 - All badges present and correctly colored
 - Logic displayed correctly with proper colors
 - Notes sections included with correct styling
+
+**Production Mode Additional Criteria:**
+
+- [ ] `MONGODB_URI` configured in `.env.local` (if production mode)
+- [ ] MongoDB is running and accessible
+- [ ] Prisma client generated successfully
+- [ ] Database connection verified (optional: `npx prisma db push`)
+- [ ] API endpoints tested and responding correctly
 
 ## Supporting Files
 
@@ -431,7 +529,7 @@ This skill includes 12 supporting documentation files with ~7,000 lines of detai
    - Verify theme consistency
 
 2. **survey-hosted skill** (auto-triggered next):
-   - Update hosted survey routes in `app/app/s/preview/`
+   - Update hosted survey routes in `app/app/survey/`
    - Ensure logic evaluation works with new schema
    - Verify navigation and state management
    - Confirm same theme applied throughout

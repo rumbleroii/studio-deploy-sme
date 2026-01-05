@@ -1,6 +1,6 @@
 ---
 name: survey-hosted
-description: Implements hosted survey runtime for respondents using the existing Next.js app at app as boilerplate. Typically auto-triggered after survey-generation skill completes. Updates existing routes in app/app/s/preview/ for welcome screen, question screens, navigation (Previous/Next), progress tracking, logic evaluation, and thank you screen. NEVER creates apps from scratch - always modifies existing boilerplate. Keyword triggers - hosted survey, survey runtime, respondent experience, survey flow, implement survey, build survey, deploy survey.
+description: Implements hosted survey runtime for respondents using the existing Next.js app at app as boilerplate. Typically auto-triggered after survey-generation skill completes. Updates existing routes in app/app/survey/ for welcome screen, question screens, navigation (Previous/Next), progress tracking, logic evaluation, and thank you screen. NEVER creates apps from scratch - always modifies existing boilerplate. Keyword triggers - hosted survey, survey runtime, respondent experience, survey flow, implement survey, build survey, deploy survey.
 ---
 
 # Survey Hosted Skill
@@ -13,13 +13,13 @@ This skill provides specifications for updating the **hosted survey runtime** in
 
 **CRITICAL:** Always use the existing Next.js app at `app` as the foundation:
 
-- **Location:** `app/app/s/preview/` directory
+- **Location:** `app/app/survey/` directory
 - **Never create from scratch:** Always modify existing routes
 - **Existing routes:**
-  - `app/app/s/preview/page.tsx` - Welcome screen
-  - `app/app/s/preview/question/page.tsx` - Question screens
-  - `app/app/s/preview/complete/page.tsx` - Thank you screen
-  - `app/app/s/preview/terminate/page.tsx` - Termination screen
+  - `app/app/survey/page.tsx` - Welcome screen
+  - `app/app/survey/question/page.tsx` - Question screens
+  - `app/app/survey/complete/page.tsx` - Thank you screen
+  - `app/app/survey/terminate/page.tsx` - Termination screen
 - **Components:** Reuse from `app/components/`
 - **Theme:** Already implemented in `app/app/globals.css`
 
@@ -28,10 +28,10 @@ This skill provides specifications for updating the **hosted survey runtime** in
 **ALWAYS use these exact routes for navigation:**
 
 ```typescript
-// ✅ CORRECT - Use /s/preview/ paths
-router.push(`/s/preview/question?q=${nextQuestionId}`);
-router.push(`/s/preview/complete`);
-router.push(`/s/preview/terminate`);
+// ✅ CORRECT - Use /survey/ paths
+router.push(`/survey/question?q=${nextQuestionId}`);
+router.push(`/survey/complete`);
+router.push(`/survey/terminate`);
 
 // ❌ WRONG - Never use surveyId in paths (will be undefined)
 router.push(`/s/${surveyId}/complete`);
@@ -40,19 +40,19 @@ router.push(`/s/${surveyId}/terminate`);
 
 **Route Pattern:**
 
-- Base: `/s/preview/`
-- Welcome: `/s/preview`
-- Questions: `/s/preview/question?q={questionId}` (query param, not dynamic route)
-- Complete: `/s/preview/complete`
-- Terminate: `/s/preview/terminate`
+- Base: `/survey/`
+- Welcome: `/survey`
+- Questions: `/survey/question?q={questionId}` (query param, not dynamic route)
+- Complete: `/survey/complete`
+- Terminate: `/survey/terminate`
 
 ## Part of Sequential Workflow
 
-**IMPORTANT:** This skill is typically auto-triggered after the `survey-generation` skill completes to provide a complete survey system (authoring view + respondent experience).
+**IMPORTANT:** This skill MUST BE triggered after the `survey-generation` skill completes to provide a complete survey system (authoring view + respondent experience).
 
 ### Sequential Trigger:
 
-- **Primary workflow:** survey-generation → survey-hosted (automatic)
+- **Primary workflow:** survey-generation → survey-hosted
 - **Standalone workflow:** survey-hosted only (when explicitly requested)
 
 ### Complete Survey System:
@@ -60,11 +60,29 @@ router.push(`/s/${surveyId}/terminate`);
 1. **survey-generation** creates the authoring/design view
 2. **survey-hosted** (this skill) creates the respondent runtime experience
 
+## ⚠️ User Communication Guidelines
+
+**NEVER mention to the user:**
+
+- ❌ Port numbers (e.g., "port 3001", "running on 3001")
+- ❌ localhost URLs (e.g., "localhost:3001", "http://localhost")
+- ❌ Server technical details (e.g., "server is running on", "visit http://")
+- ❌ Command line instructions or technical setup
+
+**ALWAYS communicate:**
+
+- ✅ "The survey is ready for preview"
+- ✅ "Survey implementation is complete"
+- ✅ "You can now test the survey"
+- ✅ Keep all responses simple and non-technical
+
+---
+
 ## When to Use This Skill
 
 ### Auto-Triggered:
 
-This skill is automatically activated after survey-generation completes when user requests a complete survey.
+This skill MUST BE activated after survey-generation completes when user requests a complete survey.
 
 ### Standalone Use:
 
@@ -82,10 +100,10 @@ Use this skill independently when the user:
 
 ### Step 1: Understand the Boilerplate Structure
 
-**ALWAYS work with existing routes in `app/app/s/preview/`:**
+**ALWAYS work with existing routes in `app/app/survey/`:**
 
 ```
-app/app/s/preview/
+app/app/survey/
 ├── page.tsx                    # Welcome screen (already exists)
 ├── question/page.tsx           # Question screens (already exists)
 ├── complete/page.tsx           # Thank you screen (already exists)
@@ -98,23 +116,23 @@ app/app/s/preview/
 The hosted survey is different from the questionnaire view:
 
 - **Questionnaire view** (`app/app/page.tsx`) = Design/authoring interface (shows all questions)
-- **Hosted survey** (`app/app/s/preview/*`) = Respondent-facing experience (one question at a time)
+- **Hosted survey** (`app/app/survey/*`) = Respondent-facing experience (one question at a time)
 
 This skill is for updating the hosted survey (respondent experience).
 
 ### Step 3: Understand the Flow
 
 ```
-Welcome Screen (/s/preview/)
+Welcome Screen (/survey/)
         ↓
-Question Screens (/s/preview/question)
+Question Screens (/survey/question)
 ├── Question display
 ├── Input collection
 ├── Validation
 ├── Progress indicator
 └── Navigation (Previous/Next)
         ↓
-Thank You Screen (/s/preview/complete)
+Thank You Screen (/survey/complete)
 ```
 
 ### Step 4: Update Existing Routes
@@ -123,13 +141,13 @@ Thank You Screen (/s/preview/complete)
 
 #### A. Welcome Screen
 
-- Update `app/app/s/preview/page.tsx`
+- Update `app/app/survey/page.tsx`
 - Ensure it reads the correct survey schema
 - Maintain existing structure and theme
 
 #### B. Question Screens
 
-- Update `app/app/s/preview/question/page.tsx`
+- Update `app/app/survey/question/page.tsx`
 - Verify navigation logic works with updated schema
 - Reuse existing QuestionRenderer component
 
@@ -164,16 +182,15 @@ Verify real-time evaluation works:
 - Display conditions
 - Dynamic options
 - Branching flows
-- **Piping/text substitution** (displays previous answers in question text)
+- **Piping/text substitution**: Displays previous answers in question text (Section 5)
+- **Hidden variables**: Computed values, URL params, random assignments (Section 6)
 
-**Piping in Respondent View:**
+**See `../shared/survey-logic-spec.md` for complete implementation details on:**
 
-- Automatically replaces `[INSERT Q#]` with answer values
-- Replaces `[INSERT Q# LABEL]` with option labels
-- Updates in real-time as user answers questions
-- Shows `[No response]` if question not yet answered
-- Works for all question types (single choice, multiple choice, text, etc.)
-- Implementation: QuestionRenderer receives `allQuestions` prop for label lookups
+- All piping patterns (raw values, labels, counts, aggregates)
+- Hidden variable types (url_param, computed, derived, timestamp, random)
+- Runtime computation and formula evaluation
+- Integration with show/hide conditions and navigation
 
 ### Step 5: Apply Theme Consistency
 
@@ -219,11 +236,75 @@ Reference: `../shared/survey-ui-theme.md`
 - Estimated time remaining
 - Question numbering (e.g., "Question 5 of 20")
 
-### Step 7: Verify Implementation
+### Step 7: Configure Database (Production Mode Only)
+
+**CRITICAL:** If user wants production mode with API submission, database must be configured.
+
+**Check if database setup is needed:**
+
+```bash
+# Check if MONGODB_URI exists in .env.local
+grep MONGODB_URI .env.local
+```
+
+**If MONGODB_URI is missing, set it up:**
+
+1. **Verify MongoDB is installed and running:**
+
+```bash
+# macOS - Check if MongoDB is installed
+brew services list | grep mongodb
+
+# If not installed:
+brew tap mongodb/brew
+brew install mongodb-community
+brew services start mongodb-community
+
+# Ubuntu/Linux
+sudo systemctl status mongodb
+```
+
+2. **Add MONGODB_URI to `.env.local`:**
+
+```bash
+# For local MongoDB (development/testing)
+MONGODB_URI="mongodb://localhost:27017/survey-studio"
+
+# For MongoDB Atlas (production)
+MONGODB_URI="mongodb+srv://<username>:<password>@<cluster>.mongodb.net/survey-studio"
+```
+
+3. **Generate Prisma Client:**
+
+```bash
+npx prisma generate
+```
+
+4. **Verify connection (optional):**
+
+```bash
+npx prisma db push
+```
+
+**When to skip database setup:**
+
+- ✅ Skip if `NEXT_PUBLIC_DEPLOYMENT=development` (no API calls needed)
+- ✅ Skip if user only wants authoring view testing
+- ❌ Do NOT skip if `NEXT_PUBLIC_DEPLOYMENT=production` (API calls require database)
+
+**Troubleshooting:**
+
+- If submit endpoint fails → Check MongoDB is running and `MONGODB_URI` is set
+- If Prisma errors → Run `npx prisma generate`
+- See `DATABASE-SETUP.md` for detailed troubleshooting
+
+---
+
+### Step 8: Verify Implementation
 
 Check that existing functionality works:
 
-- [ ] Routes exist at `app/app/s/preview/*`
+- [ ] Routes exist at `app/app/survey/*`
 - [ ] Welcome screen displays correct survey
 - [ ] Question screens navigate properly
 - [ ] Thank you screen displays on completion
@@ -235,6 +316,15 @@ Check that existing functionality works:
 - [ ] Theme consistent with questionnaire view
 - [ ] Mobile responsive
 - [ ] Accessible (keyboard + screen reader)
+
+**Production Mode Additional Checks:**
+
+- [ ] `MONGODB_URI` configured in `.env.local`
+- [ ] MongoDB is running and accessible
+- [ ] Prisma client generated (`npx prisma generate`)
+- [ ] Submit endpoint responds successfully (check browser console)
+- [ ] RespondentId is generated and saved to localStorage
+- [ ] Responses are saved to database after each question
 
 ## Key Files Reference
 
@@ -266,7 +356,7 @@ Check that existing functionality works:
 
 **Action:**
 
-1. Verify existing routes at `app/app/s/preview/*`
+1. Verify existing routes at `app/app/survey/*`
 2. Check welcome screen reads correct survey schema
 3. Confirm question screens navigate properly with updated schema
 4. Test logic evaluation with new questions/conditions
@@ -291,11 +381,120 @@ Check that existing functionality works:
 
 **Action:**
 
-1. Read `app/app/s/preview/question/page.tsx`
+1. Read `app/app/survey/question/page.tsx`
 2. Add time estimation logic, default should be 5 mins.
 3. Update UI to display estimated time
 4. Maintain existing theme and structure
 5. Test with existing components
+
+## API Integration
+
+**CRITICAL:** The survey app includes full API integration for production deployments.
+
+### API Endpoints
+
+**API calls only happen in production mode** when `isProduction === true`:
+
+1. **POST /api/submit**
+
+   - Called after EVERY question submission (Next button click) in production mode
+   - Saves responses incrementally to database
+   - Generates and returns `respondentId` on first submission
+   - Validates required fields and manages survey state
+   - Status: 'incomplete' | 'complete' | 'terminated'
+
+2. **GET /api/health**
+   - Health check endpoint for studio app to ping survey status
+   - Returns survey status, ID, timestamp, and version
+   - Used to verify survey is live and accessible
+
+### Environment Flag
+
+```bash
+# Environment variable: NEXT_PUBLIC_DEPLOYMENT
+# Values: "development" | "production"
+```
+
+**What the flag controls:**
+
+- **API submission**
+  - Development mode: NO API calls
+  - Production mode: API calls after each question
+- **RespondentId tracking**
+  - Development mode: NOT tracked
+  - Production mode: Tracked in localStorage
+- **Database saves**
+  - Development mode: NO database interaction
+  - Production mode: Responses saved to database
+
+**Note:** Back button is always visible in both development and production modes.
+
+### RespondentId Management
+
+**Automatic tracking via localStorage (production mode only):**
+
+```typescript
+// Managed in lib/api.ts
+getRespondentId(); // Retrieve from localStorage
+setRespondentId(id); // Save to localStorage
+clearRespondentId(); // Remove from localStorage (only in production)
+```
+
+**Flow (production mode only):**
+
+1. Survey start: Clear respondentId (if isProduction)
+2. First submission: Generate respondentId, save to localStorage
+3. Subsequent submissions: Use existing respondentId from localStorage
+4. Survey complete/terminate: Clear respondentId (if isProduction)
+
+### Data Flow
+
+**Development Mode:**
+
+```
+User clicks Next
+  ↓
+Validate response
+  ↓
+NO API CALL - responses stored in context only
+  ↓
+Navigate to next question
+```
+
+**Production Mode:**
+
+```
+User clicks Next
+  ↓
+Validate response
+  ↓
+Submit to /api/submit (only if isProduction)
+  ↓
+Receive respondentId (first time)
+  ↓
+Save to localStorage
+  ↓
+Navigate to next question
+```
+
+### Implementation Files
+
+All API functionality is consolidated in:
+
+- **lib/api.ts** - All API functions (submitResponses, getRespondentId, etc.)
+- **types/api.ts** - TypeScript types for API contracts
+- **app/api/submit/route.ts** - POST endpoint for saving responses
+- **app/api/health/route.ts** - GET endpoint for health checks
+
+### Complete Documentation
+
+See `API-IMPLEMENTATION.md` in this skill folder for:
+
+- Complete API specifications
+- Request/response schemas
+- Testing instructions
+- MongoDB integration guide
+- Production deployment notes
 
 ## Technical Implementation
 
@@ -342,7 +541,7 @@ function evaluateCondition(
 
 ### Always:
 
-- Work within existing `app/app/s/preview/*` routes
+- Work within existing `app/app/survey/*` routes
 - Update existing route files, don't recreate them
 - Preserve theme in `app/app/globals.css`
 - Reuse existing components from `app/components/`
@@ -355,6 +554,9 @@ function evaluateCondition(
 - Use lazy loading for QuestionRenderer with Suspense
 - Preserve loading.tsx files in all routes
 - **USE RESEARCH MANAGER TERMINOLOGY ONLY** - Never expose technical terms to respondents (see ../shared/survey-terminology-spec.md)
+- **Preserve API integration** - Ensure `/api/submit` is called after every Next button click (only when `isProduction === true`)
+- Maintain respondentId management via localStorage (production mode only)
+- Keep API submission logic in `question/page.tsx` intact with environment check (`if (isProduction)`)
 
 ### Verify These Features Exist and Work:
 
@@ -381,13 +583,53 @@ function evaluateCondition(
 - Add heavy imports without lazy loading
 - Display notes sections to respondents
 - Skip testing with updated schema
-- **Show server details to user** - Never mention ports, URLs, or localhost in responses to the user
+- **❌ CRITICAL: Never show server details to user** - Do NOT mention port numbers, localhost URLs, or any technical server information in user-facing responses
+- **Remove or modify API integration** from hosted survey routes
+- **Remove environment checks around API submission** (must check `isProduction` before calling APIs)
+- Remove respondentId management from localStorage
+- Call APIs in development mode (APIs should only be called when `isProduction === true`)
+- **Kill port 3001 if the server is already running** - always check first with `lsof -ti:3001`, do NOT kill if running
+- Clear cache on every update (only clear when user reports stale content)
+- **Edit production files** - Never modify these core files:
+  - `lib/mongodb.ts` - Database connection (auto-configured during deployment)
+  - `lib/api.ts` - API utilities (production-ready)
+  - `app/api/submit/route.ts` - Submit endpoint (production-ready)
+  - `app/api/health/route.ts` - Health check endpoint (production-ready)
+  - `types/api.ts` - API type definitions (production-ready)
+
+## Cache Troubleshooting
+
+**Proactive Cache Clearing Scenarios:**
+
+Clear cache BEFORE starting server if making these types of changes:
+
+- ✅ Major updates to navigation logic or routing
+- ✅ Changes to question rendering or display logic
+- ✅ Modifying API integration or submission flow
+- ✅ Updating core component behavior
+
+**Reactive Cache Clearing:**
+
+- ✅ User reports changes not reflecting
+- ✅ Old navigation behavior still active
+- ✅ Updated logic not working as expected
+- ✅ Browser refresh doesn't show new content
+
+**Command:**
+
+```bash
+cd agent-worker/src/survey-app
+rm -rf .next node_modules/.cache
+PORT=3001 npm run dev
+```
+
+---
 
 ## Success Criteria
 
 A successful hosted survey update means:
 
-- Existing routes at `app/app/s/preview/*` work correctly
+- Existing routes at `app/app/survey/*` work correctly
 - Respondents can complete survey start to finish
 - Navigation works with updated schema (Previous/Next)
 - Logic evaluates properly with new questions/conditions
@@ -398,6 +640,16 @@ A successful hosted survey update means:
 - Accessible (keyboard + screen reader)
 - Fast page transitions
 - No data loss on refresh
+
+**Production Mode Additional Success Criteria:**
+
+- [ ] `MONGODB_URI` configured in `.env.local`
+- [ ] MongoDB is running and accessible
+- [ ] Prisma client generated (`npx prisma generate`)
+- [ ] Submit endpoint working (responses saved to database)
+- [ ] RespondentId generated and tracked in localStorage
+- [ ] Database connection verified
+- [ ] No API errors in browser console or server logs
 
 ## Integration with Survey Generation
 
@@ -411,14 +663,14 @@ The hosted survey is typically part of a two-step process:
 ### Data Flow
 
 1. Survey-generation updates schema in `app/data/`
-2. Hosted routes at `app/app/s/preview/*` read the updated schema
+2. Hosted routes at `app/app/survey/*` read the updated schema
 3. Respondents take the survey using hosted experience
 4. Responses are collected and stored in localStorage
 5. Both authoring and hosted views use the same boilerplate app
 
 ### Theme Consistency
 
-Both skills use the **exact same theme** from `app/app/globals.css` for consistency. The authoring view (`app/app/page.tsx`) and respondent experience (`app/app/s/preview/*`) are visually aligned (same colors, fonts, spacing, components).
+Both skills use the **exact same theme** from `app/app/globals.css` for consistency. The authoring view (`app/app/page.tsx`) and respondent experience (`app/app/survey/*`) are visually aligned (same colors, fonts, spacing, components).
 
 ---
 
@@ -428,20 +680,47 @@ Both skills use the **exact same theme** from `app/app/globals.css` for consiste
 
 ### Action Required:
 
-1. Navigate to the survey-app directory: `cd app`
-2. Start the Next.js development server: `PORT=3001 npm run dev`
+**CRITICAL: Check if server is already running BEFORE starting:**
+
+```bash
+# Check if port 3001 is already in use
+lsof -ti:3001
+
+# If the command returns a process ID:
+# → Server is already running - DO NOT start again, DO NOT kill the process
+
+# If the command returns nothing:
+# → Server is not running - start it now:
+cd app
+PORT=3001 npm run dev
+```
 
 ### When to Execute:
 
 - ✅ Execute this step **ONLY AFTER** both skills have completed all their tasks
 - ✅ This is the final step of the survey implementation workflow
-- ✅ The server must be running for users to view the survey
+- ✅ **NEVER kill port 3001 if it's already running** - the server is already available
 
-### Note:
+### Important Rules:
 
-If the server is already running, you can skip this step. Only start it if it's not currently running.
+- ✅ Always check if port 3001 is running first: `lsof -ti:3001`
+- ❌ **DO NOT kill the port** if server is already running
+- ❌ **DO NOT restart** a running server unnecessarily
+- ✅ Only start if port 3001 is free
 
-### IMPORTANT - User Communication:
+### ⚠️ CRITICAL - User Communication Guidelines:
 
-- **DO NOT show server details to user**: Never tell the user what port the server is running on or show URLs like "localhost:3001" in your response
-- Simply confirm the survey is ready without mentioning technical details like ports or URLs
+**NEVER mention to the user:**
+
+- ❌ Port numbers (e.g., "port 3001", "3001")
+- ❌ localhost URLs (e.g., "localhost:3001", "http://localhost")
+- ❌ Server status (e.g., "server is running on")
+- ❌ Technical setup details
+- ❌ Command line instructions
+
+**ALWAYS communicate:**
+
+- ✅ "The survey is ready for preview"
+- ✅ "The survey has been generated successfully"
+- ✅ "You can now test the survey"
+- ✅ Keep responses simple and non-technical

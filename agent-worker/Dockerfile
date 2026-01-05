@@ -9,6 +9,9 @@ RUN curl -fsSL https://opencode.ai/install -o /tmp/install-opencode.sh \
     && rm /tmp/install-opencode.sh \
     && opencode --version
 
+# Install Vercel CLI globally
+RUN npm install -g vercel && vercel --version
+
 # Create directories
 RUN mkdir -p /runner/survey-app /workspace/projects
 
@@ -18,9 +21,9 @@ COPY src/survey-app /runner/survey-app
 # Install dependencies (no build - dev mode for hot reload)
 WORKDIR /runner/survey-app
 RUN npm install
+# Generate Prisma client (postinstall script should handle this, but ensure it runs)
+RUN npx prisma generate || true
 
-# Install system utilities
-RUN apt-get update && apt-get install -y rsync && rm -rf /var/lib/apt/lists/*
 
 # Expose ports: 3000 (health), 3001 (Next.js), 4096 (OpenCode)
 EXPOSE 3000

@@ -1,17 +1,25 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useSurvey } from '../../../../lib/survey-context';
+import { useSurvey } from '../../../lib/survey-context';
+import { isProduction, clearRespondentId } from '../../../lib/api';
 
 export default function CompletePage() {
   const { clearResponses } = useSurvey();
   const searchParams = useSearchParams();
   const isTimeout = searchParams.get('timeout') === 'true';
 
+  // Clear respondent ID on mount (production mode only)
+  useEffect(() => {
+    if (isProduction) {
+      clearRespondentId();
+    }
+  }, []);
+
   const handleStartNew = () => {
     clearResponses();
-    window.location.href = '/s/preview';
+    window.location.href = '/survey';
   };
 
   return (

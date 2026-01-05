@@ -2,16 +2,23 @@
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { sampleSurvey } from '../../../../data/sample-survey';
-import { useSurvey } from '../../../../lib/survey-context';
+import { sampleSurvey } from '../../../data/sample-survey';
+import { useSurvey } from '../../../lib/survey-context';
 import {
   getNextQuestionId,
   validateResponse,
   shouldShowQuestion
-} from '../../../../lib/logic-evaluator';
+} from '../../../lib/logic-evaluator';
+import {
+  isProduction,
+  submitResponses,
+  buildSubmitPayload,
+  setRespondentId as saveRespondentId,
+  SURVEY_ID,
+} from '../../../lib/api';
 
 // Lazy load QuestionRenderer for better performance
-const QuestionRenderer = lazy(() => import('../../../../components/QuestionRenderer').then(mod => ({ default: mod.QuestionRenderer })));
+const QuestionRenderer = lazy(() => import('../../../components/QuestionRenderer').then(mod => ({ default: mod.QuestionRenderer })));
 
 // Loading fallback for question
 const QuestionLoader = () => (
@@ -29,22 +36,14 @@ const QuestionLoader = () => (
   </div>
 );
 
-interface PageProps {
-  params: Promise<{ surveyId: string }>;
-}
-
-export default function QuestionPage({ params }: PageProps) {
+export default function QuestionPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const questionId = searchParams.get('q');
-  const [surveyId, setSurveyId] = React.useState<string>('');
-
-  React.useEffect(() => {
-    params.then((p) => setSurveyId(p.surveyId));
-  }, [params]);
 
   const { responses, addVisitedQuestion, visitedQuestions, progress, setProgress } = useSurvey();
   const [error, setError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Get all questions from all sections
   const allQuestions = sampleSurvey.sections.flatMap(section => section.questions);
@@ -54,15 +53,60 @@ export default function QuestionPage({ params }: PageProps) {
   const currentQuestion = allQuestions.find(q => q.id === questionId);
 
   useEffect(() => {
+    if (isProduction && questionId && currentQuestion) {
+      // Allow access if this is the first question being accessed
+      if (visitedQuestions.length === 0) {
+        return;
+      }
+
+      const currentQuestionIndex = visitedQuestions.indexOf(questionId);
+      const lastVisitedQuestionId = visitedQuestions[visitedQuestions.length - 1];
+      const lastVisitedQuestion = allQuestions.find(q => q.id === lastVisitedQuestionId);
+
+      // Calculate valid previous and next questions
+      const immediatePreviousQuestionId = visitedQuestions.length > 1
+        ? visitedQuestions[visitedQuestions.length - 2]
+        : null;
+
+      const immediateNextQuestionId = lastVisitedQuestion
+        ? getNextQuestionId(lastVisitedQuestion, responses, allQuestions)
+        : null;
+
+      // Only allow access to:
+      // 1. Current question (last visited)
+      // 2. Immediate previous question
+      // 3. Immediate next question based on logic
+      const isCurrentQuestion = questionId === lastVisitedQuestionId;
+      const isImmediatePrevious = questionId === immediatePreviousQuestionId;
+      const isImmediateNext = questionId === immediateNextQuestionId;
+
+      if (!isCurrentQuestion && !isImmediatePrevious && !isImmediateNext) {
+        console.warn('Invalid question access attempt:', questionId);
+        console.warn('Allowed:', { lastVisitedQuestionId, immediatePreviousQuestionId, immediateNextQuestionId });
+        // Redirect to last visited question
+        router.replace(`/survey/question?q=${lastVisitedQuestionId}`);
+      }
+    }
+  }, [questionId, currentQuestion, visitedQuestions, responses, allQuestions, router]);
+
+  useEffect(() => {
     if (questionId && !visitedQuestions.includes(questionId)) {
       addVisitedQuestion(questionId);
     }
+  }, [questionId, visitedQuestions, addVisitedQuestion]);
 
-    // Calculate progress
+  // Separate effect for progress calculation
+  useEffect(() => {
     const visitedCount = visitedQuestions.length;
     const progressPercent = Math.round((visitedCount / totalQuestions) * 100);
     setProgress(progressPercent);
-  }, [questionId, visitedQuestions, totalQuestions]);
+  }, [visitedQuestions, totalQuestions, setProgress]);
+
+  // Reset submitting state when question changes
+  useEffect(() => {
+    setIsSubmitting(false);
+    setError('');
+  }, [questionId]);
 
   if (!currentQuestion) {
     return (
@@ -75,7 +119,10 @@ export default function QuestionPage({ params }: PageProps) {
     );
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    // Prevent multiple clicks
+    if (isSubmitting) return;
+
     // Validate response
     const currentValue = responses[currentQuestion.id];
     const validation = validateResponse(currentQuestion, currentValue);
@@ -87,17 +134,56 @@ export default function QuestionPage({ params }: PageProps) {
 
     setError('');
 
-    // Get next question
+    // Get next question to determine status
     const nextQuestionId = getNextQuestionId(currentQuestion, responses, allQuestions);
 
+    console.log('Navigating from', currentQuestion.id, 'to', nextQuestionId);
+
+    // Submit responses to API (only in production mode)
+    if (isProduction) {
+      setIsSubmitting(true);
+      try {
+        let status: 'incomplete' | 'complete' | 'terminated' = 'incomplete';
+        if (nextQuestionId === 'COMPLETE') {
+          status = 'complete';
+        } else if (nextQuestionId === 'TERMINATE') {
+          status = 'terminated';
+        }
+
+        // Submit responses to API using environment constants
+        const payload = buildSubmitPayload(
+          SURVEY_ID,
+          responses,
+          status,
+          currentQuestion.id,
+          visitedQuestions,
+          allQuestions
+        );
+
+        const result = await submitResponses(payload);
+
+        // Save respondentId to localStorage for future requests
+        if (result.success && result.respondentId) {
+          saveRespondentId(result.respondentId);
+        }
+      } catch (err) {
+        console.error('Error submitting response:', err);
+        setError('Failed to submit response. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+      setIsSubmitting(false);
+    }
+
+    // Navigate to next question or completion page
     if (nextQuestionId === 'COMPLETE') {
-      router.push(`/s/preview/complete`);
+      router.push(`/survey/complete`);
     } else if (nextQuestionId === 'TERMINATE') {
-      router.push(`/s/preview/terminate`);
+      router.push(`/survey/terminate`);
     } else if (nextQuestionId) {
-      router.push(`/s/preview/question?q=${nextQuestionId}`);
+      router.push(`/survey/question?q=${nextQuestionId}`);
     } else {
-      router.push(`/s/preview/complete`);
+      router.push(`/survey/complete`);
     }
   };
 
@@ -106,9 +192,9 @@ export default function QuestionPage({ params }: PageProps) {
     const currentIndex = visitedQuestions.indexOf(questionId || '');
     if (currentIndex > 0) {
       const previousQuestionId = visitedQuestions[currentIndex - 1];
-      router.push(`/s/preview/question?q=${previousQuestionId}`);
+      router.push(`/survey/question?q=${previousQuestionId}`);
     } else {
-      router.push(`/s/preview`);
+      router.push(`/survey`);
     }
   };
 
@@ -164,9 +250,12 @@ export default function QuestionPage({ params }: PageProps) {
 
           <button
             onClick={handleNext}
-            className="button button-primary"
+            disabled={isSubmitting}
+            className={`button button-primary ${
+              isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
-            Next →
+            {isSubmitting ? 'Submitting...' : 'Next →'}
           </button>
         </div>
 

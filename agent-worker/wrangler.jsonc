@@ -34,8 +34,8 @@
 		{
 			"class_name": "Sandbox",
 			"image": "./Dockerfile",
-			"instance_type": "standard-2", // Changed from "lite" - Next.js dev server needs more resources
-			"max_instances": 8
+			"instance_type": "standard-4",
+			"max_instances": 10
 		}
 	],
 	"observability": {

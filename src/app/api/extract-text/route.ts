@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server";
 import mammoth from "mammoth";
+import TurndownService from "turndown";
 
 export const runtime = "nodejs";
+
+// Configure turndown for clean markdown output
+const turndown = new TurndownService({
+  headingStyle: "atx",
+  bulletListMarker: "-",
+  codeBlockStyle: "fenced",
+});
+
+// Keep tables as HTML (turndown doesn't handle them well by default)
+turndown.keep(["table", "thead", "tbody", "tr", "th", "td"]);
 
 export async function POST(request: Request) {
   try {
@@ -16,28 +27,40 @@ export async function POST(request: Request) {
     let text = "";
 
     if (file.type === "application/pdf") {
-      // Dynamic import for pdf-parse to avoid bundling issues
+      // PDF: Extract raw text (PDFs don't have semantic structure)
       const pdfParse = (await import("pdf-parse")).default;
       const pdfData = await pdfParse(buffer);
       text = pdfData.text;
+      
+      // Clean up PDF text
+      text = text
+        .replace(/\r\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
     } else if (
       file.type ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ) {
-      const result = await mammoth.extractRawText({ buffer });
-      text = result.value;
+      // DOCX: Convert to HTML first (preserves structure), then to Markdown
+      const result = await mammoth.convertToHtml({ buffer });
+      
+      if (result.messages.length > 0) {
+        console.log("Mammoth conversion messages:", result.messages);
+      }
+      
+      // Convert HTML to Markdown (preserves headings, lists, bold, italic, etc.)
+      text = turndown.turndown(result.value);
+      
+      // Clean up markdown
+      text = text
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
     } else {
       return NextResponse.json(
         { error: "Unsupported file type. Please upload PDF or DOCX." },
         { status: 400 }
       );
     }
-
-    // Clean up the text
-    text = text
-      .replace(/\r\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
 
     return NextResponse.json({ text });
   } catch (error) {

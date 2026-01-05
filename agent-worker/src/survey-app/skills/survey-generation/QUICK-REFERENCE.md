@@ -247,6 +247,12 @@ Before presenting survey:
 - [ ] Multiple choice have `minSelections: 1`
 - [ ] Text inputs have whitespace validation
 
+**Production Mode Additional:**
+- [ ] `MONGODB_URI` in `.env.local` (if `NEXT_PUBLIC_DEPLOYMENT=production`)
+- [ ] MongoDB running and accessible
+- [ ] Prisma client generated: `npx prisma generate`
+- [ ] Database connection verified
+
 ---
 
 ## 🚫 Never Do
@@ -261,6 +267,7 @@ Before presenting survey:
 ❌ Use inconsistent spacing
 ❌ Make questions optional (required: false)
 ❌ Skip validation rules
+❌ **Forget database setup for production mode**
 
 ---
 
@@ -275,6 +282,7 @@ Before presenting survey:
 ✅ Verify against checklist
 ✅ Set required: true for ALL questions
 ✅ Include validation for every question type
+✅ **Check database setup if production mode (`MONGODB_URI` + MongoDB running)**
 
 ---
 

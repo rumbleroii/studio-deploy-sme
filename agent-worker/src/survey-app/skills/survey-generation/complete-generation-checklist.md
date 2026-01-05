@@ -1015,3 +1015,30 @@ Questions Generated: 25/25 (100%) ✅
 ---
 
 **GOLDEN RULE**: If you're unsure about a question format, generate it as a simple text question with a note for manual review. NEVER skip a question entirely.
+
+---
+
+## Final Production Mode Check
+
+**If `NEXT_PUBLIC_DEPLOYMENT=production`, verify database setup:**
+
+```bash
+# Check MONGODB_URI exists
+grep MONGODB_URI .env.local
+
+# Check MongoDB is running
+pgrep mongod || brew services list | grep mongodb
+
+# Generate Prisma client if needed
+npx prisma generate
+```
+
+**Required for production:**
+- [ ] `MONGODB_URI` configured in `.env.local`
+- [ ] MongoDB installed and running
+- [ ] Prisma client generated
+- [ ] Database connection verified
+
+**Skip if development mode only (`NEXT_PUBLIC_DEPLOYMENT=development`)**
+
+---

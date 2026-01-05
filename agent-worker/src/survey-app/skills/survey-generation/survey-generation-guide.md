@@ -469,11 +469,20 @@ Background: E0BFD8, Text: #FFFFFF
 
 **Only when user explicitly uploads a completely NEW questionnaire for a different project:**
 
-1. **Create new file:** `app/data/[survey-name]-survey.ts`
+1. **update existing file sample-survey with new data:** `app/data/[survey-name]-survey.ts`
 2. **Follow structure** from existing schemas
 3. **Update `app/app/page.tsx`** to import new survey if needed
 
+. UPDATE EXISTING `app/data/sample-survey.ts` FILE - This is the DEFAULT action (see below)
+
 **Default behavior:** Always update existing surveys unless explicitly told otherwise.
+
+**CRITICAL - Update vs Create Decision:**
+
+- ✅ DEFAULT ACTION: UPDATE `sample-survey.ts` - Replace content in the existing file
+- ❌ RARE: Create new file - Only if user explicitly requests a separate/additional survey
+- When in doubt: Always update `sample-survey.ts`
+- The app imports from `sample-survey.ts` by default, so updating it ensures changes are visible immediately
 
 ---
 

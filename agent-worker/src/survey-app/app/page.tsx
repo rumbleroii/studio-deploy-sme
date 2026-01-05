@@ -1,12 +1,28 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { sampleSurvey } from '../data/sample-survey';
 import { Question } from '../types/survey';
 import { SurveySection } from '../components/SurveySection';
 
 export default function HomePage() {
+  const router = useRouter();
+  const isProduction = process.env.NEXT_PUBLIC_DEPLOYMENT === 'production';
+
+  // Redirect to /survey in production mode
+  useEffect(() => {
+    if (isProduction) {
+      router.replace('/survey');
+    }
+  }, [isProduction, router]);
+
+  // Don't render anything if in production (will redirect)
+  if (isProduction) {
+    return null;
+  }
+
   const survey = sampleSurvey;
   const [responses, setResponses] = useState<Record<string, any>>({});
 
