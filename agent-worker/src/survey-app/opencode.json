@@ -1,35 +1,31 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-opus-4-5",
+  "provider": {
+    "anthropic": {
+      "options": {
+        "timeout": 30000
+      }
+    }
+  },
   "default_agent": "build",
   "instructions": [
-    "AGENTS.md",
-    "skills/shared/user-files-spec.md",
-    "skills/shared/survey-components-spec.md",
-    "skills/shared/survey-logic-spec.md",
-    "skills/shared/survey-question-types.md",
-    "skills/shared/survey-ui-theme.md",
-    "skills/survey-generation/SKILL.md",
-    "skills/survey-generation/QUICK-REFERENCE.md",
-    "skills/survey-generation/survey-generation-guide.md",
-    "skills/survey-generation/survey-structure-spec.md",
-    "skills/survey-hosted/SKILL.md",
-    "skills/survey-hosted/survey-data-architecture.md",
-    "skills/survey-hosted/survey-implementation-guide.md",
-    "skills/survey-hosted/survey-navigation-spec.md",
-    "skills/survey-hosted/survey-routes-spec.md",
-    "skills/survey-hosted/survey-runtime-spec.md"
+    "AGENTS.md"
   ],
   "permission": {
     "bash": "allow",
     "edit": "allow",
-    "write": "allow",
     "read": "allow",
     "grep": "allow",
     "glob": "allow",
     "list": "allow",
-    "patch": "allow",
     "todowrite": "allow",
     "todoread": "allow",
-    "webfetch": "allow"
+    "webfetch": "allow",
+    "skill": {
+      "survey-generation": "allow",
+      "survey-hosted": "allow",
+      "*": "allow"
+    }
   }
 }

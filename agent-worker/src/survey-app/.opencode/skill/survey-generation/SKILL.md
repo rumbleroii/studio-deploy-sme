@@ -362,7 +362,6 @@ For complete documentation, see `../survey-hosted/API-IMPLEMENTATION.md`.
 10. **../shared/survey-logic-spec.md** - Logic display and badges
 11. **../shared/matrix-question-guide.md** - CRITICAL for matrix questions: Detailed guide to avoid generation failures
 12. **../shared/other-option-spec.md** - "Other (please specify)" options with conditional text inputs
-13. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
 
 ## Examples
 

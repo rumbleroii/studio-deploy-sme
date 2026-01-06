@@ -346,7 +346,6 @@ Check that existing functionality works:
 8. **../shared/survey-logic-spec.md** - Logic evaluation (referenced for implementation)
 9. **../shared/survey-question-types.md** - Question rendering formats
 10. **../shared/survey-components-spec.md** - Component specifications
-11. **../shared/performance-optimization-spec.md** - Performance optimizations (MANDATORY)
 
 ## Examples
 
