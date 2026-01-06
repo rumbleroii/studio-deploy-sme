@@ -483,20 +483,36 @@ columns: [
 - Makes cross-item comparisons impossible
 - Violates standard market research practices
 
-**Solution**:
+**Understanding Two-Level Validation:**
+
+**Level 1 - Question-Level (`required`):**
 ```typescript
 validation: {
-  required: true,
-  requireAllRows: true // DEFAULT: Must answer every row
+  required: true  // Makes ENTIRE matrix mandatory (can't skip question)
 }
 ```
+
+**Level 2 - Row-Level (`requireAllRows`):**
+```typescript
+validation: {
+  required: true,           // Level 1: Must answer matrix
+  requireAllRows: true      // Level 2: Must answer EVERY row
+}
+```
+
+**Decision Guide:**
+| required | requireAllRows | Result |
+|----------|---------------|--------|
+| true | true | Must answer matrix AND all rows (RECOMMENDED) |
+| true | false | Must answer matrix but can skip some rows |
+| false | * | Can skip entire matrix (rare) |
 
 **Exception**: Only set `requireAllRows: false` if:
 - Questionnaire explicitly states "optional" or "if applicable"
 - Some rows genuinely may not apply to all respondents
 - There's a "Not Applicable" or "Don't Know" column option
 
-**DEFAULT RULE**: Always use `requireAllRows: true` unless questionnaire says otherwise
+**DEFAULT RULE**: Always use BOTH `required: true` AND `requireAllRows: true` unless questionnaire says otherwise
 
 ### Mistake 5: Wrong Input Type (Checkbox vs Radio)
 

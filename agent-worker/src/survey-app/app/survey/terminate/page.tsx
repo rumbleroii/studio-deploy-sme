@@ -16,7 +16,7 @@ export default function TerminatePage() {
 
   const handleReturn = () => {
     clearResponses();
-    window.location.href = '/';
+    window.location.href = '/survey';
   };
 
   return (

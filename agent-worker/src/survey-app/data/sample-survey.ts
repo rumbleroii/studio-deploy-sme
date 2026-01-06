@@ -45,7 +45,7 @@ export const sampleSurvey: Survey = {
                 left: 'S1',
                 right: 'not_involved'
               },
-              destination: 'TERMINATE'
+              destination: 'TERM1'
             }
           ],
           defaultNextQuestion: 'S11',
@@ -68,7 +68,7 @@ export const sampleSurvey: Survey = {
                 left: 'S11',
                 right: 10
               },
-              destination: 'TERMINATE'
+              destination: 'TERM1'
             }
           ],
           defaultNextQuestion: 'CUSTOMER_TYPE',
@@ -93,7 +93,7 @@ export const sampleSurvey: Survey = {
                 left: 'CUSTOMER_TYPE',
                 right: 'other'
               },
-              destination: 'TERMINATE'
+              destination: 'TERM1'
             }
           ],
           defaultNextQuestion: 'CONCEPT_ASSIGNMENT',
@@ -106,7 +106,7 @@ export const sampleSurvey: Survey = {
           required: false,
           defaultNextQuestion: 'Q4',
           metadata: {
-            conceptAssigned: 'RANDOM' // In real implementation, this would randomly assign 1, 2, or 3
+            conceptAssigned: 'RANDOM'
           },
           notes: ['Randomly assign concept: 1=Satellite Connectivity, 2=Enhanced Network, 3=Enhanced Network Plus']
         }
@@ -213,7 +213,13 @@ export const sampleSurvey: Survey = {
             { id: 4, label: 'Probably would not', value: 'probably_not' },
             { id: 5, label: 'Definitely would not', value: 'definitely_not' }
           ],
+          validation: [
+            { type: 'required', message: 'Please answer all rows' }
+          ],
           defaultNextQuestion: 'Q6',
+          metadata: {
+            requireAllRows: true
+          },
           notes: ['Progressive grid/matrix question', 'One response per row required']
         },
         {
@@ -296,7 +302,7 @@ export const sampleSurvey: Survey = {
               }
             }
           ],
-          defaultNextQuestion: 'COMPLETE',
+          defaultNextQuestion: 'Q8',
           metadata: {
             piping: ['CONCEPT_ASSIGNMENT', 'S11']
           },
@@ -365,7 +371,7 @@ export const sampleSurvey: Survey = {
               }
             }
           ],
-          defaultNextQuestion: 'COMPLETE',
+          defaultNextQuestion: 'THANK1',
           metadata: {
             piping: ['CONCEPT_ASSIGNMENT']
           },
@@ -376,13 +382,34 @@ export const sampleSurvey: Survey = {
           ]
         }
       ]
+    },
+    {
+      id: 'termination',
+      title: 'End Screens',
+      description: 'Survey completion and termination screens',
+      questions: [
+        {
+          id: 'TERM1',
+          type: 'introduction',
+          text: 'Thank you for your interest in this survey. Unfortunately, you do not meet the qualification criteria for this particular study. We appreciate your time.',
+          required: false,
+          notes: ['Termination screen for disqualified respondents']
+        },
+        {
+          id: 'THANK1',
+          type: 'introduction',
+          text: 'Thank you for completing our survey! Your responses have been recorded. We appreciate your time and feedback.',
+          required: false,
+          notes: ['Thank you screen for completed surveys']
+        }
+      ]
     }
   ],
   settings: {
     allowBack: true,
     showProgress: true,
     autoSave: true,
-    timeLimit: 600, // 10 minutes in seconds
+    timeLimit: 600,
     showTimer: true
   }
 };

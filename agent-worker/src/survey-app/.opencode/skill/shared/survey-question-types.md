@@ -402,6 +402,41 @@ If you see ANY of these, use `ratingScale` NOT `multipleChoice`:
 3. **Data Analysis**: Makes responses analyzable and consistent
 4. **Error Prevention**: Catches mistakes before submission
 
+### ⚠️ IMPORTANT: Number Input - When to Use `type: "text"` vs `type: "numeric_input"`
+
+**Decision Rule:**
+
+**Use `type: "text"` with `inputType: "number"`** (RECOMMENDED FOR MOST CASES):
+```typescript
+{
+  type: "text",                    // Base type is text
+  text: "What is your age?",
+  validation: {
+    required: true,
+    inputType: "number",           // HTML input type="number" for keyboard
+    min: 18,
+    max: 120,
+    pattern: "^[0-9]+$"            // Ensures only digits
+  }
+}
+```
+**Use when**: You need numeric validation on a text input field
+**Browser behavior**: Shows numeric keyboard on mobile, allows spinners
+
+**Use `type: "numeric_input"` (IF YOU HAVE A DEDICATED COMPONENT)**:
+```typescript
+{
+  type: "numeric_input",           // Dedicated numeric component
+  text: "What is your age?",
+  min: 18,
+  max: 120,
+  format: "integer"                // or "decimal", "currency"
+}
+```
+**Use when**: You have a custom numeric input component with special features (currency formatting, steppers, etc.)
+
+**RECOMMENDATION**: Use `type: "text"` with `inputType: "number"` unless you have a specific reason for a dedicated numeric component.
+
 ### Validation Decision Process
 
 **For EVERY text input question, ask:**
@@ -1060,11 +1095,29 @@ What is your primary mode of transportation?
 
 Notes:
 • Validation: Required
-• "Other" option shows text input when selected
-• Text input required when "Other" is selected
+• "Other", "Please Specify" option shows text input when selected
+• Text input required when "Other", "Please specify" and similar undefined options is selected
 ```
 
-**See**: `other-option-spec.md` for complete "Other" option implementation details
+**⚠️ "Other" Options - Complete Documentation**:
+When using "Other" options with text input, you **MUST** see `other-option-spec.md` for:
+- ✅ How to make text input required when "Other","Please specify" and similar options selected
+- ✅ Whitespace handling (follows Section 3.0 rules)
+- ✅ Character limits (typically 50-100)
+- ✅ Implementation examples with React code
+- ✅ Validation error messages
+
+**Quick validation reference for "Other", "please specify" text inputs**:
+```typescript
+{
+  id: "99",
+  label: "Other (please specify)",
+  hasOtherOption: true,
+  otherInputRequired: true,        // Make text required
+  otherInputMaxLength: 100,
+  // Whitespace validation follows Section 3.0 automatically
+}
+```
 
 ---
 
@@ -1121,9 +1174,18 @@ Notes:
 - "Select all that apply"
 
 **Validation**:
-- Min selections: Minimum number required
-- Max selections: Maximum allowed
-- Exclusive options: Deselect others when selected
+- **required + minSelections relationship**:
+  ```typescript
+  validation: {
+    required: true,      // Makes question mandatory (can't skip)
+    minSelections: 1,    // Must select at least 1 option
+    maxSelections: 5     // Optional: Maximum selections allowed
+  }
+
+  // Note: If required: true without minSelections, defaults to minSelections: 1
+  // To require multiple selections: set minSelections: 2 or higher
+  ```
+- **Exclusive options**: Options that deselect all others when selected (e.g., "None of the above")
 
 **Example with "Other" Option**:
 ```
@@ -1142,12 +1204,12 @@ What features are most important to you? (Select all that apply)
 
 Notes:
 • Validation: Select at least 1
-• "Other" option shows text input when checked
-• Text input required when "Other" is checked
-• Can select multiple options including "Other"
+• "Other", "please specify" or similar option shows text input when checked
+• Text input required when "Other", "please specify" or similar is checked
+• Can select multiple options including "Other", "please specify" or similar
 ```
 
-**See**: `other-option-spec.md` for complete "Other" option implementation details
+**⚠️ See `other-option-spec.md`** for complete "Other", "please specify" or similar  option validation rules and implementation (same as Single Choice above).
 
 ---
 
@@ -1203,6 +1265,51 @@ What is your highest level of education?
 
 ## 3. Text Entry Question Types
 
+### 3.0 Common Text Input Validation Rules (APPLIES TO ALL TEXT INPUTS)
+
+**⚠️ CRITICAL**: These validation rules apply to ALL text-based inputs:
+- Short Text (3.1)
+- Long Text/Textarea (3.2)
+- "Other", "please specify" or similar option text inputs (see `other-option-spec.md`)
+- Any custom text input fields
+
+#### Whitespace Handling (MANDATORY)
+
+**Default Behavior**:
+```typescript
+validation: {
+  trimWhitespace: true,        // DEFAULT: Always enabled
+  rejectWhitespaceOnly: true   // DEFAULT: Always enabled
+}
+```
+
+**What This Means**:
+1. **Trim on blur**: When user leaves input field, automatically remove leading/trailing spaces
+2. **Trim on submit**: Before validation, remove leading/trailing spaces
+3. **Reject whitespace-only**: Input containing only spaces, tabs, or newlines is INVALID
+4. **Length validation**: Calculate minLength/maxLength AFTER trimming
+
+**Examples**:
+
+| User Input | After Trim | Validation Result |
+|------------|------------|-------------------|
+| `"hello"` | `"hello"` | ✅ Valid |
+| `"  hello  "` | `"hello"` | ✅ Valid (trimmed) |
+| `"   "` (only spaces) | `""` | ❌ Error: "This field is required" |
+| `"  a  "` (too short) | `"a"` | ❌ Error if minLength > 1 |
+
+**Error Messages**:
+- Whitespace-only input: `"Please enter a valid response (not just spaces)"`
+- Empty after trim: `"This field is required"`
+- Too short after trim: `"Please enter at least X characters"`
+
+**Implementation Notes**:
+- Trimming preserves **internal** whitespace (spaces within the text)
+- Only **leading and trailing** whitespace is removed
+- Applies to single-line AND multi-line inputs
+
+---
+
 ### 3.1 Short Text
 
 **Purpose**: Brief text response (single line)
@@ -1247,30 +1354,19 @@ Notes:
 
 **Validation**:
 - Required/Optional
-- Min/max character length (calculated AFTER trimming whitespace)
+- Min/max character length
 - Pattern matching (email, phone, etc.)
-- **Whitespace handling**:
-  - Automatically trim leading/trailing spaces on blur and submit
-  - Reject whitespace-only input (spaces, tabs, newlines)
-  - Minimum length validated after trimming
-  - Error: "Please enter a valid response (not just spaces)"
+- **Whitespace handling**: See Section 3.0 "Common Text Input Validation Rules" above
 
-**Validation Rules (CRITICAL)**:
+**Validation Rules**:
 ```typescript
 {
   required: true,
-  minLength: 1,              // After trimming
+  minLength: 1,              // Applied after trimming (see Section 3.0)
   maxLength: 100,            // Before trimming (prevent abuse)
-  trimWhitespace: true,      // DEFAULT: Always trim
-  rejectWhitespaceOnly: true // DEFAULT: Reject "   " or empty after trim
+  // trimWhitespace and rejectWhitespaceOnly are DEFAULT (see Section 3.0)
 }
 ```
-
-**Implementation**:
-- Trim on blur (when user leaves field)
-- Trim on submit (before validation)
-- Show error if whitespace-only and required
-- Visual indicator: Clear spaces automatically
 
 **Example with Validation**:
 ```
@@ -1286,18 +1382,8 @@ Notes:
 • Validation: Required
 • Pattern: Email format
 • Max length: 100 characters
-• Trim whitespace: Yes (automatic)
-• Reject whitespace-only: Yes (automatic)
+• Whitespace: Handled per Section 3.0 (automatic)
 ```
-
-**Common Validation Scenarios**:
-
-| Scenario | Input | After Trim | Result |
-|----------|-------|------------|--------|
-| Valid | "john@example.com" | "john@example.com" | ✅ Valid |
-| Leading/trailing spaces | "  john@example.com  " | "john@example.com" | ✅ Valid (trimmed) |
-| Only spaces | "     " | "" | ❌ Error: "This field is required" |
-| Too short (after trim) | "  a  " | "a" | ❌ Error: "Please enter at least 3 characters" |
 
 ---
 
@@ -1357,31 +1443,19 @@ Notes:
 
 **Validation**:
 - Required/Optional
-- Min/max character length (calculated AFTER trimming whitespace)
-- Word count limits (calculated AFTER trimming)
-- **Whitespace handling**:
-  - Automatically trim leading/trailing spaces on blur and submit
-  - Reject whitespace-only input (spaces, tabs, newlines, line breaks)
-  - Minimum length validated after trimming
-  - Error: "Please provide meaningful feedback (not just spaces)"
+- Min/max character length
+- Word count limits (optional)
+- **Whitespace handling**: See Section 3.0 "Common Text Input Validation Rules" above
 
-**Validation Rules (CRITICAL)**:
+**Validation Rules**:
 ```typescript
 {
   required: true,
-  minLength: 50,             // After trimming
+  minLength: 50,             // Applied after trimming (see Section 3.0)
   maxLength: 500,            // Before trimming (prevent abuse)
-  trimWhitespace: true,      // DEFAULT: Always trim
-  rejectWhitespaceOnly: true // DEFAULT: Reject "   \n   " or empty after trim
+  // trimWhitespace and rejectWhitespaceOnly are DEFAULT (see Section 3.0)
 }
 ```
-
-**Implementation**:
-- Trim on blur (when user leaves field)
-- Trim on submit (before validation)
-- Show error if whitespace-only and required
-- Count characters after trimming for min/max validation
-- Visual indicator: Clear spaces automatically
 
 **Example with Validation**:
 ```
@@ -1399,22 +1473,12 @@ Please describe your experience in detail. What did you like or dislike?
 
 Notes:
 • Validation: Required
-• Min length: 50 characters (after trim)
+• Min length: 50 characters (after trim per Section 3.0)
 • Max length: 500 characters
-• Trim whitespace: Yes (automatic)
-• Reject whitespace-only: Yes (automatic)
+• Whitespace: Handled per Section 3.0 (automatic)
 ```
 
-**Common Validation Scenarios**:
-
-| Scenario | Input | After Trim | Result |
-|----------|-------|------------|--------|
-| Valid | "The product was great..." (60 chars) | "The product was great..." | ✅ Valid |
-| Spaces padded | "\n\n  Good experience  \n\n" (20 chars) | "Good experience" (15 chars) | ❌ Error: "Please enter at least 50 characters" |
-| Only whitespace | "\n   \n   \n   " | "" | ❌ Error: "This field is required" |
-| Valid with newlines | "Line 1\n\nLine 2..." (60 chars) | "Line 1\n\nLine 2..." (same) | ✅ Valid (internal whitespace preserved) |
-
-**Note**: Trimming only removes **leading and trailing** whitespace, not internal spaces or newlines.
+**Note**: Trimming only removes **leading and trailing** whitespace, not internal spaces or newlines. See Section 3.0 for complete examples.
 
 ---
 
@@ -1595,13 +1659,52 @@ Notes:
 - Agreement scales
 - Multiple items with same scale
 
-**Validation**:
-- **Required (DEFAULT)**: Must answer all rows - respondent cannot proceed without rating every item
-- Optional (RARE): Can skip rows - only use when some items may not be applicable
-- Randomize rows: Shuffle row order
-- Randomize columns: Shuffle column order
+**Validation (Two-Level System)**:
 
-**IMPORTANT**: Always set `requireAllRows: true` unless explicitly specified otherwise in questionnaire
+**Level 1 - Question-Level:**
+```typescript
+validation: {
+  required: true  // Makes the ENTIRE matrix question mandatory
+}
+```
+- `true` = Respondent must answer this matrix (can't skip to next question)
+- `false` = Can skip entire matrix question
+
+**Level 2 - Row-Level:**
+```typescript
+validation: {
+  required: true,           // Level 1: Question is mandatory
+  requireAllRows: true      // Level 2: Must answer EVERY row (DEFAULT)
+}
+```
+- `requireAllRows: true` (RECOMMENDED) = Must rate all items
+- `requireAllRows: false` (RARE) = Can leave some rows unanswered
+
+**Complete Example:**
+```typescript
+{
+  id: "BA1",
+  type: "matrix",
+  validation: {
+    required: true,           // QUESTION-LEVEL: Can't skip matrix
+    requireAllRows: true      // ROW-LEVEL: Must answer every row
+  }
+}
+```
+
+**Decision Matrix:**
+| required | requireAllRows | Behavior |
+|----------|---------------|----------|
+| true | true | Must answer matrix AND rate all items (RECOMMENDED) |
+| true | false | Must answer matrix but can skip some rows |
+| false | true | Can skip matrix, but if answering must rate all rows |
+| false | false | Can skip matrix OR skip rows (not recommended) |
+
+**IMPORTANT**: Always use `requireAllRows: true` unless questionnaire explicitly says rows are "optional" or "if applicable"
+
+**Additional Options:**
+- Randomize rows: Shuffle row order for bias reduction
+- Randomize columns: Shuffle column order
 
 ---
 
@@ -1811,10 +1914,12 @@ Poor                  Excellent
 - Satisfaction scores
 
 **Common Scales**:
-- 1-5: Standard rating
-- 1-7: Extended rating
-- 1-10: Detailed rating
-- 0-10: NPS scale
+- 1-5: Standard rating → Use `type: "ratingScale"`
+- 1-7: Extended rating → Use `type: "ratingScale"`
+- 1-10: Detailed rating → Use `type: "ratingScale"` (starts at 1)
+- 0-10: NPS scale → Use `type: "slider"` (starts at 0, continuous)
+
+**⚠️ RULE**: If scale starts at **0**, use **slider**. If scale starts at **1**, use **ratingScale**.
 
 ---
 
@@ -1897,13 +2002,89 @@ When did you purchase your current smartphone?
 
 Notes:
 • Validation: Required
-• Range: Past 5 years only
+• Range: Past 5 years only (2019-01-01 to today)
+• Format: MM/DD/YYYY
+```
+
+**Validation (Complete Specification)**:
+```typescript
+{
+  id: "DATE1",
+  type: "date",
+  text: "When did you purchase your current smartphone?",
+  validation: {
+    required: true,
+    minDate: "2019-01-01",        // ISO format (YYYY-MM-DD)
+    maxDate: "today",             // Keyword: "today", "tomorrow", or ISO date
+    format: "MM/DD/YYYY",         // Display format
+    errorMessages: {
+      required: "Please select a date",
+      tooEarly: "Date must be within the past 5 years",
+      tooLate: "Date cannot be in the future",
+      invalid: "Please enter a valid date"
+    }
+  }
+}
+```
+
+**Date Range Options**:
+- **Fixed dates**: `"2020-01-01"`, `"2025-12-31"` (ISO format)
+- **Relative dates**:
+  - `"today"` - Current date
+  - `"today-5years"` - 5 years ago from today
+  - `"today+1year"` - 1 year from today
+- **No minimum**: `minDate: null` or omit property
+- **No maximum**: `maxDate: null` or omit property
+
+**Common Validation Patterns**:
+```typescript
+// Birth date (18+ years old)
+validation: {
+  required: true,
+  minDate: "1900-01-01",
+  maxDate: "today-18years",
+  errorMessages: {
+    tooLate: "You must be at least 18 years old"
+  }
+}
+
+// Future date only (event booking)
+validation: {
+  required: true,
+  minDate: "tomorrow",
+  maxDate: "today+1year",
+  errorMessages: {
+    tooEarly: "Please select a future date"
+  }
+}
+
+// Past date only (historical events)
+validation: {
+  required: true,
+  maxDate: "yesterday",
+  errorMessages: {
+    tooLate: "Date must be in the past"
+  }
+}
+
+// Any date (no restrictions)
+validation: {
+  required: true
+  // No minDate or maxDate
+}
 ```
 
 **Use Cases**:
-- Purchase dates
-- Birth dates
-- Event dates
+- Purchase dates (past dates only)
+- Birth dates (age verification)
+- Event dates (future or past)
+- Contract dates (specific ranges)
+
+**Format Options**:
+- `MM/DD/YYYY` - US format (default)
+- `DD/MM/YYYY` - International format
+- `YYYY-MM-DD` - ISO format
+- Custom format supported by date library
 
 ---
 

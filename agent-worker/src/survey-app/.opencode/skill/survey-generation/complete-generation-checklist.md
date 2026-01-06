@@ -27,6 +27,13 @@
 
 **If you think a question is missing, ASK the user - don't invent it yourself.**
 
+## Step 0: Read ALL Specification Files (MANDATORY)
+Before generating ANY schema, read these files in full:
+- [ ] other-option-spec.md
+- [ ] matrix-question-guide.md
+- [ ] survey-question-types.md
+- [ ] survey-logic-spec.md
+
 ### What NOT to Add
 
 #### 1. Introduction Screens

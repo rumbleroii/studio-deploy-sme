@@ -19,6 +19,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   const { responses, setResponse } = useSurvey();
   const [currentValue, setCurrentValue] = useState<any>(responses[question.id] || '');
   const [error, setError] = useState<string>('');
+  const [otherTextValues, setOtherTextValues] = useState<Record<string, string>>({});
 
   // Apply piping to question text
   const questionText = applyPiping(question.text, responses, allQuestions);
@@ -41,7 +42,35 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     const newValue = current.includes(optionValue)
       ? current.filter(v => v !== optionValue)
       : [...current, optionValue];
+
+    // Clear "Other" text if deselected
+    const metadata = question.metadata || {};
+    if (metadata.hasOtherOption && String(metadata.otherOptionId) === optionValue) {
+      if (!newValue.includes(optionValue)) {
+        const newOtherTextValues = { ...otherTextValues };
+        delete newOtherTextValues[optionValue];
+        setOtherTextValues(newOtherTextValues);
+      }
+    }
+
     handleChange(newValue);
+  };
+
+  const handleOtherTextChange = (optionValue: string, text: string) => {
+    setOtherTextValues({ ...otherTextValues, [optionValue]: text });
+    // Store the other text in responses with a special key
+    setResponse(`${question.id}_other_${optionValue}`, text);
+  };
+
+  const handleOtherTextBlur = (optionValue: string) => {
+    // Trim whitespace on blur (as per Section 3.0 of survey-question-types.md)
+    const currentText = otherTextValues[optionValue] || '';
+    const trimmedText = currentText.trim();
+
+    if (trimmedText !== currentText) {
+      setOtherTextValues({ ...otherTextValues, [optionValue]: trimmedText });
+      setResponse(`${question.id}_other_${optionValue}`, trimmedText);
+    }
   };
 
   // Introduction screen
@@ -59,6 +88,10 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
   // Single choice
   if (question.type === 'single_choice' && question.options) {
+    const metadata = question.metadata || {};
+    const hasOtherOption = metadata.hasOtherOption;
+    const otherOptionId = metadata.otherOptionId;
+
     return (
       <div className="space-y-4">
         <div className="question-text mb-6">
@@ -67,22 +100,53 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         </div>
 
         <div className="space-y-3">
-          {question.options.map((option) => (
-            <label
-              key={option.id}
-              className="flex items-center p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#3D1C35] transition-colors"
-            >
-              <input
-                type="radio"
-                name={question.id}
-                value={option.value}
-                checked={currentValue === option.value}
-                onChange={(e) => handleChange(e.target.value)}
-                className="radio-button flex-shrink-0"
-              />
-              <span className="option-text ml-4">{option.label}</span>
-            </label>
-          ))}
+          {question.options.map((option) => {
+            const isOtherOption = hasOtherOption && String(option.id) === String(otherOptionId);
+            const isSelected = currentValue === option.value;
+
+            return (
+              <div key={option.id}>
+                <label className="flex items-center p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#3D1C35] transition-colors">
+                  <input
+                    type="radio"
+                    name={question.id}
+                    value={option.value}
+                    checked={isSelected}
+                    onChange={(e) => {
+                      handleChange(e.target.value);
+                      // Clear other text if switching away from Other option
+                      if (!isOtherOption) {
+                        const newOtherTextValues = { ...otherTextValues };
+                        delete newOtherTextValues[String(option.value)];
+                        setOtherTextValues(newOtherTextValues);
+                      }
+                    }}
+                    className="radio-button flex-shrink-0"
+                  />
+                  <span className="option-text ml-4">{option.label}</span>
+                </label>
+
+                {/* Show text input if this is the "Other" option and it's selected */}
+                {isOtherOption && isSelected && (
+                  <div className="ml-12 mt-2">
+                    <input
+                      type="text"
+                      value={otherTextValues[String(option.value)] || ''}
+                      onChange={(e) => handleOtherTextChange(String(option.value), e.target.value)}
+                      onBlur={() => handleOtherTextBlur(String(option.value))}
+                      placeholder={metadata.otherInputPlaceholder || 'Please specify'}
+                      maxLength={metadata.otherInputMaxLength || 100}
+                      className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-[#3D1C35] focus:outline-none"
+                      required={metadata.otherInputRequired}
+                    />
+                    {metadata.otherInputRequired && (
+                      <p className="text-xs text-gray-500 mt-1">* Required when "Other" is selected</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
@@ -92,6 +156,10 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
   // Multiple choice
   if (question.type === 'multiple_choice' && question.options) {
+    const metadata = question.metadata || {};
+    const hasOtherOption = metadata.hasOtherOption;
+    const otherOptionId = metadata.otherOptionId;
+
     return (
       <div className="space-y-4">
         <div className="question-text mb-6">
@@ -100,21 +168,44 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         </div>
 
         <div className="space-y-3">
-          {question.options.map((option) => (
-            <label
-              key={option.id}
-              className="flex items-center p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#3D1C35] transition-colors"
-            >
-              <input
-                type="checkbox"
-                value={option.value}
-                checked={Array.isArray(currentValue) && currentValue.includes(option.value)}
-                onChange={() => handleMultipleChoiceChange(option.value as string)}
-                className="checkbox flex-shrink-0"
-              />
-              <span className="option-text ml-4">{option.label}</span>
-            </label>
-          ))}
+          {question.options.map((option) => {
+            const isOtherOption = hasOtherOption && String(option.id) === String(otherOptionId);
+            const isSelected = Array.isArray(currentValue) && currentValue.includes(option.value);
+
+            return (
+              <div key={option.id}>
+                <label className="flex items-center p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#3D1C35] transition-colors">
+                  <input
+                    type="checkbox"
+                    value={option.value}
+                    checked={isSelected}
+                    onChange={() => handleMultipleChoiceChange(option.value as string)}
+                    className="checkbox flex-shrink-0"
+                  />
+                  <span className="option-text ml-4">{option.label}</span>
+                </label>
+
+                {/* Show text input if this is the "Other" option and it's checked */}
+                {isOtherOption && isSelected && (
+                  <div className="ml-12 mt-2">
+                    <input
+                      type="text"
+                      value={otherTextValues[String(option.value)] || ''}
+                      onChange={(e) => handleOtherTextChange(String(option.value), e.target.value)}
+                      onBlur={() => handleOtherTextBlur(String(option.value))}
+                      placeholder={metadata.otherInputPlaceholder || 'Please specify'}
+                      maxLength={metadata.otherInputMaxLength || 100}
+                      className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-[#3D1C35] focus:outline-none"
+                      required={metadata.otherInputRequired}
+                    />
+                    {metadata.otherInputRequired && (
+                      <p className="text-xs text-gray-500 mt-1">* Required when "Other" is selected</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
