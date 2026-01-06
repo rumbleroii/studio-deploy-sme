@@ -9,6 +9,19 @@ RUN curl -fsSL https://opencode.ai/install -o /tmp/install-opencode.sh \
     && rm /tmp/install-opencode.sh \
     && opencode --version
 
+# Install git (required for oh-my-opencode)
+RUN apt-get update && apt-get install -y git
+
+# Install Oh My OpenCode using the official installer (non-interactive mode)
+# Using npx with --yes flag to auto-approve installation
+RUN npx --yes oh-my-opencode install --no-tui --claude=yes --chatgpt=no --gemini=no || echo "Oh My OpenCode installation completed"
+
+# Ensure oh-my-opencode plugin is configured in global OpenCode config
+RUN mkdir -p /root/.config/opencode && \
+    echo '{"plugin": ["oh-my-opencode"]}' > /root/.config/opencode/opencode.json
+
+RUN npx playwright install --with-deps chromium
+
 # Install Vercel CLI globally
 RUN npm install -g vercel && vercel --version
 

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 
+// Allow 150s for project creation (cold start + file writing)
+export const maxDuration = 200;
+
 export async function GET() {
 	try {
 		const user = await requireAuth();
@@ -91,18 +94,40 @@ export async function POST(request: Request) {
 			);
 		}
 
-		// 1) Ensure sandbox exists
-		const ensureRes = await fetch(
-			`${workerUrl}/v1/projects/${project.id}/ensure`,
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Shared-Secret": sharedSecret,
-				},
-				body: JSON.stringify({}),
-			}
-		);
+		// 1) Ensure sandbox exists - with proper timeout for cold start
+		console.log(`[Project Create] Calling ensure for project ${project.id}`);
+
+		const ensureController = new AbortController();
+		const ensureTimeout = setTimeout(() => ensureController.abort(), 120000); // 120s for cold start
+
+		let ensureRes: Response;
+		try {
+			ensureRes = await fetch(
+				`${workerUrl}/v1/projects/${project.id}/ensure`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Shared-Secret": sharedSecret,
+					},
+					body: JSON.stringify({}),
+					signal: ensureController.signal,
+				}
+			);
+		} catch (error: any) {
+			clearTimeout(ensureTimeout);
+			const errorMsg = error.name === 'AbortError'
+				? 'Sandbox initialization timed out after 120s'
+				: error.message || String(error);
+			console.error("Worker ensure failed during project create:", errorMsg);
+			await prisma.project.delete({ where: { id: project.id } });
+			return NextResponse.json(
+				{ error: "Failed to initialize sandbox", details: errorMsg },
+				{ status: 502 }
+			);
+		} finally {
+			clearTimeout(ensureTimeout);
+		}
 
 		if (!ensureRes.ok) {
 			const errorText = await ensureRes.text();
@@ -117,6 +142,8 @@ export async function POST(request: Request) {
 				{ status: 502 }
 			);
 		}
+
+		console.log(`[Project Create] Sandbox ready for project ${project.id}`);
 
 		const sanitizeFilename = (filename: string): string => {
 			const base =
@@ -156,6 +183,8 @@ export async function POST(request: Request) {
 		}
 
 		if (files.length > 0) {
+			console.log(`[Project Create] Writing ${files.length} files for project ${project.id}`);
+
 			const writeRes = await fetch(
 				`${workerUrl}/v1/projects/${project.id}/files/write`,
 				{
@@ -181,6 +210,8 @@ export async function POST(request: Request) {
 					{ status: 502 }
 				);
 			}
+
+			console.log(`[Project Create] Files written successfully for project ${project.id}`);
 		}
 
 		return NextResponse.json(project);

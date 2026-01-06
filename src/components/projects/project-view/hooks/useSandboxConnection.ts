@@ -4,11 +4,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 export type SandboxStatus = "connecting" | "connected";
 
-// Heartbeat interval: ping every 1 minute to keep sandbox awake
-const HEARTBEAT_INTERVAL_MS = 1 * 60 * 1000;
-
-// Reconnection delay after visibility change (give browser time to stabilize)
-const VISIBILITY_RECONNECT_DELAY_MS = 500;
+const HEARTBEAT_INTERVAL_MS = 60000; // 1 minute
+const MAX_RETRIES = 20;
 
 interface UseSandboxConnectionResult {
 	sandboxStatus: SandboxStatus;
@@ -21,205 +18,164 @@ interface UseSandboxConnectionResult {
 export function useSandboxConnection(
 	projectId: string
 ): UseSandboxConnectionResult {
-	const [sandboxStatus, setSandboxStatus] =
-		useState<SandboxStatus>("connecting");
+	const [sandboxStatus, setSandboxStatus] = useState<SandboxStatus>("connecting");
 	const [hasConnectedOnce, setHasConnectedOnce] = useState(false);
 	const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 	const [isLoadingPreview, setIsLoadingPreview] = useState(true);
 
-	const ensureTimeoutRef = useRef<number | null>(null);
-	const ensureAbortRef = useRef<AbortController | null>(null);
-	const ensureActiveRef = useRef(false);
-	const ensureBackoffMsRef = useRef(500);
-	const ensureRetryCountRef = useRef(0);
-	const startedForProjectRef = useRef<string | null>(null);
+	const retryTimeoutRef = useRef<number | null>(null);
+	const abortControllerRef = useRef<AbortController | null>(null);
+	const retryCountRef = useRef(0);
+	const isConnectingRef = useRef(false);
 	const heartbeatIntervalRef = useRef<number | null>(null);
-	
-	// Max retries before giving up (prevents infinite loops)
-	const MAX_ENSURE_RETRIES = 20;
+	const previousProjectIdRef = useRef<string | null>(null);
 
-	const startEnsureLoop = useCallback(() => {
-		// Guard: don't start if already active for this project
-		if (ensureActiveRef.current && startedForProjectRef.current === projectId) {
-			return;
-		}
-		
-		// If switching projects, reset state
-		if (startedForProjectRef.current !== projectId) {
-			ensureActiveRef.current = false;
-			ensureBackoffMsRef.current = 500;
-			ensureRetryCountRef.current = 0;
-		}
-		
-		ensureActiveRef.current = true;
-		startedForProjectRef.current = projectId;
+	const connectToSandbox = useCallback(async () => {
+		// Skip if already connecting
+		if (isConnectingRef.current) return;
 
+		isConnectingRef.current = true;
 		setSandboxStatus("connecting");
 
-		if (ensureTimeoutRef.current) {
-			window.clearTimeout(ensureTimeoutRef.current);
-			ensureTimeoutRef.current = null;
+		// Clear any pending retries
+		if (retryTimeoutRef.current) {
+			clearTimeout(retryTimeoutRef.current);
+			retryTimeoutRef.current = null;
 		}
 
-		ensureAbortRef.current?.abort();
-		ensureAbortRef.current = new AbortController();
+		// Cancel previous request
+		abortControllerRef.current?.abort();
+		abortControllerRef.current = new AbortController();
 
-		const attemptEnsure = async () => {
-			if (ensureAbortRef.current?.signal.aborted) return;
+		try {
+			console.log(`[Sandbox] Connecting attempt ${retryCountRef.current + 1}/${MAX_RETRIES}`);
 
-			try {
-				const res = await fetch(`/api/projects/${projectId}/sandbox/ensure`, {
-					method: "POST",
-					signal: ensureAbortRef.current?.signal,
-				});
+			const res = await fetch(`/api/projects/${projectId}/sandbox/ensure`, {
+				method: "POST",
+				signal: abortControllerRef.current.signal,
+			});
 
-				if (!res.ok) {
-					throw new Error(`Ensure failed: ${res.status}`);
-				}
-
-				// Try to get preview URL from response
-				try {
-					const data = await res.json();
-					if (data.previewUrl) {
-						setPreviewUrl(data.previewUrl);
-					}
-				} catch {
-					// Response may not be JSON, that's okay
-				}
-
-				ensureActiveRef.current = false;
-				ensureBackoffMsRef.current = 500;
-				ensureRetryCountRef.current = 0;
-				setSandboxStatus("connected");
-				setHasConnectedOnce(true);
-				setIsLoadingPreview(false);
-			} catch {
-				if (ensureAbortRef.current?.signal.aborted) return;
-
-				ensureRetryCountRef.current += 1;
-				
-				// Stop retrying after max attempts to prevent infinite loops
-				if (ensureRetryCountRef.current >= MAX_ENSURE_RETRIES) {
-					console.warn(`[Sandbox] Max retries (${MAX_ENSURE_RETRIES}) reached, stopping ensure loop`);
-					ensureActiveRef.current = false;
-					setSandboxStatus("connecting"); // Stay in connecting state
-					return;
-				}
-
-				setSandboxStatus("connecting");
-				const delay = ensureBackoffMsRef.current;
-				ensureBackoffMsRef.current = Math.min(
-					Math.round(ensureBackoffMsRef.current * 1.7),
-					5000
-				);
-
-				ensureTimeoutRef.current = window.setTimeout(() => {
-					void attemptEnsure();
-				}, delay);
+			if (!res.ok) {
+				const errorText = await res.text().catch(() => "Unknown error");
+				console.error(`[Sandbox] Ensure failed with status ${res.status}:`, errorText);
+				throw new Error(`Status ${res.status}: ${errorText}`);
 			}
-		};
 
-		void attemptEnsure();
+			const data = await res.json();
+			if (data.previewUrl) setPreviewUrl(data.previewUrl);
+
+			// Success - reset and mark connected
+			console.log(`[Sandbox] Connected successfully, preview URL: ${data.previewUrl}`);
+			retryCountRef.current = 0;
+			setSandboxStatus("connected");
+			setHasConnectedOnce(true);
+			setIsLoadingPreview(false);
+		} catch (error: any) {
+			// Ignore aborted requests
+			if (error.name === "AbortError") {
+				console.log(`[Sandbox] Connection aborted`);
+				return;
+			}
+
+			console.error(`[Sandbox] Connection error:`, error);
+
+			// Retry with exponential backoff
+			retryCountRef.current++;
+			if (retryCountRef.current < MAX_RETRIES) {
+				const delay = Math.min(500 * Math.pow(1.5, retryCountRef.current), 5000);
+				console.log(`[Sandbox] Retrying in ${delay}ms (attempt ${retryCountRef.current + 1}/${MAX_RETRIES})`);
+				retryTimeoutRef.current = window.setTimeout(connectToSandbox, delay);
+			} else {
+				console.error(`[Sandbox] Failed after ${MAX_RETRIES} attempts`);
+				// Even after max retries, hide the loading spinner so user can see the page
+				setIsLoadingPreview(false);
+			}
+		} finally {
+			isConnectingRef.current = false;
+		}
 	}, [projectId]);
 
-	// Ensure sandbox is ready (and keep retrying until it is)
+	const startEnsureLoop = useCallback(() => {
+		retryCountRef.current = 0;
+		connectToSandbox();
+	}, [connectToSandbox]);
+
+	// Connect on mount
 	useEffect(() => {
-		// Always start ensure loop on mount - reset refs to allow reconnection
-		startedForProjectRef.current = null;
-		ensureActiveRef.current = false;
-		startEnsureLoop();
+		// Check if projectId actually changed (vs React Strict Mode remount)
+		const projectIdChanged = previousProjectIdRef.current !== null &&
+		                         previousProjectIdRef.current !== projectId;
+
+		if (projectIdChanged) {
+			// Project changed - abort old connection and reset state
+			console.log(`[Sandbox] Project changed from ${previousProjectIdRef.current} to ${projectId}`);
+			abortControllerRef.current?.abort();
+			retryCountRef.current = 0;
+			setSandboxStatus("connecting");
+			setHasConnectedOnce(false);
+			setPreviewUrl(null);
+			setIsLoadingPreview(true);
+		}
+
+		previousProjectIdRef.current = projectId;
+
+		// Start connection if not already connecting
+		if (!isConnectingRef.current) {
+			console.log('[Sandbox] Effect running - starting ensure loop');
+			startEnsureLoop();
+		}
 
 		return () => {
-			if (ensureTimeoutRef.current) {
-				window.clearTimeout(ensureTimeoutRef.current);
-				ensureTimeoutRef.current = null;
+			// On cleanup, only clear timeout, don't abort in-flight requests
+			// This prevents React Strict Mode from aborting connections
+			if (retryTimeoutRef.current) {
+				clearTimeout(retryTimeoutRef.current);
+				retryTimeoutRef.current = null;
 			}
-			ensureAbortRef.current?.abort();
-			ensureAbortRef.current = null;
-			// Reset refs on unmount so remount will trigger reconnection
-			startedForProjectRef.current = null;
-			ensureActiveRef.current = false;
+			// Note: We intentionally DON'T abort the controller here to prevent
+			// React Strict Mode from cancelling in-progress connections
+			// The abort only happens when projectId actually changes (see above)
 		};
 	}, [projectId, startEnsureLoop]);
 
-	// Reconnect when page becomes visible again (user returns to tab/app)
+	// Reconnect when page becomes visible
 	useEffect(() => {
-		const triggerReconnect = () => {
-			// Force reconnection check
-			ensureActiveRef.current = false;
-			startEnsureLoop();
-		};
-
 		const handleVisibilityChange = () => {
-			if (document.visibilityState === "visible") {
-				console.log("[Sandbox] Page visible - checking connection...");
-				// Small delay to let browser stabilize
-				setTimeout(() => {
-					triggerReconnect();
-				}, VISIBILITY_RECONNECT_DELAY_MS);
+			if (document.visibilityState === "visible" && sandboxStatus !== "connected") {
+				startEnsureLoop();
 			}
 		};
 
-		const handleOnline = () => {
-			console.log("[Sandbox] Network online - reconnecting...");
-			setSandboxStatus("connecting");
-			triggerReconnect();
-		};
-
 		document.addEventListener("visibilitychange", handleVisibilityChange);
-		window.addEventListener("online", handleOnline);
+		return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+	}, [startEnsureLoop, sandboxStatus]);
 
-		return () => {
-			document.removeEventListener("visibilitychange", handleVisibilityChange);
-			window.removeEventListener("online", handleOnline);
-		};
-	}, [startEnsureLoop]);
-
-	// Heartbeat: ping the sandbox periodically while connected to prevent hibernation
+	// Heartbeat to keep sandbox alive
 	useEffect(() => {
-		console.log(`[Heartbeat] Effect running, status: ${sandboxStatus}, projectId: ${projectId}`);
-		
-		// Only start heartbeat when connected
 		if (sandboxStatus !== "connected") {
-			// Clear any existing heartbeat if we're not connected
 			if (heartbeatIntervalRef.current) {
-				console.log("[Heartbeat] Clearing interval - not connected");
-				window.clearInterval(heartbeatIntervalRef.current);
+				clearInterval(heartbeatIntervalRef.current);
 				heartbeatIntervalRef.current = null;
 			}
 			return;
 		}
 
-		// Don't start another interval if one exists
-		if (heartbeatIntervalRef.current) {
-			console.log("[Heartbeat] Interval already exists, skipping");
-			return;
-		}
+		if (heartbeatIntervalRef.current) return;
 
-		// Send heartbeat pings every 1 minute
 		const sendPing = async () => {
-			console.log(`[Heartbeat] Sending ping to ${projectId}...`);
 			try {
-				await fetch(`/api/projects/${projectId}/sandbox/ping`, {
-					method: "POST",
-				});
-				console.log("[Heartbeat] Ping sent successfully");
+				await fetch(`/api/projects/${projectId}/sandbox/ping`, { method: "POST" });
 			} catch (e) {
-				// Ping failures are non-critical, just log
-				console.warn("[Heartbeat] Ping failed:", e);
+				// Ping failures are non-critical
 			}
 		};
 
-		// Send first ping immediately, then at interval
-		console.log(`[Heartbeat] Starting heartbeat, interval: ${HEARTBEAT_INTERVAL_MS}ms`);
 		sendPing();
 		heartbeatIntervalRef.current = window.setInterval(sendPing, HEARTBEAT_INTERVAL_MS);
 
-		// Cleanup on unmount or when status changes
 		return () => {
-			console.log("[Heartbeat] Cleanup - clearing interval");
 			if (heartbeatIntervalRef.current) {
-				window.clearInterval(heartbeatIntervalRef.current);
+				clearInterval(heartbeatIntervalRef.current);
 				heartbeatIntervalRef.current = null;
 			}
 		};

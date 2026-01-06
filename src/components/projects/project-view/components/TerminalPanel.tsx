@@ -5,12 +5,14 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Loader2 } from "lucide-react";
 import type { FitAddon } from "@xterm/addon-fit";
+import type { SandboxStatus } from "../hooks/useSandboxConnection";
 
 interface TerminalPanelProps {
 	projectId: string;
+	sandboxStatus?: SandboxStatus;
 }
 
-export function TerminalPanel({ projectId }: TerminalPanelProps) {
+export function TerminalPanel({ projectId, sandboxStatus }: TerminalPanelProps) {
 	const terminalRef = useRef<HTMLDivElement>(null);
 	const xtermRef = useRef<XTerm | null>(null);
 	const fitAddonRef = useRef<FitAddon | null>(null);
@@ -21,11 +23,24 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
 		null
 	);
 	const abortControllerRef = useRef<AbortController | null>(null);
+	const hasConnectedRef = useRef<boolean>(false);
 
 	useEffect(() => {
 		if (!terminalRef.current) return;
 
 		let mounted = true;
+
+		// Clean up any existing connections first
+		if (abortControllerRef.current) {
+			abortControllerRef.current.abort();
+			abortControllerRef.current = null;
+		}
+		if (readerRef.current) {
+			readerRef.current.cancel().catch(() => {});
+			readerRef.current = null;
+		}
+		// Reset connection state on mount
+		hasConnectedRef.current = false;
 
 		// Initialize terminal asynchronously to avoid SSR issues with FitAddon
 		const initTerminal = async () => {
@@ -137,8 +152,8 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
 				term.write(data);
 			});
 
-			// Connect to the terminal stream
-			connectToTerminal();
+			// Don't connect immediately - wait for sandbox to be ready
+			// Connection will be handled by separate useEffect
 
 			return () => {
 				// Cleanup
@@ -156,6 +171,30 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
 
 		initTerminal();
 	}, [projectId]);
+
+	// Connect to terminal when sandbox is ready
+	useEffect(() => {
+		// Only connect if terminal is initialized and sandbox is connected
+		if (!xtermRef.current || !sandboxStatus || sandboxStatus !== "connected") {
+			return;
+		}
+
+		// Prevent multiple connections
+		if (hasConnectedRef.current) {
+			return;
+		}
+
+		// Add a small delay to ensure sandbox is fully initialized
+		// The ensure endpoint may have just completed, give it time to settle
+		const connectTimeout = setTimeout(() => {
+			hasConnectedRef.current = true;
+			connectToTerminal();
+		}, 1000);
+
+		return () => {
+			clearTimeout(connectTimeout);
+		};
+	}, [sandboxStatus, projectId]);
 
 	const connectToTerminal = async () => {
 		setIsConnecting(true);
@@ -201,11 +240,6 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
 				setIsConnecting(false);
 			}, 3000);
 
-			// Send an initial newline to trigger the prompt
-			setTimeout(() => {
-				sendInput("\n");
-			}, 500);
-
 			// Read the stream
 			const reader = response.body.getReader();
 			readerRef.current = reader;
@@ -245,7 +279,19 @@ export function TerminalPanel({ projectId }: TerminalPanelProps) {
 		} catch (err: any) {
 			if (err.name !== "AbortError") {
 				console.error("Terminal connection error:", err);
-				setError(err.message || "Failed to connect to terminal");
+				const errorMessage = err.message || "Failed to connect to terminal";
+
+				// If fetch failed, sandbox might not be ready - retry once after delay
+				if (errorMessage.includes("fetch failed") && !hasConnectedRef.current) {
+					console.log("[Terminal] Fetch failed, retrying in 2s...");
+					setTimeout(() => {
+						hasConnectedRef.current = false;
+						connectToTerminal();
+					}, 2000);
+					return;
+				}
+
+				setError(errorMessage);
 				setIsConnecting(false);
 			}
 		}

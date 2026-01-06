@@ -13,7 +13,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
-import { ArrowLeft, PanelRightClose, PanelRight, FileText, Eye, Globe, Loader2, RefreshCw, User, Users, Users2, File, Upload } from "lucide-react";
+import { ArrowLeft, PanelRightClose, PanelRight, FileText, Eye, Globe, Loader2, RefreshCw, User, Users, Users2, File, Upload, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
@@ -37,7 +37,7 @@ export function ProjectView({
 		"preview"
 	);
 	const [activeMainTab, setActiveMainTab] = useState<"survey" | "data" | "insights">("survey");
-	const [viewMode, setViewMode] = useState<"questionnaire" | "preview" | "files">("questionnaire");
+	const [viewMode, setViewMode] = useState<"questionnaire" | "preview" | "files" | "terminal">("questionnaire");
 	const [messages, setMessages] = useState<Message[]>(initialMessages);
 	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 	const [isRunningQA, setIsRunningQA] = useState(false);
@@ -455,7 +455,7 @@ export function ProjectView({
 								</TabsContent>
 								{isDevMode && (
 									<TabsContent value="terminal" className="p-0 mt-0 h-[50vh]">
-										<TerminalPanel projectId={project.id} />
+										<TerminalPanel projectId={project.id} sandboxStatus={sandboxStatus} />
 									</TabsContent>
 								)}
 							</ScrollArea>
@@ -570,7 +570,7 @@ export function ProjectView({
 									</TabsList>
 								</Tabs> */}
 
-								{/* Right side - Questionnaire/Preview buttons */}
+								{/* Right side - Questionnaire/Preview/Files/Terminal buttons */}
 								{activeTab === "preview" && (
 									<div className="flex items-center gap-1">
 										<Button
@@ -585,7 +585,6 @@ export function ProjectView({
 											)}
 										>
 											<FileText className="h-3.5 w-3.5" />
-											{/* Questionnaire */}
 										</Button>
 										<Button
 											variant={viewMode === "preview" ? "default" : "ghost"}
@@ -599,7 +598,6 @@ export function ProjectView({
 											)}
 										>
 											<Eye className="h-3.5 w-3.5" />
-											{/* Preview */}
 										</Button>
 										<Button
 											variant={viewMode === "files" ? "default" : "ghost"}
@@ -613,7 +611,19 @@ export function ProjectView({
 											)}
 										>
 											<Upload className="h-3.5 w-3.5" />
-											{/* Preview */}
+										</Button>
+										<Button
+											variant={viewMode === "terminal" ? "default" : "ghost"}
+											size="sm"
+											onClick={() => setViewMode("terminal")}
+											className={cn(
+												"gap-1 h-8 text-xs",
+												viewMode === "terminal"
+													? "bg-burgundy-500 hover:bg-burgundy-600 text-white"
+													: "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+											)}
+										>
+											<Terminal className="h-3.5 w-3.5" />
 										</Button>
 									</div>
 								)}
@@ -635,9 +645,13 @@ export function ProjectView({
 											isLoadingPreview={isLoadingPreview}
 											className="flex-1"
 										/>
-									): viewMode === "files" && (
+									) : viewMode === "files" ? (
 										<div className="flex-1 p-4 overflow-hidden">
 											{filesContent}
+										</div>
+									) : viewMode === "terminal" && (
+										<div className="flex-1 overflow-hidden">
+											<TerminalPanel projectId={project.id} sandboxStatus={sandboxStatus} />
 										</div>
 									)}
 								</div>
@@ -649,7 +663,7 @@ export function ProjectView({
 										researchObjectiveText={project.researchObjectiveText}
 										messages={messages}
 									/> */}
-									<TerminalPanel projectId={project.id} />
+									<TerminalPanel projectId={project.id} sandboxStatus={sandboxStatus} />
 								</ScrollArea>
 							)}
 

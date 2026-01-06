@@ -547,12 +547,43 @@ async function mountR2Bucket(sandbox: SandboxInstance, env: Env): Promise<void> 
 
 async function isDevServerHealthy(sandbox: SandboxInstance): Promise<boolean> {
 	try {
-		const check = await sandbox.exec(
-			`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT}`,
-			{ timeout: 3000 }
+		// First check if server is listening on the port at all
+		const portCheck = await sandbox.exec(
+			`curl -s -o /dev/null -w '%{http_code}' http://localhost:${PREVIEW_PORT} 2>&1 || echo "FAILED"`,
+			{ timeout: 5000 }
 		);
-		return check.stdout.trim() === '200';
-	} catch {
+
+		const portResponse = portCheck.stdout.trim();
+
+		// If we get ECONNREFUSED or FAILED, server isn't running yet
+		if (portResponse.includes('ECONNREFUSED') || portResponse === 'FAILED' || portResponse === '000') {
+			console.log(`[Health] Server not responding on port ${PREVIEW_PORT}`);
+			return false;
+		}
+
+		// Server is responding - now check if it's serving valid content
+		const pageCheck = await sandbox.exec(
+			`curl -s http://localhost:${PREVIEW_PORT}`,
+			{ timeout: 10000 }
+		);
+
+		const output = pageCheck.stdout || '';
+
+		// Check for valid HTML with actual content
+		const hasValidHtml = output.length > 200 &&
+		                     (output.includes('<!DOCTYPE') || output.includes('<html')) &&
+		                     output.includes('</html>');
+
+		if (hasValidHtml) {
+			console.log(`[Health] ✓ Server healthy, serving HTML (${output.length} bytes)`);
+			return true;
+		}
+
+		// If we got a response but not valid HTML, log what we got
+		console.log(`[Health] Server responding but not ready - response preview: "${output.substring(0, 150).replace(/\n/g, ' ')}"`);
+		return false;
+	} catch (error) {
+		console.log(`[Health] Check error:`, error);
 		return false;
 	}
 }
@@ -566,18 +597,27 @@ async function startDevServer(sandbox: SandboxInstance, appDir: string, projectI
 	// Start server in background
 	await sandbox.exec(`cd ${appDir} && PORT=${PREVIEW_PORT} npm run dev -- --turbo --port ${PREVIEW_PORT} > /tmp/nextjs.log 2>&1 &`);
 
-	// Wait for health check (up to 30s)
-	for (let i = 0; i < 30; i++) {
+	// Wait for health check (up to 60s for cold starts with page compilation)
+	// First compilation can take a while, especially on cold start
+	console.log(`[${projectId}] Waiting for dev server to start and compile pages...`);
+	for (let i = 0; i < 60; i++) {
 		await sandbox.exec("sleep 1");
+
+		// Log progress every 10 seconds
+		if ((i + 1) % 10 === 0) {
+			console.log(`[${projectId}] Still waiting... (${i + 1}s elapsed)`);
+		}
+
 		if (await isDevServerHealthy(sandbox)) {
-			console.log(`[${projectId}] Dev server started`);
+			console.log(`[${projectId}] Dev server ready! (took ${i + 1}s)`);
 			return;
 		}
 	}
 
+	// If we get here, startup failed - dump logs for debugging
 	const logContent = await sandbox.exec(`cat /tmp/nextjs.log`);
-	console.error(`[${projectId}] Server startup failed. Logs:\n${logContent.stdout}`);
-	throw new Error("Server startup failed after 30s");
+	console.error(`[${projectId}] Server startup failed after 60s. Logs:\n${logContent.stdout}`);
+	throw new Error("Server startup failed after 60s");
 }
 
 async function getPreviewUrl(sandbox: SandboxInstance): Promise<string | undefined> {
@@ -2446,9 +2486,10 @@ async function handleTerminal(
 
 		// Open FIFO for writing in background to prevent blocking, then start terminal
 		// Using tail -f /dev/null keeps the writing end open
-		// Send an initial newline to trigger the prompt
+		// The PS1 needs to be set inside the bash session, not in the outer shell
+		// Send an initial empty command to trigger the prompt display immediately
 		const stream = await sandbox.execStream(
-			`cd ${userFilesDir} && (tail -f /dev/null > ${inputFifo} &) && sleep 0.1 && (echo "" > ${inputFifo} &) && TERM=xterm-256color PS1='\\[\\033[01;32m\\]\\u@sandbox\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ ' script -qfc "stty rows ${rows} cols ${cols} && exec bash --norc -i" /dev/null < ${inputFifo}`
+			`cd ${userFilesDir} && (tail -f /dev/null > ${inputFifo} &) && sleep 0.1 && (printf '\\n' > ${inputFifo} &) && TERM=xterm-256color script -qfc "stty rows ${rows} cols ${cols} && export PS1='\\[\\033[01;32m\\]\\u@sandbox\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ ' && bash --norc -i" /dev/null < ${inputFifo}`
 		);
 
 		// Create a readable stream for the client

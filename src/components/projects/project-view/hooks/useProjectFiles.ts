@@ -42,6 +42,7 @@ export function useProjectFiles(
 	const folderInputRef = useRef<HTMLInputElement | null>(null);
 	const filesRefetchTimeoutRef = useRef<number | null>(null);
 	const eventSourceRef = useRef<EventSource | null>(null);
+	const hasFetchedOnMountRef = useRef<boolean>(false);
 
 	const { toast } = useToast();
 
@@ -391,28 +392,50 @@ export function useProjectFiles(
 		[uploadFiles]
 	);
 
-	// Fetch files once when sandbox connects
+	// Fetch files when sandbox connects (including on page refresh)
 	useEffect(() => {
 		if (sandboxStatus === "connected") {
+			// Always fetch on mount or when sandbox becomes connected
+			// This ensures files load properly on page refresh
 			fetchFiles();
+			hasFetchedOnMountRef.current = true;
+		} else {
+			// Reset flag when disconnected so we fetch again on reconnect
+			hasFetchedOnMountRef.current = false;
 		}
-	}, [sandboxStatus, fetchFiles]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [sandboxStatus, projectId]);
 
 	// Set up EventSource for realtime file updates (always listening when connected)
 	useEffect(() => {
 		if (sandboxStatus !== "connected") {
 			// Close existing connection when disconnected
 			if (eventSourceRef.current) {
+				console.log(`[Files] Closing EventSource - sandbox disconnected`);
 				eventSourceRef.current.close();
 				eventSourceRef.current = null;
 			}
 			return;
 		}
 
+		// Don't create duplicate EventSource connections
+		if (eventSourceRef.current) {
+			console.log(`[Files] EventSource already exists, skipping`);
+			return;
+		}
+
+		console.log(`[Files] Creating EventSource for project ${projectId}`);
 		const eventSource = new EventSource(
 			`/api/projects/${projectId}/files/events`
 		);
 		eventSourceRef.current = eventSource;
+
+		let eventSourceConnected = false;
+
+		eventSource.onopen = () => {
+			console.log(`[Files] EventSource connected`);
+			eventSourceConnected = true;
+		};
 
 		eventSource.onmessage = (event) => {
 			try {
@@ -424,25 +447,36 @@ export function useProjectFiles(
 					}
 					filesRefetchTimeoutRef.current = window.setTimeout(() => {
 						fetchFiles();
-					}, 300);
+					}, 500); // Increased debounce to 500ms
 				}
-			} catch {
+			} catch (error) {
 				// Ignore parse errors
+				console.warn("[Files] EventSource parse error:", error);
 			}
 		};
 
-		eventSource.onerror = () => {
-			// EventSource will auto-reconnect
+		eventSource.onerror = (error) => {
+			console.warn("[Files] EventSource error:", error);
+			// EventSource will auto-reconnect, but close if sandbox disconnects
+			if (sandboxStatus !== "connected") {
+				eventSource.close();
+				eventSourceRef.current = null;
+			}
 		};
 
 		return () => {
-			eventSource.close();
-			eventSourceRef.current = null;
+			console.log(`[Files] Cleaning up EventSource`);
+			if (eventSourceRef.current) {
+				eventSourceRef.current.close();
+				eventSourceRef.current = null;
+			}
 			if (filesRefetchTimeoutRef.current) {
 				window.clearTimeout(filesRefetchTimeoutRef.current);
+				filesRefetchTimeoutRef.current = null;
 			}
 		};
-	}, [sandboxStatus, projectId, fetchFiles]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [sandboxStatus, projectId]);
 
 	return {
 		files,

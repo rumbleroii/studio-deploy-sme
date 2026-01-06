@@ -64,9 +64,9 @@ export async function POST(
 			return new NextResponse("Internal Server Error", { status: 500 });
 		}
 
-		// Create abort controller with 90s timeout (cold start can be ~40s)
+		// Create abort controller with 110s timeout (cold start with page compilation can be ~60s)
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 90000);
+		const timeoutId = setTimeout(() => controller.abort(), 110000);
 
 		let response: Response;
 		try {
