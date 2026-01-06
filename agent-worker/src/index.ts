@@ -1294,7 +1294,7 @@ async function handleChat(
 				const promptBody = JSON.stringify({
 					model: {
 						providerID: "anthropic",
-						modelID: "claude-sonnet-4-5",
+						modelID: "claude-opus-4-5",
 					},
 					parts: [{ type: "text", text: promptText }],
 				}).replace(/'/g, "'\\''");
@@ -1399,7 +1399,7 @@ async function handleChat(
 								const retryPromptBody = JSON.stringify({
 									model: {
 										providerID: "anthropic",
-										modelID: "claude-sonnet-4-5",
+										modelID: "claude-opus-4-5",
 									},
 									parts: [{ type: "text", text: retryPromptText }],
 								}).replace(/'/g, "'\\''");
