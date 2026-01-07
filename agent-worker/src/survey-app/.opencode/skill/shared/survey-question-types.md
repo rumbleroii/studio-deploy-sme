@@ -402,40 +402,39 @@ If you see ANY of these, use `ratingScale` NOT `multipleChoice`:
 3. **Data Analysis**: Makes responses analyzable and consistent
 4. **Error Prevention**: Catches mistakes before submission
 
-### ⚠️ IMPORTANT: Number Input - When to Use `type: "text"` vs `type: "numeric_input"`
+### 🚨 CRITICAL: Validation and Metadata Structure
 
-**Decision Rule:**
-
-**Use `type: "text"` with `inputType: "number"`** (RECOMMENDED FOR MOST CASES):
+**CORRECT Schema Structure** (per types/survey.ts):
 ```typescript
 {
-  type: "text",                    // Base type is text
-  text: "What is your age?",
-  validation: {
-    required: true,
-    inputType: "number",           // HTML input type="number" for keyboard
-    min: 18,
-    max: 120,
-    pattern: "^[0-9]+$"            // Ensures only digits
+  type: "text",
+  text: "What is your email?",
+  required: true,
+  validation: [                     // ✅ Array of ValidationRule objects
+    { type: "required" },
+    { type: "min", value: 5, message: "Min 5 chars" },
+    { type: "pattern", value: "^[a-z]+$", message: "Lowercase only" }
+  ],
+  metadata: {                       // ✅ Metadata separate from validation
+    inputType: "email",             // Input type goes in metadata
+    placeholder: "name@example.com",
+    maxLength: 100
   }
 }
 ```
-**Use when**: You need numeric validation on a text input field
-**Browser behavior**: Shows numeric keyboard on mobile, allows spinners
 
-**Use `type: "numeric_input"` (IF YOU HAVE A DEDICATED COMPONENT)**:
+**⚠️ WRONG - Do NOT use these patterns:**
 ```typescript
-{
-  type: "numeric_input",           // Dedicated numeric component
-  text: "What is your age?",
-  min: 18,
-  max: 120,
-  format: "integer"                // or "decimal", "currency"
-}
-```
-**Use when**: You have a custom numeric input component with special features (currency formatting, steppers, etc.)
+// ❌ WRONG: inputType in validation
+validation: { required: true, inputType: "email" }
 
-**RECOMMENDATION**: Use `type: "text"` with `inputType: "number"` unless you have a specific reason for a dedicated numeric component.
+// ❌ WRONG: validation as object instead of array
+validation: { required: true }
+
+// ✅ CORRECT: validation as array, inputType in metadata
+validation: [{ type: "required" }]
+metadata: { inputType: "email" }
+```
 
 ### Validation Decision Process
 

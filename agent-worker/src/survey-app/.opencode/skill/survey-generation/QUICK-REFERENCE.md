@@ -15,7 +15,7 @@ One-page cheat sheet for generating consistent surveys.
 
 1. ✅ Read **ALL** files in `.opencode/skill/` folder:
    - `survey-generation/` - All guides
-   - `shared/` - ALL specs (question types, validation, logic, matrix, other-options)
+   - `shared/` - ALL specs (text-input-validation-spec, question types, logic, matrix, other-options)
    - `survey-hosted/` - Runtime specs
    - **DO NOT skip any .md files**
 
@@ -135,17 +135,34 @@ Every survey MUST have:
 
 ---
 
-## ⚠️ Add Validation Based on Answer Type
+## ⚠️ Text Input Validation (CRITICAL)
 
-**CRITICAL RULE**: Match validation to expected answer format.
+**⚠️ See `shared/text-input-validation-spec.md` for complete guide**
+
+### Correct Structure:
+```typescript
+{
+  type: "text",
+  required: true,
+  validation: [                    // ✅ Array of rules
+    { type: "required" },
+    { type: "pattern", value: "...", message: "..." }
+  ],
+  metadata: {                      // ✅ inputType in metadata
+    inputType: "email",            // NOT in validation!
+    placeholder: "...",
+    maxLength: 100
+  }
+}
+```
 
 ### Quick Validation Guide:
-- 🔢 **Age, quantity, count** → `inputType: "number"`, `min`, `max`
-- 📧 **Email** → `inputType: "email"`, email pattern
-- 📞 **Phone** → `inputType: "tel"`, phone pattern, length
-- 🔗 **URL** → `inputType: "url"`, URL pattern
-- 📝 **Name, text** → `pattern` for letters, `minLength`, `maxLength`
-- 💬 **Free text** → `minLength: 10`, `maxLength: 500`, `rejectWhitespaceOnly: true`
+- 📧 **Email** → `metadata: { inputType: "email" }`
+- 📞 **Phone** → `metadata: { inputType: "tel" }` + pattern validation
+- 🔗 **URL** → `metadata: { inputType: "url" }`
+- 🔢 **Number** → `metadata: { inputType: "number", min: X, max: Y }`
+- 📝 **Alphabetic** → `validation: [{ type: "pattern", value: "^[a-zA-Z\\s]+$" }]`
+- 💬 **Textarea** → `metadata: { inputType: "textarea", maxLength: 500 }`
 
 ### Before Every Text Input:
 1. What type of data is expected?

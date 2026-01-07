@@ -25,16 +25,103 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   const questionText = applyPiping(question.text, responses, allQuestions);
 
   useEffect(() => {
-    // Load existing response if any
+    // Load existing response or reset to empty value
     if (responses[question.id]) {
       setCurrentValue(responses[question.id]);
+    } else {
+      setCurrentValue('');
     }
   }, [question.id, responses]);
+
+  const validateInput = (value: any): string | null => {
+    if (!question.validation) return null;
+
+    for (const rule of question.validation) {
+      if (rule.type === 'required' && !value) {
+        return rule.message || 'This field is required';
+      }
+
+      if (rule.type === 'min' && value.length < rule.value) {
+        return rule.message || `Minimum ${rule.value} characters required`;
+      }
+
+      if (rule.type === 'max' && value.length > rule.value) {
+        return rule.message || `Maximum ${rule.value} characters allowed`;
+      }
+
+      if (rule.type === 'pattern' && rule.value) {
+        const regex = new RegExp(rule.value);
+        if (!regex.test(value)) {
+          return rule.message || 'Invalid format';
+        }
+      }
+    }
+
+    // Additional validation based on metadata.inputType
+    const metadata = question.metadata || {};
+    if (value && metadata.inputType) {
+      switch (metadata.inputType) {
+        case 'email':
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(value)) {
+            return 'Please enter a valid email address';
+          }
+          break;
+        case 'tel':
+          const phoneRegex = /^[\d\s\-\+\(\)]+$/;
+          if (!phoneRegex.test(value)) {
+            return 'Please enter a valid phone number';
+          }
+          break;
+        case 'url':
+          try {
+            new URL(value);
+          } catch {
+            return 'Please enter a valid URL';
+          }
+          break;
+        case 'number':
+          if (isNaN(Number(value))) {
+            return 'Please enter a valid number';
+          }
+          break;
+      }
+    }
+
+    return null;
+  };
 
   const handleChange = (value: any) => {
     setCurrentValue(value);
     setResponse(question.id, value);
     setError('');
+  };
+
+  const handleBlur = () => {
+    const metadata = question.metadata || {};
+    let valueToValidate = currentValue;
+
+    // Trim whitespace if enabled (default: true for text inputs)
+    if (question.type === 'text' && metadata.trimWhitespace !== false) {
+      valueToValidate = currentValue?.trim();
+      if (valueToValidate !== currentValue) {
+        setCurrentValue(valueToValidate);
+        setResponse(question.id, valueToValidate);
+      }
+    }
+
+    // Reject whitespace-only input (default: true for text inputs)
+    if (question.type === 'text' && metadata.rejectWhitespaceOnly !== false) {
+      if (valueToValidate && !valueToValidate.trim()) {
+        setError('Please enter valid text (not just spaces)');
+        return;
+      }
+    }
+
+    const validationError = validateInput(valueToValidate);
+    if (validationError) {
+      setError(validationError);
+    }
   };
 
   const handleMultipleChoiceChange = (optionValue: string) => {
@@ -269,6 +356,40 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
   // Text input
   if (question.type === 'text') {
+    const metadata = question.metadata || {};
+    const inputType = metadata.inputType || 'text';
+    const placeholder = metadata.placeholder || 'Enter your response...';
+    const maxLength = metadata.maxLength;
+
+    // Use textarea for 'textarea' type, otherwise use input
+    if (inputType === 'textarea') {
+      return (
+        <div className="space-y-4">
+          <div className="question-text mb-6">
+            {questionText}
+            {question.required && <span className="text-red-500 ml-1">*</span>}
+          </div>
+
+          <textarea
+            value={currentValue}
+            onChange={(e) => handleChange(e.target.value)}
+            onBlur={handleBlur}
+            className="text-input min-h-[120px] resize-y"
+            placeholder={placeholder}
+            maxLength={maxLength}
+            rows={metadata.rows}
+          />
+          {metadata.showCharCount && maxLength && (
+            <p className="text-xs text-gray-500 text-right">
+              {currentValue?.length || 0} / {maxLength}
+            </p>
+          )}
+
+          {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
         <div className="question-text mb-6">
@@ -276,11 +397,16 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
           {question.required && <span className="text-red-500 ml-1">*</span>}
         </div>
 
-        <textarea
+        <input
+          type={inputType}
           value={currentValue}
           onChange={(e) => handleChange(e.target.value)}
-          className="text-input min-h-[120px] resize-y"
-          placeholder="Enter your response..."
+          onBlur={handleBlur}
+          className="text-input"
+          placeholder={placeholder}
+          maxLength={maxLength}
+          min={metadata.min}
+          max={metadata.max}
         />
 
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
