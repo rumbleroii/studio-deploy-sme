@@ -17,6 +17,38 @@ When a user uploads a questionnaire document and asks you to create a survey, yo
 
 ---
 
+## 🚨 CRITICAL: Read ALL Files in /skill Folder Before Coding
+
+**MANDATORY FIRST STEP - DO NOT SKIP:**
+
+Before writing ANY code, you MUST read ALL documentation:
+
+1. **Read ALL files in `.opencode/skill/` folder:**
+   - `survey-generation/` - ALL generation guides, checklists, references
+   - `shared/` - ALL specifications (question types, validation, logic, matrix, other-options, UI theme, components, terminology)
+   - `survey-hosted/` - ALL runtime and implementation specs
+   - **DO NOT skip any .md files** - Each contains critical patterns
+
+2. **Read implementation files:**
+   - `data/sample-survey.ts` - See correct schema format
+   - `types/survey.ts` - TypeScript types (SOURCE OF TRUTH - if docs contradict this, follow this)
+   - `components/QuestionRenderer.tsx` - See what's already implemented
+
+3. **Verify consistency before coding:**
+   - Check question types match `types/survey.ts` (e.g., use `"numeric"` NOT `"numeric_input"`)
+   - Check metadata structure (e.g., `hasOtherOption` goes in `question.metadata`, NOT on option object)
+   - Check validation structure (e.g., `validation` is an array of ValidationRule objects)
+   - If documentation contradicts TypeScript types, **always follow the TypeScript types**
+
+**WHY THIS MATTERS:**
+
+Reading ALL files = Understanding complete system = Zero schema errors
+Skipping files = Missing critical patterns = Hours of debugging
+
+**Do NOT proceed to coding until you have read ALL skill files.**
+
+---
+
 ## Required Specification Documents
 
 You MUST reference these documents for EVERY survey generation:

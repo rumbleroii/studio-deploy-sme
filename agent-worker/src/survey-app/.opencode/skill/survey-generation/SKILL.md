@@ -30,6 +30,45 @@ Use this skill when the user:
 - Mentions "questionnaire" and "survey" together
 - Requests a survey authoring or design view
 
+## 🚨 CRITICAL: Read ALL Files in /skill Folder Before Coding
+
+**MANDATORY REQUIREMENT - DO NOT SKIP:**
+
+Before writing ANY code or making ANY changes, you MUST:
+
+1. **Read the questionnaire file completely** - Understand all questions, logic, and requirements
+
+2. **Read ALL documentation files in the `.opencode/skill/` folder:**
+   - `survey-generation/` - All generation guides and checklists
+   - `shared/` - ALL shared specifications (question types, validation, logic, matrix, other-options, etc.)
+   - `survey-hosted/` - Runtime and implementation specs
+   - **DO NOT skip any .md files** - They all contain critical information
+
+3. **Read existing implementation files:**
+   - `data/sample-survey.ts` - See the correct schema format
+   - `types/survey.ts` - Understand the TypeScript types (this is the source of truth)
+   - `components/QuestionRenderer.tsx` - See what's already implemented
+
+4. **Verify consistency:**
+   - Check that documentation matches `types/survey.ts` (TypeScript types are always correct)
+   - If documentation contradicts implementation, **follow the implementation**
+   - Note any mismatches and use correct patterns
+
+**WHY THIS IS CRITICAL:**
+
+- ❌ Rushing to code without reading ALL skills = schema mismatches and errors
+- ❌ Missing ONE file means missing critical patterns (e.g., "Other" option metadata structure)
+- ❌ Using wrong type names (e.g., `type: "numeric_input"` instead of `type: "numeric"`)
+- ❌ Putting properties in wrong places (e.g., `hasOtherOption` on option vs metadata)
+- ❌ Incorrect validation structure (e.g., array vs object)
+- ✅ Reading ALL files first ensures you understand the COMPLETE system before changing anything
+
+**If you start coding without reading ALL skill files first, the generated survey WILL have errors.**
+
+**Time spent reading = Zero errors. Time saved by skipping = Hours debugging.**
+
+---
+
 ## ⚠️ User Communication Guidelines
 
 **NEVER mention to the user:**

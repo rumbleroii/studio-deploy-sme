@@ -9,6 +9,30 @@ One-page cheat sheet for generating consistent surveys.
 
 ---
 
+## 🚨 CRITICAL: Read ALL /skill Files Before You Code
+
+**STOP! Before writing ANY code:**
+
+1. ✅ Read **ALL** files in `.opencode/skill/` folder:
+   - `survey-generation/` - All guides
+   - `shared/` - ALL specs (question types, validation, logic, matrix, other-options)
+   - `survey-hosted/` - Runtime specs
+   - **DO NOT skip any .md files**
+
+2. ✅ Read implementation files:
+   - `data/sample-survey.ts` - Correct schema format
+   - `types/survey.ts` - TypeScript types (SOURCE OF TRUTH)
+   - `components/QuestionRenderer.tsx` - What's implemented
+
+3. ✅ Verify consistency:
+   - Types match TypeScript schema (e.g., use `"numeric"` NOT `"numeric_input"`)
+   - Metadata structure correct (e.g., `hasOtherOption` in metadata, NOT on option)
+   - If docs contradict implementation, **follow implementation**
+
+**Rushing to code = errors. Reading ALL files first = zero errors.**
+
+---
+
 ## 📁 Files to Know
 
 | File | Purpose | When to Use |

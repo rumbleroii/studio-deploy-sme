@@ -1,6 +1,6 @@
 # "Other (Please Specify)" Option Specification
 
-**Purpose**: Define how to handle "Other" options that reveal conditional text input fields when selected.
+**Purpose**: Define how to handle "Other","please specify" options that reveal conditional text input fields when selected.
 
 ---
 
@@ -13,7 +13,7 @@
 1. **Initially**: Text input is **hidden**
 2. **When "Other" selected**: Text input **appears** below the option
 3. **When "Other" deselected**: Text input **disappears** and value is cleared
-4. **Validation**: If "Other" is selected, text input is typically **required**
+4. **Validation**: If "Other", "please specify" is selected, text input is typically **required**
 
 ---
 
@@ -44,22 +44,25 @@
   id: "Q1",
   type: "single_choice",
   text: "What is your primary mode of transportation?",
+  required: true,
   options: [
-    { id: "1", label: "Car" },
-    { id: "2", label: "Bus" },
-    { id: "3", label: "Train" },
-    { id: "4", label: "Bicycle" },
-    { id: "5", label: "Walk" },
-    {
-      id: "99",
-      label: "Other (please specify)",
-      hasOtherOption: true,          // Flag indicating this option has text input
-      otherInputRequired: true,       // Text input required when selected
-      otherInputPlaceholder: "Please specify",
-      otherInputMaxLength: 100
-    }
+    { id: 1, label: "Car", value: "car" },
+    { id: 2, label: "Bus", value: "bus" },
+    { id: 3, label: "Train", value: "train" },
+    { id: 4, label: "Bicycle", value: "bicycle" },
+    { id: 5, label: "Walk", value: "walk" },
+    { id: 99, label: "Other (please specify)", value: "other" }
   ],
-  validation: { required: true }
+  metadata: {
+    hasOtherOption: true,              // Enable "Other" text input functionality
+    otherOptionId: 99,                 // Which option ID triggers the text input
+    otherInputRequired: true,          // Text input required when "Other" selected
+    otherInputPlaceholder: "Please specify",
+    otherInputMaxLength: 100
+  },
+  validation: [
+    { type: 'required', message: 'Please select an option' }
+  ]
 }
 ```
 
@@ -70,57 +73,57 @@
   id: "Q5",
   type: "multiple_choice",
   text: "Which smartphone brands are you familiar with? (Select all that apply)",
+  required: true,
   options: [
-    { id: "1", label: "Apple" },
-    { id: "2", label: "Samsung" },
-    { id: "3", label: "Google" },
-    { id: "4", label: "OnePlus" },
-    {
-      id: "99",
-      label: "Other (please specify)",
-      hasOtherOption: true,
-      otherInputRequired: true,
-      otherInputPlaceholder: "Please specify brand",
-      otherInputMaxLength: 50
-    },
-    {
-      id: "0",
-      label: "None of the above",
-      isExclusive: true              // Separate concept - deselects all others
-    }
+    { id: 1, label: "Apple", value: "apple" },
+    { id: 2, label: "Samsung", value: "samsung" },
+    { id: 3, label: "Google", value: "google" },
+    { id: 4, label: "OnePlus", value: "oneplus" },
+    { id: 99, label: "Other (please specify)", value: "other" },
+    { id: 0, label: "None of the above", value: "none" }
   ],
-  validation: {
-    required: true,
-    minSelections: 1
-  }
+  metadata: {
+    hasOtherOption: true,
+    otherOptionId: 99,
+    otherInputRequired: true,
+    otherInputPlaceholder: "Please specify brand",
+    otherInputMaxLength: 50,
+    minSelections: 1,
+    exclusiveOptions: [0]              // "None of the above" deselects all others
+  },
+  validation: [
+    { type: 'required', message: 'Please select at least one option' }
+  ]
 }
 ```
 
 ### Multiple "Other" Options (Rare)
+
+**NOTE**: Current implementation supports ONE "Other", "please specify" option per question. Multiple "Other" options would require enhancement.
+
+**Recommended approach**: Use a single "Other" option:
 
 ```typescript
 {
   id: "Q10",
   type: "multiple_choice",
   text: "What issues did you experience? (Select all that apply)",
+  required: true,
   options: [
-    { id: "1", label: "Battery drain" },
-    { id: "2", label: "Screen issues" },
-    { id: "3", label: "Audio problems" },
-    {
-      id: "97",
-      label: "Other hardware issue (specify)",
-      hasOtherOption: true,
-      otherInputRequired: true,
-      otherInputPlaceholder: "Describe hardware issue"
-    },
-    {
-      id: "98",
-      label: "Other software issue (specify)",
-      hasOtherOption: true,
-      otherInputRequired: true,
-      otherInputPlaceholder: "Describe software issue"
-    }
+    { id: 1, label: "Battery drain", value: "battery" },
+    { id: 2, label: "Screen issues", value: "screen" },
+    { id: 3, label: "Audio problems", value: "audio" },
+    { id: 99, label: "Other issue (please specify)", value: "other" }
+  ],
+  metadata: {
+    hasOtherOption: true,
+    otherOptionId: 99,
+    otherInputRequired: true,
+    otherInputPlaceholder: "Describe the issue",
+    otherInputMaxLength: 200
+  },
+  validation: [
+    { type: 'required', message: 'Please select at least one option' }
   ]
 }
 ```
@@ -470,82 +473,32 @@ Which of these brands have you heard of? (Select all that apply)
 When parsing questionnaires, check for "Other" options:
 
 - [ ] Identify "Other" patterns (see "Questionnaire Patterns to Detect")
-- [ ] Add `hasOtherOption: true` to option schema
-- [ ] Set `otherInputRequired: true` (default)
-- [ ] Add appropriate placeholder text
-- [ ] Set character limit (50-100 typical, 200+ for detailed responses)
-- [ ] Ensure option ID is unique (commonly "99" or "98", "97" for multiple)
+- [ ] Add "Other" as a regular option: `{ id: 99, label: "Other (please specify)", value: "other" }`
+- [ ] Add `hasOtherOption: true` to **question.metadata** (NOT on option object)
+- [ ] Add `otherOptionId: 99` to **question.metadata** to specify which option ID triggers text input
+- [ ] Set `otherInputRequired: true` in metadata (default - makes text required when "Other" selected)
+- [ ] Add `otherInputPlaceholder` in metadata (e.g., "Please specify")
+- [ ] Set `otherInputMaxLength` in metadata (50-100 typical, 200+ for detailed responses)
+- [ ] Ensure option ID is unique (commonly 99 for single "Other")
 - [ ] Place "Other" near end of options list
-- [ ] Add validation rules for text input
 - [ ] Document in notes section if custom behavior needed
 
 ---
 
 ## Component Implementation
 
-### React Component Example
+**IMPORTANT**: The "Other, "please specify" option functionality is already fully implemented in `/components/QuestionRenderer.tsx`.
 
-```tsx
-interface OptionWithOther {
-  id: string;
-  label: string;
-  hasOtherOption?: boolean;
-  otherInputRequired?: boolean;
-  otherInputPlaceholder?: string;
-  otherInputMaxLength?: number;
-}
+### How It Works
 
-const OptionWithOtherInput: React.FC<{
-  option: OptionWithOther;
-  questionId: string;
-  inputType: 'radio' | 'checkbox';
-  isSelected: boolean;
-  otherValue: string;
-  onOptionChange: (optionId: string, checked: boolean) => void;
-  onOtherTextChange: (optionId: string, text: string) => void;
-}> = ({
-  option,
-  questionId,
-  inputType,
-  isSelected,
-  otherValue,
-  onOptionChange,
-  onOtherTextChange
-}) => {
-  return (
-    <div className="option-with-other">
-      <label className="option-container">
-        <input
-          type={inputType}
-          name={questionId}
-          value={option.id}
-          checked={isSelected}
-          onChange={(e) => onOptionChange(option.id, e.target.checked)}
-        />
-        <span className="option-label">{option.label}</span>
-      </label>
+The implementation uses **metadata-based detection**:
 
-      {option.hasOtherOption && (
-        <div
-          className={`other-input-container ${isSelected ? 'visible' : 'hidden'}`}
-          style={{ display: isSelected ? 'block' : 'none' }}
-        >
-          <input
-            type="text"
-            className="other-text-input"
-            placeholder={option.otherInputPlaceholder || "Please specify"}
-            maxLength={option.otherInputMaxLength || 100}
-            value={otherValue}
-            onChange={(e) => onOtherTextChange(option.id, e.target.value)}
-            required={isSelected && option.otherInputRequired}
-            aria-label={`Specify ${option.label}`}
-          />
-        </div>
-      )}
-    </div>
-  );
-};
-```
+1. Check `question.metadata.hasOtherOption` to enable the feature
+2. Use `question.metadata.otherOptionId` to identify which option triggers the text input
+3. When that option is selected, render a text input below it
+4. Apply all metadata properties: `otherInputRequired`, `otherInputPlaceholder`, `otherInputMaxLength`
+
+**You do NOT need to modify component code**. Simply structure your question with the correct metadata as shown in the "Schema Structure" section above, and the text input will automatically appear.
 
 ---
 
