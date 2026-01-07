@@ -20,16 +20,25 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   const [currentValue, setCurrentValue] = useState<any>(responses[question.id] || '');
   const [error, setError] = useState<string>('');
   const [otherTextValues, setOtherTextValues] = useState<Record<string, string>>({});
+  const [exclusiveSelected, setExclusiveSelected] = useState<boolean>(false);
 
   // Apply piping to question text
   const questionText = applyPiping(question.text, responses, allQuestions);
 
   useEffect(() => {
     // Load existing response or reset to empty value
-    if (responses[question.id]) {
-      setCurrentValue(responses[question.id]);
+    const storedValue = responses[question.id];
+    const storedExclusive = responses[`${question.id}_exclusive`];
+
+    if (storedValue) {
+      setCurrentValue(storedValue);
+      setExclusiveSelected(false);
+    } else if (storedExclusive === true) {
+      setCurrentValue('');
+      setExclusiveSelected(true);
     } else {
       setCurrentValue('');
+      setExclusiveSelected(false);
     }
   }, [question.id, responses]);
 
@@ -95,6 +104,28 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     setCurrentValue(value);
     setResponse(question.id, value);
     setError('');
+
+    // Clear exclusive checkbox when user enters a value
+    if (value && exclusiveSelected) {
+      setExclusiveSelected(false);
+      setResponse(`${question.id}_exclusive`, undefined);
+    }
+  };
+
+  const handleExclusiveToggle = () => {
+    const newExclusiveState = !exclusiveSelected;
+    setExclusiveSelected(newExclusiveState);
+
+    if (newExclusiveState) {
+      // Exclusive selected: clear input value
+      setCurrentValue('');
+      setResponse(question.id, '');
+      setResponse(`${question.id}_exclusive`, true);
+      setError('');
+    } else {
+      // Exclusive deselected: remove exclusive flag
+      setResponse(`${question.id}_exclusive`, undefined);
+    }
   };
 
   const handleBlur = () => {
@@ -126,12 +157,38 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
   const handleMultipleChoiceChange = (optionValue: string) => {
     const current = Array.isArray(currentValue) ? currentValue : [];
-    const newValue = current.includes(optionValue)
-      ? current.filter(v => v !== optionValue)
-      : [...current, optionValue];
+    const metadata = question.metadata || {};
+    const exclusiveOptions = metadata.exclusiveOptions || [];
+
+    // Find the option being clicked
+    const clickedOption = question.options?.find(opt => String(opt.value) === String(optionValue));
+    const clickedOptionId = clickedOption ? Number(clickedOption.id) : null;
+
+    // Check if this option is exclusive
+    const isExclusive = clickedOptionId !== null && exclusiveOptions.includes(clickedOptionId);
+
+    let newValue: string[];
+
+    if (current.includes(optionValue)) {
+      // Deselecting - just remove it
+      newValue = current.filter(v => v !== optionValue);
+    } else {
+      // Selecting - handle exclusive logic
+      if (isExclusive) {
+        // This is an exclusive option - deselect all others and select only this
+        newValue = [optionValue];
+      } else {
+        // This is a regular option - remove any exclusive options and add this one
+        const nonExclusiveValues = current.filter(v => {
+          const opt = question.options?.find(o => String(o.value) === String(v));
+          const optId = opt ? Number(opt.id) : null;
+          return optId === null || !exclusiveOptions.includes(optId);
+        });
+        newValue = [...nonExclusiveValues, optionValue];
+      }
+    }
 
     // Clear "Other" text if deselected
-    const metadata = question.metadata || {};
     if (metadata.hasOtherOption && String(metadata.otherOptionId) === optionValue) {
       if (!newValue.includes(optionValue)) {
         const newOtherTextValues = { ...otherTextValues };
@@ -378,11 +435,26 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
             placeholder={placeholder}
             maxLength={maxLength}
             rows={metadata.rows}
+            disabled={exclusiveSelected}
           />
           {metadata.showCharCount && maxLength && (
             <p className="text-xs text-gray-500 text-right">
               {currentValue?.length || 0} / {maxLength}
             </p>
+          )}
+
+          {metadata.exclusiveOption && (
+            <div className="mt-2">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={exclusiveSelected}
+                  onChange={handleExclusiveToggle}
+                  className="checkbox"
+                />
+                <span className="ml-2 text-sm text-gray-700">{metadata.exclusiveOption}</span>
+              </label>
+            </div>
           )}
 
           {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
@@ -407,7 +479,22 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
           maxLength={maxLength}
           min={metadata.min}
           max={metadata.max}
+          disabled={exclusiveSelected}
         />
+
+        {metadata.exclusiveOption && (
+          <div className="mt-2">
+            <label className="flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={exclusiveSelected}
+                onChange={handleExclusiveToggle}
+                className="checkbox"
+              />
+              <span className="ml-2 text-sm text-gray-700">{metadata.exclusiveOption}</span>
+            </label>
+          </div>
+        )}
 
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
       </div>
@@ -416,6 +503,8 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
   // Numeric input
   if (question.type === 'numeric') {
+    const metadata = question.metadata || {};
+
     return (
       <div className="space-y-4">
         <div className="question-text mb-6">
@@ -429,7 +518,22 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
           onChange={(e) => handleChange(e.target.value)}
           className="text-input"
           placeholder="Enter a number..."
+          disabled={exclusiveSelected}
         />
+
+        {metadata.exclusiveOption && (
+          <div className="mt-2">
+            <label className="flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={exclusiveSelected}
+                onChange={handleExclusiveToggle}
+                className="checkbox"
+              />
+              <span className="ml-2 text-sm text-gray-700">{metadata.exclusiveOption}</span>
+            </label>
+          </div>
+        )}
 
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
       </div>

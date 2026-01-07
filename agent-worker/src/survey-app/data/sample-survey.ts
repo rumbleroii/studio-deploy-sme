@@ -157,11 +157,13 @@ export const sampleSurvey: Survey = {
           defaultNextQuestion: 'Q5',
           metadata: {
             randomize: true,
-            anchor: [7]
+            anchor: [7],
+            exclusiveOptions: [7]  // "None of the above" deselects all others
           },
           notes: [
             'Multiple selection allowed',
             'Option 7 (None) should be anchored at bottom',
+            'Option 7 is exclusive - deselects all others when selected',
             'Services shown depend on CONCEPT_ASSIGNMENT',
             'Sum of selected prices used in Q5',
             'SKIP to Q8 if ONLY "None of the above" selected'

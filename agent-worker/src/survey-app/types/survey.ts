@@ -58,6 +58,7 @@ export interface TextMetadata {
   rejectWhitespaceOnly?: boolean; // Default: true
   min?: number; // For number inputs
   max?: number; // For number inputs
+  exclusiveOption?: string; // Label for exclusive checkbox (e.g., "Don't know", "Prefer not to answer")
 }
 
 /**
@@ -111,6 +112,7 @@ export interface NumericMetadata {
   min?: number;
   max?: number;
   suffix?: string; // e.g., "%" for percentages
+  exclusiveOption?: string; // Label for exclusive checkbox (e.g., "Don't know", "Prefer not to answer")
 }
 
 /**

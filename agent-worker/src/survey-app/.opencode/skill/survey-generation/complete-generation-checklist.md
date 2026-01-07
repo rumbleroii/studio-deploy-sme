@@ -406,10 +406,35 @@ For each question in questionnaire:
 
 #### Multiple Choice with Exclusive Options
 
+Exclusive options automatically deselect all others when selected.
+
+**Common exclusive options:**
+- "None of the above"
+- "Prefer not to answer"
+- "Not applicable"
+- "I don't use any of these"
+
+**Schema:**
+```typescript
+{
+  type: "multiple_choice",
+  options: [
+    { id: 1, label: "Option A", value: "a" },
+    { id: 2, label: "Option B", value: "b" },
+    { id: 99, label: "None of the above", value: "none" }
+  ],
+  metadata: {
+    exclusiveOptions: [99]  // Use option ID (number), not value (string)
+  }
+}
+```
+
 **CHECKLIST:**
-- [ ] Identify exclusive options (e.g., "None of the above")
-- [ ] Set exclusive flag in schema
-- [ ] Note: Selecting exclusive option deselects all others
+- [ ] Identify exclusive options in questionnaire
+- [ ] Add option as regular option with ID
+- [ ] Add option ID to `metadata.exclusiveOptions` array
+- [ ] Use option **ID** (number), not value (string)
+- [ ] Note behavior: Selecting exclusive deselects all others, and vice versa
 
 #### "Other (Please Specify)" Options
 

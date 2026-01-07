@@ -185,6 +185,18 @@ validation: {
 
 **See**: ../shared/survey-question-types.md for 10+ validation examples
 
+### Text/Numeric Exclusive Checkbox
+
+When questionnaire mentions "EXCLUSIVE" or "Don't know" for text/numeric inputs:
+
+```typescript
+metadata: {
+  exclusiveOption: "Prefer not to answer"  // Shows checkbox
+}
+```
+
+**Behavior**: Checkbox lets user skip input but still pass validation.
+
 ---
 
 ## 🚨 ALL Questions Are Mandatory
@@ -214,6 +226,20 @@ validation: {
 - Statistical validity
 - Professional standard
 - No partial responses
+
+---
+
+## ⚡ Exclusive Options (Multiple Choice)
+
+Options that deselect all others when selected (e.g., "None of the above").
+
+```typescript
+metadata: {
+  exclusiveOptions: [99]  // Option ID (number), not value
+}
+```
+
+**Common patterns**: "None of the above", "Prefer not to answer", "Not applicable"
 
 ---
 

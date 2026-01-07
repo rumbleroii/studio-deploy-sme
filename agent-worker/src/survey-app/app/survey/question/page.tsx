@@ -125,7 +125,7 @@ export default function QuestionPage() {
 
     // Validate response
     const currentValue = responses[currentQuestion.id];
-    const validation = validateResponse(currentQuestion, currentValue);
+    const validation = validateResponse(currentQuestion, currentValue, responses);
 
     if (!validation.isValid) {
       setError(validation.error || 'Please answer this question');

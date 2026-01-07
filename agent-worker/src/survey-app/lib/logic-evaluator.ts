@@ -318,8 +318,14 @@ export function applyPiping(
  */
 export function validateResponse(
   question: Question,
-  value: any
+  value: any,
+  allResponses?: Record<string, any>
 ): { isValid: boolean; error?: string } {
+  // Check if exclusive option is selected (for text/numeric inputs)
+  if (allResponses && allResponses[`${question.id}_exclusive`] === true) {
+    return { isValid: true }; // Exclusive option selected is valid
+  }
+
   // Check required
   if (question.required) {
     if (value === undefined || value === null || value === '') {
@@ -327,6 +333,23 @@ export function validateResponse(
     }
     if (Array.isArray(value) && value.length === 0) {
       return { isValid: false, error: 'Please select at least one option' };
+    }
+  }
+
+  // Matrix validation: Check if all rows are answered
+  if (question.type === 'matrix' && question.matrixRows) {
+    const metadata = question.metadata || {};
+    const requireAllRows = metadata.requireAllRows !== false; // Default: true
+
+    if (requireAllRows) {
+      if (!value || typeof value !== 'object') {
+        return { isValid: false, error: 'Please answer all rows' };
+      }
+
+      const unansweredRows = question.matrixRows.filter(row => !value[row.id]);
+      if (unansweredRows.length > 0) {
+        return { isValid: false, error: 'Please answer all rows before proceeding' };
+      }
     }
   }
 

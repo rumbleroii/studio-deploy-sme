@@ -1184,7 +1184,36 @@ Notes:
   // Note: If required: true without minSelections, defaults to minSelections: 1
   // To require multiple selections: set minSelections: 2 or higher
   ```
-- **Exclusive options**: Options that deselect all others when selected (e.g., "None of the above")
+
+**Exclusive Options**:
+
+Exclusive options automatically deselect all others when selected. Use for "None of the above", "Prefer not to answer", or "Not applicable".
+
+```typescript
+{
+  id: "Q5",
+  type: "multiple_choice",
+  text: "Which features do you use?",
+  required: true,
+  options: [
+    { id: 1, label: "Feature A", value: "a" },
+    { id: 2, label: "Feature B", value: "b" },
+    { id: 3, label: "Feature C", value: "c" },
+    { id: 99, label: "None of the above", value: "none" }
+  ],
+  metadata: {
+    minSelections: 1,
+    exclusiveOptions: [99]  // Option ID 99 deselects all others
+  }
+}
+```
+
+**Behavior**:
+- User selects "Feature A", "Feature B", then clicks "None of the above" → Only "None" remains selected
+- User has "None of the above" selected, then clicks "Feature A" → Only "Feature A" remains selected
+- Use option **IDs** (numbers), not values (strings)
+
+**Common patterns**: "None of the above", "Prefer not to answer", "Not applicable"
 
 **Example with "Other" Option**:
 ```
@@ -1382,6 +1411,58 @@ Notes:
 • Pattern: Email format
 • Max length: 100 characters
 • Whitespace: Handled per Section 3.0 (automatic)
+```
+
+### 3.1.1 Exclusive Checkbox Option (Text/Numeric Inputs)
+
+**Purpose**: Allow respondent to skip text/numeric input with a valid opt-out checkbox
+
+**When to use**: Questionnaire mentions "EXCLUSIVE" or includes "Don't know" / "Prefer not to answer" option
+
+**Schema:**
+```typescript
+{
+  type: "text",
+  text: "What is your annual income?",
+  required: true,
+  metadata: {
+    inputType: "number",
+    exclusiveOption: "Prefer not to answer"  // Checkbox label
+  }
+}
+```
+
+**Behavior:**
+- Checkbox appears below input field
+- When checkbox selected: input disabled, cleared, and response is valid
+- When user types: checkbox automatically unchecked
+- Validation: If neither checkbox selected nor input filled → shows required error
+
+**Common labels:**
+- "Don't know"
+- "Prefer not to answer"
+- "Not applicable"
+
+**Applies to:**
+- `type: "text"` (all inputTypes: text, textarea, email, tel, url, number)
+- `type: "numeric"`
+
+**Example:**
+```
+[Q5] [Text Input]
+
+What is your annual household income?
+
+[_________________________]
+
+☐ Prefer not to answer
+
+[Default → Q6]
+
+Notes:
+• Validation: Required (checkbox OR input)
+• Input type: number
+• Exclusive option: "Prefer not to answer"
 ```
 
 ---

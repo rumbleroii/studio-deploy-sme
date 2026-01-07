@@ -212,6 +212,46 @@ metadata: {
 - **On Blur**: Validates when user leaves field
 - **Shows Error**: Displays error message below input
 
+## Exclusive Checkbox Option
+
+For text or numeric questions where respondents may not know or prefer not to answer, add an exclusive checkbox.
+
+**When to use:**
+- Questionnaire mentions "EXCLUSIVE" or "Don't know" or "Prefer not to answer"
+- Allows respondent to skip the input while still being valid
+
+**Schema:**
+```typescript
+{
+  type: "text",
+  text: "What is your annual income?",
+  required: true,
+  metadata: {
+    inputType: "number",
+    exclusiveOption: "Prefer not to answer"  // Shows checkbox with this label
+  }
+}
+```
+
+**Behavior:**
+- Checkbox appears below the input field
+- When checkbox is selected:
+  - Input field is disabled and cleared
+  - Response is marked valid (can proceed to next question)
+- When user types in input:
+  - Checkbox is automatically unchecked
+- If neither checkbox selected nor input filled:
+  - Shows required error
+
+**Common labels:**
+- "Don't know"
+- "Prefer not to answer"
+- "Not applicable"
+
+**Applies to:**
+- `type: "text"` (all inputTypes)
+- `type: "numeric"`
+
 ## Common Patterns by Question Type
 
 | Question Type | Validation Pattern | Example |
