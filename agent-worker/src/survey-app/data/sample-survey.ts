@@ -154,7 +154,7 @@ export const sampleSurvey: Survey = {
               destination: 'Q8'
             }
           ],
-          defaultNextQuestion: 'Q5',
+          defaultNextQuestion: 'Q4a',
           metadata: {
             randomize: true,
             anchor: [7],
@@ -167,6 +167,33 @@ export const sampleSurvey: Survey = {
             'Services shown depend on CONCEPT_ASSIGNMENT',
             'Sum of selected prices used in Q5',
             'SKIP to Q8 if ONLY "None of the above" selected'
+          ]
+        },
+        {
+          id: 'Q4a',
+          type: 'multiple_choice',
+          text: 'Which communication tools does your company use? Please select all that apply.',
+          required: true,
+          options: [
+            { id: 1, label: 'Slack', value: 'slack' },
+            { id: 2, label: 'Microsoft Teams', value: 'teams' },
+            { id: 3, label: 'Zoom', value: 'zoom' },
+            { id: 4, label: 'Google Meet', value: 'google_meet' },
+            { id: 5, label: 'Webex', value: 'webex' },
+            { id: 99, label: 'Other (please specify)', value: 'other' }
+          ],
+          defaultNextQuestion: 'Q5',
+          metadata: {
+            hasOtherOption: true,
+            otherOptionId: 99,
+            otherInputRequired: true,
+            otherInputPlaceholder: 'Please specify the tool name',
+            otherInputMaxLength: 100
+          },
+          notes: [
+            'Test question for "Other (please specify)" validation',
+            'When "Other" is selected, text input appears and is required',
+            'User must enter text before proceeding to next question'
           ]
         },
         {

@@ -242,6 +242,9 @@ When user uploads a questionnaire:
   }
   ```
 - **Validation**: When "Other" is selected, user MUST enter text in the textbox before proceeding (enforced automatically)
+  - Validation runs when user clicks "Next" button
+  - If text is missing/empty → Error message: "Please enter your answer in the text box when selecting 'Other (please specify)'"
+  - User cannot proceed until valid text is entered
 - **Storage**: Text is stored separately as `${questionId}_other_${optionValue}` in responses
 
 **CRITICAL - Validation Based on Expected Answer:**

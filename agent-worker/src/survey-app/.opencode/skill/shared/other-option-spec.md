@@ -300,6 +300,14 @@ function handleRadioChange(questionId, selectedValue, allOptions) {
 4. **Pattern validation**: Optional (e.g., no special characters)
 5. **Whitespace handling**: CRITICAL - Trim and reject whitespace-only
 
+### Validation Behavior
+
+**When user clicks "Next" button without entering text:**
+- Validation runs automatically via `validateResponse()` function
+- If "Other" is selected but text is empty/missing → Error message displayed: "Please enter your answer in the text box when selecting 'Other (please specify)'"
+- User cannot proceed to next question until valid text is entered
+- Error appears in red error box below the question
+
 ### Validation Messages
 
 ```typescript

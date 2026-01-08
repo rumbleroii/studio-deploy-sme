@@ -172,11 +172,11 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     const metadata = question.metadata || {};
     const exclusiveOptions = metadata.exclusiveOptions || [];
 
-    // Use the actual options available (could be dynamic/filtered)
-    const availableOptions = getDynamicOptions() || question.options || [];
+    // Use the actual options available
+    const availableOptions = question.options || [];
     
     // Find the option being clicked
-    const clickedOption = availableOptions.find(opt => String(opt.value) === String(optionValue));
+    const clickedOption = availableOptions.find((opt: any) => String(opt.value) === String(optionValue));
     const clickedOptionId = clickedOption ? Number(clickedOption.id) : null;
 
     // Check if this option is exclusive
@@ -198,7 +198,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
           const clearedOtherTextValues: Record<string, string> = {};
           setOtherTextValues(clearedOtherTextValues);
           // Also clear from responses
-          availableOptions.forEach(opt => {
+          availableOptions.forEach((opt: any) => {
             if (String(opt.id) === String(metadata.otherOptionId)) {
               setResponse(`${question.id}_other_${opt.value}`, undefined);
             }
@@ -207,7 +207,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
       } else {
         // This is a regular option - remove any exclusive options and add this one
         const nonExclusiveValues = current.filter(v => {
-          const opt = availableOptions.find(o => String(o.value) === String(v));
+          const opt = availableOptions.find((o: any) => String(o.value) === String(v));
           const optId = opt ? Number(opt.id) : null;
           return optId === null || !exclusiveOptions.includes(optId);
         });
@@ -216,7 +216,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     }
 
     // Clear "Other" text if deselected
-    if (metadata.hasOtherOption && String(metadata.otherOptionId) === optionValue) {
+    if (metadata.hasOtherOption && clickedOptionId !== null && String(clickedOptionId) === String(metadata.otherOptionId)) {
       if (!newValue.includes(optionValue)) {
         const newOtherTextValues = { ...otherTextValues };
         delete newOtherTextValues[optionValue];
@@ -332,6 +332,18 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     const hasOtherOption = metadata.hasOtherOption;
     const otherOptionId = metadata.otherOptionId;
 
+    if (!question.options || question.options.length === 0) {
+      return (
+        <div className="space-y-4">
+          <div className="question-text mb-6">
+            {questionText}
+            {question.required && <span className="text-red-500 ml-1">*</span>}
+          </div>
+          <p className="text-gray-500 italic">No options available</p>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
         <div className="question-text mb-6">
@@ -351,7 +363,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
                     type="checkbox"
                     value={option.value}
                     checked={isSelected}
-                    onChange={() => handleMultipleChoiceChange(option.value as string)}
+                    onChange={() => handleMultipleChoiceChange(String(option.value))}
                     className="checkbox flex-shrink-0"
                   />
                   <span className="option-text ml-4">{option.label}</span>

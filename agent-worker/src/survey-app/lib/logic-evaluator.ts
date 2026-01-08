@@ -336,6 +336,47 @@ export function validateResponse(
     }
   }
 
+  // Single choice and Multiple choice "Other" option validation
+  if ((question.type === 'single_choice' || question.type === 'multiple_choice') && question.options) {
+    const metadata = question.metadata || {};
+
+    if (metadata.hasOtherOption && metadata.otherOptionId) {
+      // Find the "Other" option
+      const otherOption = question.options.find(opt => String(opt.id) === String(metadata.otherOptionId));
+
+      if (otherOption) {
+        let isOtherSelected = false;
+
+        // Check if "Other" is selected (different logic for single vs multiple choice)
+        if (question.type === 'single_choice') {
+          isOtherSelected = value === otherOption.value;
+        } else if (question.type === 'multiple_choice') {
+          isOtherSelected = Array.isArray(value) && value.includes(otherOption.value);
+        }
+
+        if (isOtherSelected) {
+          // "Other" option is selected - check if text is provided
+          const otherTextKey = `${question.id}_other_${otherOption.value}`;
+          const otherText = allResponses?.[otherTextKey];
+
+          // Require text by default (unless explicitly disabled)
+          // Default behavior: ALWAYS require text when "Other" is selected
+          const requireText = metadata.otherInputRequired !== false;
+
+          if (requireText) {
+            // Check if text is missing, empty, or only whitespace
+            if (!otherText || typeof otherText !== 'string' || otherText.trim().length === 0) {
+              return { 
+                isValid: false, 
+                error: 'Please enter your answer in the text box when selecting "Other (please specify)"' 
+              };
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Matrix validation: Check if all rows are answered
   if (question.type === 'matrix' && question.matrixRows) {
     const metadata = question.metadata || {};
