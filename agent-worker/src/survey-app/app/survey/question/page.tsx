@@ -44,6 +44,7 @@ export default function QuestionPage() {
   const { responses, addVisitedQuestion, visitedQuestions, progress, setProgress } = useSurvey();
   const [error, setError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFirstVisit, setIsFirstVisit] = useState<boolean>(true);
 
   // Get all questions from all sections
   const allQuestions = sampleSurvey.sections.flatMap(section => section.questions);
@@ -90,10 +91,16 @@ export default function QuestionPage() {
   }, [questionId, currentQuestion, visitedQuestions, responses, allQuestions, router]);
 
   useEffect(() => {
-    if (questionId && !visitedQuestions.includes(questionId)) {
-      addVisitedQuestion(questionId);
+    if (questionId) {
+      const wasAlreadyVisited = visitedQuestions.includes(questionId);
+      setIsFirstVisit(!wasAlreadyVisited);
+
+      if (!wasAlreadyVisited) {
+        addVisitedQuestion(questionId);
+      }
     }
-  }, [questionId, visitedQuestions, addVisitedQuestion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questionId]); // Only run when questionId changes, not when visitedQuestions changes
 
   // Separate effect for progress calculation
   useEffect(() => {
@@ -223,6 +230,7 @@ export default function QuestionPage() {
             <QuestionRenderer
               question={currentQuestion}
               allQuestions={allQuestions}
+              isFirstVisit={isFirstVisit}
               onComplete={(value) => {
                 // Response is already saved via context
               }}

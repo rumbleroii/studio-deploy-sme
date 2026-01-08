@@ -163,7 +163,7 @@ export const sampleSurvey: Survey = {
           notes: [
             'Multiple selection allowed',
             'Option 7 (None) should be anchored at bottom',
-            'Option 7 is exclusive - deselects all others when selected',
+            'Option 7 is exclusive - deselects all others when this is selected',
             'Services shown depend on CONCEPT_ASSIGNMENT',
             'Sum of selected prices used in Q5',
             'SKIP to Q8 if ONLY "None of the above" selected'

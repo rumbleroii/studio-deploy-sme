@@ -9,15 +9,17 @@ interface QuestionRendererProps {
   question: Question;
   onComplete: (value: any) => void;
   allQuestions?: Question[]; // Optional: for piping label lookups
+  isFirstVisit?: boolean; // Whether this is the first time visiting this question in this session
 }
 
 export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   question,
   onComplete,
-  allQuestions
+  allQuestions,
+  isFirstVisit
 }) => {
-  const { responses, setResponse } = useSurvey();
-  const [currentValue, setCurrentValue] = useState<any>(responses[question.id] || '');
+  const { responses, setResponse, visitedQuestions } = useSurvey();
+  const [currentValue, setCurrentValue] = useState<any>('');
   const [error, setError] = useState<string>('');
   const [otherTextValues, setOtherTextValues] = useState<Record<string, string>>({});
   const [exclusiveSelected, setExclusiveSelected] = useState<boolean>(false);
@@ -30,17 +32,27 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     const storedValue = responses[question.id];
     const storedExclusive = responses[`${question.id}_exclusive`];
 
-    if (storedValue) {
+    // Only pre-fill if this is a return visit (not first visit)
+    // This prevents stale localStorage data from previous sessions pre-filling new questions
+    const shouldPreFill = isFirstVisit === false || (isFirstVisit === undefined && storedValue !== undefined);
+
+    if (storedValue && shouldPreFill) {
       setCurrentValue(storedValue);
       setExclusiveSelected(false);
-    } else if (storedExclusive === true) {
+    } else if (storedExclusive === true && shouldPreFill) {
       setCurrentValue('');
       setExclusiveSelected(true);
-    } else {
+    } else if (!shouldPreFill && storedValue === undefined) {
+      // On first visit with no stored value, reset to empty
       setCurrentValue('');
       setExclusiveSelected(false);
+    } else if (storedValue !== undefined) {
+      // Always sync currentValue with responses when responses change (for state consistency)
+      // This ensures exclusive option selections are immediately reflected in the UI
+      setCurrentValue(storedValue);
+      setExclusiveSelected(false);
     }
-  }, [question.id, responses]);
+  }, [question.id, responses, isFirstVisit]);
 
   const validateInput = (value: any): string | null => {
     if (!question.validation) return null;
@@ -160,8 +172,11 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     const metadata = question.metadata || {};
     const exclusiveOptions = metadata.exclusiveOptions || [];
 
+    // Use the actual options available (could be dynamic/filtered)
+    const availableOptions = getDynamicOptions() || question.options || [];
+    
     // Find the option being clicked
-    const clickedOption = question.options?.find(opt => String(opt.value) === String(optionValue));
+    const clickedOption = availableOptions.find(opt => String(opt.value) === String(optionValue));
     const clickedOptionId = clickedOption ? Number(clickedOption.id) : null;
 
     // Check if this option is exclusive
@@ -177,10 +192,22 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
       if (isExclusive) {
         // This is an exclusive option - deselect all others and select only this
         newValue = [optionValue];
+        
+        // Clear all "Other" text values when exclusive option is selected
+        if (metadata.hasOtherOption) {
+          const clearedOtherTextValues: Record<string, string> = {};
+          setOtherTextValues(clearedOtherTextValues);
+          // Also clear from responses
+          availableOptions.forEach(opt => {
+            if (String(opt.id) === String(metadata.otherOptionId)) {
+              setResponse(`${question.id}_other_${opt.value}`, undefined);
+            }
+          });
+        }
       } else {
         // This is a regular option - remove any exclusive options and add this one
         const nonExclusiveValues = current.filter(v => {
-          const opt = question.options?.find(o => String(o.value) === String(v));
+          const opt = availableOptions.find(o => String(o.value) === String(v));
           const optId = opt ? Number(opt.id) : null;
           return optId === null || !exclusiveOptions.includes(optId);
         });
@@ -194,6 +221,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         const newOtherTextValues = { ...otherTextValues };
         delete newOtherTextValues[optionValue];
         setOtherTextValues(newOtherTextValues);
+        setResponse(`${question.id}_other_${optionValue}`, undefined);
       }
     }
 

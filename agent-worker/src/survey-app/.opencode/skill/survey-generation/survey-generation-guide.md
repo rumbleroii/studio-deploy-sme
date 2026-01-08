@@ -21,6 +21,8 @@ When a user uploads a questionnaire document and asks you to create a survey, yo
 
 **MANDATORY FIRST STEP - DO NOT SKIP:**
 
+**IMPORTANT: Read files SILENTLY and INTERNALLY. Do NOT explain what you're reading to the user. Just read, understand, then build directly.**
+
 Before writing ANY code, you MUST read ALL documentation:
 
 1. **Read ALL files in `.opencode/skill/` folder:**

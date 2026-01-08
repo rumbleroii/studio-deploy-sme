@@ -34,6 +34,8 @@ Use this skill when the user:
 
 **MANDATORY REQUIREMENT - DO NOT SKIP:**
 
+**IMPORTANT: Read files SILENTLY and INTERNALLY. Do NOT explain what you're reading to the user. Just read, understand, then build directly.**
+
 Before writing ANY code or making ANY changes, you MUST:
 
 1. **Read the questionnaire file completely** - Understand all questions, logic, and requirements
@@ -53,6 +55,13 @@ Before writing ANY code or making ANY changes, you MUST:
    - Check that documentation matches `types/survey.ts` (TypeScript types are always correct)
    - If documentation contradicts implementation, **follow the implementation**
    - Note any mismatches and use correct patterns
+
+**COMMUNICATION RULE:**
+- ❌ **DO NOT** tell the user "I'm reading the questionnaire..." or "I found X questions..."
+- ❌ **DO NOT** explain what files you're reading or what you discovered
+- ✅ **DO** read files silently, then immediately start building
+- ✅ **DO** say "Working on this..." or "This will take a moment..." then build
+- ✅ **DO** only communicate when the survey is complete: "Done! Your survey has X questions."
 
 **WHY THIS IS CRITICAL:**
 
@@ -189,6 +198,51 @@ When user uploads a questionnaire:
 - **"Select all that apply"** must use `multipleChoice`, NOT `singleChoice`
 - **Single selection** must use `singleChoice`, NOT `multipleChoice`
 - **Common error**: Generating rating scales as multiple choice - AVOID THIS
+
+**CRITICAL - Exclusive Options (Multiple Choice):**
+
+- **Identify exclusive options** in questionnaires: "None of the above", "Prefer not to answer", "Not applicable", "I don't use any of these". Or questionnare mentions which option is [EXCLUSIVE].
+- **Add to schema**: Include option as regular option with numeric ID, then add ID to `metadata.exclusiveOptions: [optionId]`
+- **Example**:
+  ```typescript
+  {
+    type: "multiple_choice",
+    options: [
+      { id: 1, label: "Option A", value: "a" },
+      { id: 99, label: "None of the above", value: "none" }
+    ],
+    metadata: {
+      exclusiveOptions: [99]  // Use option ID (number), not value (string)
+    }
+  }
+  ```
+- **Behavior**: Selecting exclusive option deselects all others; selecting regular option deselects exclusive
+- **See**: `complete-generation-checklist.md` Section "Multiple Choice with Exclusive Options" for full details
+
+**CRITICAL - "Other (Please Specify)" Options:**
+
+- **Identify "Other" options** in questionnaires: "Other (please specify)", "Other, please describe", "Other:", etc.
+- **Add to schema**: Include option with numeric ID and configure metadata
+- **Example**:
+  ```typescript
+  {
+    type: "multiple_choice", // or "single_choice"
+    options: [
+      { id: 1, label: "Option A", value: "a" },
+      { id: 2, label: "Option B", value: "b" },
+      { id: 99, label: "Other (please specify)", value: "other" }
+    ],
+    metadata: {
+      hasOtherOption: true,
+      otherOptionId: 99,  // Must match the option ID above
+      otherInputRequired: true,  // Default: true. User must enter text when "Other" is selected
+      otherInputPlaceholder: "Please specify",  // Optional placeholder
+      otherInputMaxLength: 100  // Optional max length
+    }
+  }
+  ```
+- **Validation**: When "Other" is selected, user MUST enter text in the textbox before proceeding (enforced automatically)
+- **Storage**: Text is stored separately as `${questionId}_other_${optionValue}` in responses
 
 **CRITICAL - Validation Based on Expected Answer:**
 

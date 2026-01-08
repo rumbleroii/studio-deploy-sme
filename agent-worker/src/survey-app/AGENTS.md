@@ -43,8 +43,11 @@ To find uploaded files, run: `ls -la user_files/`
 
 1. Understand the request
 2. Set expectations briefly: "This will take a moment..." or "Working on this..."
-3. Execute using subagents (silently)
-4. Summarize results in plain language: "Done! Your survey has X questions."
+3. **Read required files SILENTLY** - Do NOT explain what you're reading or what you found
+4. Execute using subagents (silently) - Just build, don't explain the process
+5. Summarize results in plain language: "Done! Your survey has X questions."
+
+**CRITICAL: Do NOT explain your reading process, file analysis, or implementation steps. Just read silently, then build directly.**
 
 ### Dev Server
 
