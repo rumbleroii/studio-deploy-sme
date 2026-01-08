@@ -44,3 +44,16 @@ agent-worker/.wrangler
 agent-worker/.dev.vars
 agent-worker/src/survey-app/.next
 agent-worker/src/survey-app/node_modules
+
+# IDE-specific folders
+.cursor/
+.claude/
+.vscode/
+.idea/
+
+# Build outputs
+.open-next/
+
+# Personal/local files
+Dockerfile.*
+!Dockerfile
