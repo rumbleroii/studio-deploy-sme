@@ -25,6 +25,7 @@ import { PreviewPanel } from "./components/PreviewPanel";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { InviteParticipantsModal } from "./components/InviteParticipantsModal";
 import { DataView } from "./components/data";
+import { InsightsView } from "./components/insights/InsightsView";
 import type { ProjectViewProps, Message } from "./types";
 
 export function ProjectView({
@@ -681,12 +682,7 @@ export function ProjectView({
 				)}
 
 				{activeMainTab === "insights" && (
-					<div className="flex-1 flex items-center justify-center bg-gray-50">
-						<div className="text-center">
-							<h2 className="text-lg font-semibold text-gray-900 mb-2">Insights View</h2>
-							<p className="text-sm text-gray-500">Analytics and insights coming soon</p>
-						</div>
-					</div>
+					<InsightsView />
 				)}
 			</div>
 
