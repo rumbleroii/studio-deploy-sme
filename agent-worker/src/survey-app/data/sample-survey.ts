@@ -156,16 +156,17 @@ export const sampleSurvey: Survey = {
           ],
           defaultNextQuestion: 'Q4a',
           metadata: {
-            randomize: true,
-            anchor: [7],
-            exclusiveOptions: [7]  // "None of the above" deselects all others
+            randomize: true,       // ✅ EXAMPLE: Randomize option order on load
+            anchor: [7],           // ✅ EXAMPLE: Keep option 7 at bottom (array of option IDs)
+            exclusiveOptions: [7]  // ✅ EXAMPLE: Option 7 deselects all others when selected
           },
           notes: [
+            '✅ RANDOMIZATION EXAMPLE: Options 1-6 randomized, option 7 anchored at bottom',
+            '✅ EXCLUSIVE OPTION EXAMPLE: Option 7 (None) deselects all others when selected',
+            '✅ OTHER FEATURES: Combining randomize + anchor + exclusive in one question',
             'Multiple selection allowed',
-            'Option 7 (None) should be anchored at bottom',
-            'Option 7 is exclusive - deselects all others when this is selected',
             'Services shown depend on CONCEPT_ASSIGNMENT',
-            'Sum of selected prices used in Q5',
+            'Sum of selected prices used in Q5 via piping',
             'SKIP to Q8 if ONLY "None of the above" selected'
           ]
         },
@@ -184,6 +185,8 @@ export const sampleSurvey: Survey = {
           ],
           defaultNextQuestion: 'Q5',
           metadata: {
+            randomize: true,       // ✅ RANDOMIZATION WITH ANCHOR EXAMPLE: Randomize options 1-5
+            anchor: [99],          // ✅ Keep "Other" option at bottom
             hasOtherOption: true,
             otherOptionId: 99,
             otherInputRequired: true,
@@ -191,9 +194,11 @@ export const sampleSurvey: Survey = {
             otherInputMaxLength: 100
           },
           notes: [
-            'Test question for "Other (please specify)" validation',
+            '✅ RANDOMIZATION + ANCHOR EXAMPLE: Options 1-5 randomized, option 99 anchored at bottom',
+            '✅ "OTHER (PLEASE SPECIFY)" EXAMPLE: Text input validation when option 99 selected',
             'When "Other" is selected, text input appears and is required',
-            'User must enter text before proceeding to next question'
+            'User must enter text before proceeding to next question',
+            'Shows randomization + anchor + other option all working together'
           ]
         },
         {

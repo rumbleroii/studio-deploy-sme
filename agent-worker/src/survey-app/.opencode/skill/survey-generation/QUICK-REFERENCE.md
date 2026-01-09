@@ -241,6 +241,38 @@ metadata: {
 
 **Common patterns**: "None of the above", "Prefer not to answer", "Not applicable"
 
+**Working example**: See `data/sample-survey.ts` - Q4
+
+---
+
+## 🔀 Randomization & Anchoring
+
+Randomize option order while keeping specific options at the bottom.
+
+```typescript
+metadata: {
+  randomize: true,      // Randomize option order
+  anchor: [99, 999]     // Option IDs to keep at end (array of numbers)
+}
+```
+
+**Detection patterns**: "Randomize options", "Randomize order", "Show in random order", "Anchor: X, Y at bottom"
+
+**Common anchored options**: "Other", "None of the above", "Prefer not to answer", "Don't know"
+
+**Behavior**: Options randomized on load, anchored options stay at bottom, order consistent throughout survey
+
+**Example combining features**:
+```typescript
+metadata: {
+  randomize: true,
+  anchor: [99],
+  exclusiveOptions: [99]  // Option 99 is both anchored AND exclusive
+}
+```
+
+**Working examples**: See `data/sample-survey.ts` - Q4 (complex), Q4a (standard)
+
 ---
 
 ## 🏷️ Badge Colors

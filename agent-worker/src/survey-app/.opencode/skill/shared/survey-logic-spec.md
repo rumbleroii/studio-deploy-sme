@@ -289,14 +289,24 @@ Randomized (anchored: 6, 99):
 - Anchor specified options at end
 - Store both original and randomized order
 
-**Implementation**:
-```json
+**Schema (types/survey.ts)**:
+```typescript
 {
-  "randomization": {
-    "enabled": true,
-    "anchored": [6, 99],
-    "type": "options"
+  type: "single_choice", // or "multiple_choice"
+  options: [...],
+  metadata: {
+    randomize: true,      // Enable randomization
+    anchor: [6, 99]       // Option IDs to keep at end (array of numbers)
   }
+}
+```
+
+**Example from sample-survey.ts**:
+```typescript
+metadata: {
+  randomize: true,
+  anchor: [7],  // Option 7 stays at bottom
+  exclusiveOptions: [7]  // Can combine with exclusive options
 }
 ```
 
