@@ -1,15 +1,19 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Question } from '../types/survey';
 import { useSurvey } from '../lib/survey-context';
 import { applyPiping } from '../lib/logic-evaluator';
+import { applyOptionOrdering } from '../lib/ordering';
+import { filterOptions, filterMatrixRows } from '../lib/masking';
+import { MultiGridRenderer } from './MultiGridRenderer';
+import { RankingRenderer } from './RankingRenderer';
 
 interface QuestionRendererProps {
   question: Question;
   onComplete: (value: any) => void;
-  allQuestions?: Question[]; // Optional: for piping label lookups
-  isFirstVisit?: boolean; // Whether this is the first time visiting this question in this session
+  allQuestions?: Question[];
+  isFirstVisit?: boolean;
 }
 
 export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
@@ -24,16 +28,29 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   const [otherTextValues, setOtherTextValues] = useState<Record<string, string>>({});
   const [exclusiveSelected, setExclusiveSelected] = useState<boolean>(false);
 
-  // Apply piping to question text
   const questionText = applyPiping(question.text, responses, allQuestions);
 
+  const orderedOptions = useMemo(() => {
+    if (!question.options) return [];
+    const metadata = question.metadata || {};
+    const filteredOpts = filterOptions(question.options, responses);
+    return applyOptionOrdering(
+      filteredOpts,
+      metadata.ordering,
+      {
+        randomize: metadata.randomize,
+        anchor: metadata.anchor,
+        exclusiveOptions: metadata.exclusiveOptions,
+        hasOtherOption: metadata.hasOtherOption,
+        otherOptionId: metadata.otherOptionId,
+      },
+      responses['_respondentId']
+    );
+  }, [question.options, question.metadata, responses]);
+
   useEffect(() => {
-    // Load existing response or reset to empty value
     const storedValue = responses[question.id];
     const storedExclusive = responses[`${question.id}_exclusive`];
-
-    // Only pre-fill if this is a return visit (not first visit)
-    // This prevents stale localStorage data from previous sessions pre-filling new questions
     const shouldPreFill = isFirstVisit === false || (isFirstVisit === undefined && storedValue !== undefined);
 
     if (storedValue && shouldPreFill) {
@@ -43,12 +60,9 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
       setCurrentValue('');
       setExclusiveSelected(true);
     } else if (!shouldPreFill && storedValue === undefined) {
-      // On first visit with no stored value, reset to empty
       setCurrentValue('');
       setExclusiveSelected(false);
     } else if (storedValue !== undefined) {
-      // Always sync currentValue with responses when responses change (for state consistency)
-      // This ensures exclusive option selections are immediately reflected in the UI
       setCurrentValue(storedValue);
       setExclusiveSelected(false);
     }
@@ -61,15 +75,12 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
       if (rule.type === 'required' && !value) {
         return rule.message || 'This field is required';
       }
-
       if (rule.type === 'min' && value.length < rule.value) {
         return rule.message || `Minimum ${rule.value} characters required`;
       }
-
       if (rule.type === 'max' && value.length > rule.value) {
         return rule.message || `Maximum ${rule.value} characters allowed`;
       }
-
       if (rule.type === 'pattern' && rule.value) {
         const regex = new RegExp(rule.value);
         if (!regex.test(value)) {
@@ -78,10 +89,10 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
       }
     }
 
-    // Additional validation based on metadata.inputType
     const metadata = question.metadata || {};
-    if (value && metadata.inputType) {
-      switch (metadata.inputType) {
+    const inputType = metadata.inputType as string | undefined;
+    if (value && inputType) {
+      switch (inputType) {
         case 'email':
           const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
           if (!emailRegex.test(value)) {
@@ -117,7 +128,6 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     setResponse(question.id, value);
     setError('');
 
-    // Clear exclusive checkbox when user enters a value
     if (value && exclusiveSelected) {
       setExclusiveSelected(false);
       setResponse(`${question.id}_exclusive`, undefined);
@@ -129,13 +139,11 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     setExclusiveSelected(newExclusiveState);
 
     if (newExclusiveState) {
-      // Exclusive selected: clear input value
       setCurrentValue('');
       setResponse(question.id, '');
       setResponse(`${question.id}_exclusive`, true);
       setError('');
     } else {
-      // Exclusive deselected: remove exclusive flag
       setResponse(`${question.id}_exclusive`, undefined);
     }
   };
@@ -144,7 +152,6 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     const metadata = question.metadata || {};
     let valueToValidate = currentValue;
 
-    // Trim whitespace if enabled (default: true for text inputs)
     if (question.type === 'text' && metadata.trimWhitespace !== false) {
       valueToValidate = currentValue?.trim();
       if (valueToValidate !== currentValue) {
@@ -153,7 +160,6 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
       }
     }
 
-    // Reject whitespace-only input (default: true for text inputs)
     if (question.type === 'text' && metadata.rejectWhitespaceOnly !== false) {
       if (valueToValidate && !valueToValidate.trim()) {
         setError('Please enter valid text (not just spaces)');
@@ -171,33 +177,29 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     const current = Array.isArray(currentValue) ? currentValue : [];
     const metadata = question.metadata || {};
     const exclusiveOptions = metadata.exclusiveOptions || [];
+    const maxSelections = metadata.maxSelections;
 
-    // Use the actual options available
     const availableOptions = question.options || [];
     
-    // Find the option being clicked
     const clickedOption = availableOptions.find((opt: any) => String(opt.value) === String(optionValue));
     const clickedOptionId = clickedOption ? Number(clickedOption.id) : null;
 
-    // Check if this option is exclusive
     const isExclusive = clickedOptionId !== null && exclusiveOptions.includes(clickedOptionId);
 
     let newValue: string[];
 
     if (current.includes(optionValue)) {
-      // Deselecting - just remove it
       newValue = current.filter(v => v !== optionValue);
+      if (error && error.includes('maximum')) {
+        setError('');
+      }
     } else {
-      // Selecting - handle exclusive logic
       if (isExclusive) {
-        // This is an exclusive option - deselect all others and select only this
         newValue = [optionValue];
         
-        // Clear all "Other" text values when exclusive option is selected
         if (metadata.hasOtherOption) {
           const clearedOtherTextValues: Record<string, string> = {};
           setOtherTextValues(clearedOtherTextValues);
-          // Also clear from responses
           availableOptions.forEach((opt: any) => {
             if (String(opt.id) === String(metadata.otherOptionId)) {
               setResponse(`${question.id}_other_${opt.value}`, undefined);
@@ -205,17 +207,21 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
           });
         }
       } else {
-        // This is a regular option - remove any exclusive options and add this one
         const nonExclusiveValues = current.filter(v => {
           const opt = availableOptions.find((o: any) => String(o.value) === String(v));
           const optId = opt ? Number(opt.id) : null;
           return optId === null || !exclusiveOptions.includes(optId);
         });
+        
+        if (maxSelections !== undefined && nonExclusiveValues.length >= maxSelections) {
+          setError(`You can select a maximum of ${maxSelections} option${maxSelections === 1 ? '' : 's'}`);
+          return;
+        }
+        
         newValue = [...nonExclusiveValues, optionValue];
       }
     }
 
-    // Clear "Other" text if deselected
     if (metadata.hasOtherOption && clickedOptionId !== null && String(clickedOptionId) === String(metadata.otherOptionId)) {
       if (!newValue.includes(optionValue)) {
         const newOtherTextValues = { ...otherTextValues };
@@ -230,12 +236,10 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
   const handleOtherTextChange = (optionValue: string, text: string) => {
     setOtherTextValues({ ...otherTextValues, [optionValue]: text });
-    // Store the other text in responses with a special key
     setResponse(`${question.id}_other_${optionValue}`, text);
   };
 
   const handleOtherTextBlur = (optionValue: string) => {
-    // Trim whitespace on blur (as per Section 3.0 of survey-question-types.md)
     const currentText = otherTextValues[optionValue] || '';
     const trimmedText = currentText.trim();
 
@@ -245,7 +249,6 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     }
   };
 
-  // Introduction screen
   if (question.type === 'introduction') {
     return (
       <div className="space-y-6">
@@ -258,7 +261,26 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     );
   }
 
-  // Single choice
+  if (question.type === 'multi_grid') {
+    return (
+      <MultiGridRenderer
+        question={question}
+        allQuestions={allQuestions}
+        isFirstVisit={isFirstVisit}
+      />
+    );
+  }
+
+  if (question.type === 'ranking') {
+    return (
+      <RankingRenderer
+        question={question}
+        allQuestions={allQuestions}
+        isFirstVisit={isFirstVisit}
+      />
+    );
+  }
+
   if (question.type === 'single_choice' && question.options) {
     const metadata = question.metadata || {};
     const hasOtherOption = metadata.hasOtherOption;
@@ -272,7 +294,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         </div>
 
         <div className="space-y-3">
-          {question.options.map((option) => {
+          {orderedOptions.map((option) => {
             const isOtherOption = hasOtherOption && String(option.id) === String(otherOptionId);
             const isSelected = currentValue === option.value;
 
@@ -286,7 +308,6 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
                     checked={isSelected}
                     onChange={(e) => {
                       handleChange(e.target.value);
-                      // Clear other text if switching away from Other option
                       if (!isOtherOption) {
                         const newOtherTextValues = { ...otherTextValues };
                         delete newOtherTextValues[String(option.value)];
@@ -298,7 +319,6 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
                   <span className="option-text ml-4">{option.label}</span>
                 </label>
 
-                {/* Show text input if this is the "Other" option and it's selected */}
                 {isOtherOption && isSelected && (
                   <div className="ml-12 mt-2">
                     <input
@@ -326,13 +346,12 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     );
   }
 
-  // Multiple choice
   if (question.type === 'multiple_choice' && question.options) {
     const metadata = question.metadata || {};
     const hasOtherOption = metadata.hasOtherOption;
     const otherOptionId = metadata.otherOptionId;
 
-    if (!question.options || question.options.length === 0) {
+    if (orderedOptions.length === 0) {
       return (
         <div className="space-y-4">
           <div className="question-text mb-6">
@@ -352,7 +371,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         </div>
 
         <div className="space-y-3">
-          {question.options.map((option) => {
+          {orderedOptions.map((option) => {
             const isOtherOption = hasOtherOption && String(option.id) === String(otherOptionId);
             const isSelected = Array.isArray(currentValue) && currentValue.includes(option.value);
 
@@ -369,7 +388,6 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
                   <span className="option-text ml-4">{option.label}</span>
                 </label>
 
-                {/* Show text input if this is the "Other" option and it's checked */}
                 {isOtherOption && isSelected && (
                   <div className="ml-12 mt-2">
                     <input
@@ -397,8 +415,10 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     );
   }
 
-  // Matrix question
   if (question.type === 'matrix' && question.matrixRows && question.matrixColumns) {
+    const filteredRows = filterMatrixRows(question.matrixRows, responses);
+    const filteredColumns = filterOptions(question.matrixColumns, responses);
+    
     return (
       <div className="space-y-4">
         <div className="question-text mb-6">
@@ -411,7 +431,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
             <thead>
               <tr>
                 <th className="border-2 border-gray-300 p-3 bg-gray-50 text-left text-sm font-semibold"></th>
-                {question.matrixColumns.map((col) => (
+                {filteredColumns.map((col) => (
                   <th key={col.id} className="border-2 border-gray-300 p-3 bg-gray-50 text-center text-xs font-medium min-w-[100px]">
                     {col.label}
                   </th>
@@ -419,12 +439,12 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
               </tr>
             </thead>
             <tbody>
-              {question.matrixRows.map((row) => {
+              {filteredRows.map((row) => {
                 const rowValue = currentValue?.[row.id];
                 return (
                   <tr key={row.id}>
                     <td className="border-2 border-gray-300 p-3 text-sm font-medium bg-gray-50">{row.label}</td>
-                    {question.matrixColumns?.map((col) => (
+                    {filteredColumns.map((col) => (
                       <td key={`${row.id}-${col.id}`} className="border-2 border-gray-300 p-3 text-center">
                         <input
                           type="radio"
@@ -451,15 +471,13 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     );
   }
 
-  // Text input
   if (question.type === 'text') {
     const metadata = question.metadata || {};
-    const inputType = metadata.inputType || 'text';
+    const textInputType = (metadata.inputType || 'text') as string;
     const placeholder = metadata.placeholder || 'Enter your response...';
     const maxLength = metadata.maxLength;
 
-    // Use textarea for 'textarea' type, otherwise use input
-    if (inputType === 'textarea') {
+    if (textInputType === 'textarea') {
       return (
         <div className="space-y-4">
           <div className="question-text mb-6">
@@ -510,7 +528,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         </div>
 
         <input
-          type={inputType}
+          type={textInputType}
           value={currentValue}
           onChange={(e) => handleChange(e.target.value)}
           onBlur={handleBlur}
@@ -541,7 +559,6 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     );
   }
 
-  // Numeric input
   if (question.type === 'numeric') {
     const metadata = question.metadata || {};
 

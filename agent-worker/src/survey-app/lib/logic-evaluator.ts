@@ -136,9 +136,18 @@ export function getNextQuestionId(
   return 'COMPLETE';
 }
 
-/**
- * Calculate sum of selected prices from Q4 for Q5 piping
- */
+export function calculateSumFromOptions(
+  selectedValues: (string | number)[],
+  options?: { value: string | number; numericValue?: number }[]
+): number {
+  if (!options) return 0;
+  
+  return selectedValues.reduce((sum: number, val) => {
+    const option = options.find(opt => opt.value === val);
+    return sum + (option?.numericValue || 0);
+  }, 0);
+}
+
 export function calculateSelectedServicesPrice(selectedServices: string[]): number {
   const prices: Record<string, number> = {
     satellite: 15,
@@ -253,8 +262,6 @@ export function applyPiping(
     return response.toString();
   });
 
-  // Pattern 2: [INSERT {QUESTION_ID} LABEL]
-  // Replace with the label(s) of selected option(s)
   const labelPattern = /\[INSERT\s+([A-Z0-9_]+)\s+LABEL\]/gi;
   result = result.replace(labelPattern, (match, questionId) => {
     const response = responses[questionId];
@@ -262,20 +269,16 @@ export function applyPiping(
       return '[No response]';
     }
 
-    // Find the question in the survey
     const question = allQuestions.find(q => q.id === questionId);
     if (!question || !question.options) {
-      // If no options (e.g., text question), return raw value
       return Array.isArray(response) ? response.join(', ') : response.toString();
     }
 
-    // Handle single choice (response is a value)
     if (!Array.isArray(response)) {
       const option = question.options.find(opt => opt.value === response || opt.id === response);
       return option ? option.label : response.toString();
     }
 
-    // Handle multiple choice (response is an array)
     const labels = response
       .map(val => {
         const option = question.options!.find(opt => opt.value === val || opt.id === val);
@@ -286,20 +289,36 @@ export function applyPiping(
     return labels.length > 0 ? labels.join(', ') : '[No selection]';
   });
 
-  // ========================================
-  // LEGACY PATTERNS (Backward Compatibility)
-  // ========================================
+  const otherTextPattern = /\[INSERT\s+([A-Z0-9_]+)\s+OTHER\]/gi;
+  result = result.replace(otherTextPattern, (match, questionId) => {
+    const otherKeys = Object.keys(responses).filter(k => k.startsWith(`${questionId}_other_`));
+    const otherTexts = otherKeys
+      .map(k => responses[k])
+      .filter(v => v && typeof v === 'string' && v.trim());
+    
+    return otherTexts.length > 0 ? otherTexts.join(', ') : '[No other text]';
+  });
 
-  // Legacy: Replace [INSERT Q4.SUM] with calculated price
-  if (result.includes('[INSERT Q4.SUM]')) {
-    const q4Response = responses['Q4'];
-    if (Array.isArray(q4Response)) {
-      const sum = calculateSelectedServicesPrice(q4Response);
-      result = result.replace('[INSERT Q4.SUM]', sum.toString());
+  const sumPattern = /\[INSERT\s+([A-Z0-9_]+)\.SUM\]/gi;
+  result = result.replace(sumPattern, (match, questionId) => {
+    if (questionId === 'Q4') {
+      const q4Response = responses['Q4'];
+      if (Array.isArray(q4Response)) {
+        return calculateSelectedServicesPrice(q4Response).toString();
+      }
+      return '0';
     }
-  }
+    
+    const response = responses[questionId];
+    if (!allQuestions) return '0';
+    
+    const question = allQuestions.find(q => q.id === questionId);
+    if (!question?.options || !Array.isArray(response)) return '0';
+    
+    const sum = calculateSumFromOptions(response, question.options);
+    return sum.toString();
+  });
 
-  // Legacy: Replace [INSERT CONCEPT NAME] with concept name
   if (result.includes('[INSERT CONCEPT NAME]')) {
     const conceptAssignment = responses['CONCEPT_ASSIGNMENT'];
     const conceptNames: Record<string, string> = {
@@ -391,6 +410,148 @@ export function validateResponse(
       if (unansweredRows.length > 0) {
         return { isValid: false, error: 'Please answer all rows before proceeding' };
       }
+    }
+  }
+
+  if (question.type === 'multi_grid' && question.matrixRows && question.matrixColumns) {
+    const metadata = question.metadata || {};
+    const requireAllRows = metadata.requireAllRows !== false;
+    const otherRowIds = new Set(metadata.otherRowIds || []);
+    const exclusiveRowIds = new Set(metadata.exclusiveRowIds || []);
+
+    if (requireAllRows) {
+      if (!value || typeof value !== 'object') {
+        const hasOnlyOtherRows = question.matrixRows.every(r => otherRowIds.has(r.id));
+        if (!hasOnlyOtherRows) {
+          return { isValid: false, error: 'Please answer all rows' };
+        }
+      } else {
+        const exclusiveRowSelected = question.matrixRows.some(row => {
+          if (!exclusiveRowIds.has(row.id)) return false;
+          const rowVal = value[row.id];
+          if (!rowVal || typeof rowVal !== 'object') return false;
+          return Object.values(rowVal).some(v => !!v);
+        });
+
+        if (!exclusiveRowSelected) {
+          const unansweredRows = question.matrixRows.filter(row => {
+            if (otherRowIds.has(row.id)) return false;
+            
+            const rowValue = value[row.id];
+            if (!rowValue || typeof rowValue !== 'object') return true;
+            const selectedColumns = Object.values(rowValue).filter(v => 
+              Array.isArray(v) ? v.length > 0 : !!v
+            );
+            return selectedColumns.length === 0;
+          });
+          if (unansweredRows.length > 0) {
+            return { isValid: false, error: 'Please answer all rows before proceeding' };
+          }
+        }
+      }
+    }
+
+    if (metadata.maxPerColumn && typeof metadata.maxPerColumn === 'number') {
+      const maxPerCol = metadata.maxPerColumn;
+      for (const col of question.matrixColumns) {
+        let countForColumn = 0;
+        for (const row of question.matrixRows) {
+          const rowVal = value?.[row.id];
+          if (rowVal && typeof rowVal === 'object') {
+            const colVal = rowVal[col.id ?? col.value];
+            if (Array.isArray(colVal)) {
+              countForColumn += colVal.length;
+            } else if (colVal) {
+              countForColumn += 1;
+            }
+          }
+        }
+        if (countForColumn > maxPerCol) {
+          return { 
+            isValid: false, 
+            error: `You can select at most ${maxPerCol} items in the "${col.label}" column` 
+          };
+        }
+      }
+    }
+  }
+
+  // Ranking validation: Check min/max/exact rank constraints and no duplicates
+  if (question.type === 'ranking' && question.options) {
+    const metadata = question.metadata || {};
+    
+    if (!value || typeof value !== 'object') {
+      if (question.required) {
+        return { isValid: false, error: 'Please rank the options' };
+      }
+    } else {
+      const rankedOptions = Object.entries(value)
+        .filter(([, rank]) => rank !== null && rank !== undefined && rank !== '')
+        .map(([optionId, rank]) => ({ optionId, rank: Number(rank) }));
+      
+      const rankedCount = rankedOptions.length;
+      
+      // Check for duplicate ranks
+      const ranks = rankedOptions.map(r => r.rank);
+      const uniqueRanks = new Set(ranks);
+      if (ranks.length !== uniqueRanks.size) {
+        return { isValid: false, error: 'Each rank can only be assigned once' };
+      }
+      
+      // Check exactRank constraint
+      if (metadata.exactRank !== undefined && rankedCount !== metadata.exactRank) {
+        return { 
+          isValid: false, 
+          error: `Please rank exactly ${metadata.exactRank} option${metadata.exactRank === 1 ? '' : 's'}` 
+        };
+      }
+      
+      // Check minRank constraint
+      if (metadata.minRank !== undefined && rankedCount < metadata.minRank) {
+        return { 
+          isValid: false, 
+          error: `Please rank at least ${metadata.minRank} option${metadata.minRank === 1 ? '' : 's'}` 
+        };
+      }
+      
+      // Check maxRank constraint
+      if (metadata.maxRank !== undefined && rankedCount > metadata.maxRank) {
+        return { 
+          isValid: false, 
+          error: `Please rank at most ${metadata.maxRank} option${metadata.maxRank === 1 ? '' : 's'}` 
+        };
+      }
+      
+      // Validate rank values are within valid range (1 to N)
+      const maxValidRank = question.options.length;
+      for (const { rank } of rankedOptions) {
+        if (rank < 1 || rank > maxValidRank || !Number.isInteger(rank)) {
+          return { 
+            isValid: false, 
+            error: `Rank values must be whole numbers between 1 and ${maxValidRank}` 
+          };
+        }
+      }
+    }
+  }
+
+  // Multiple choice minSelections validation
+  if (question.type === 'multiple_choice' && Array.isArray(value)) {
+    const metadata = question.metadata || {};
+    
+    if (metadata.minSelections !== undefined && value.length < metadata.minSelections) {
+      return { 
+        isValid: false, 
+        error: `Please select at least ${metadata.minSelections} option${metadata.minSelections === 1 ? '' : 's'}` 
+      };
+    }
+    
+    // maxSelections is already enforced in QuestionRenderer, but validate here too
+    if (metadata.maxSelections !== undefined && value.length > metadata.maxSelections) {
+      return { 
+        isValid: false, 
+        error: `Please select at most ${metadata.maxSelections} option${metadata.maxSelections === 1 ? '' : 's'}` 
+      };
     }
   }
 

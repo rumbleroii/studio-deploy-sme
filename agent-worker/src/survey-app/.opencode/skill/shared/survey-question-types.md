@@ -1814,6 +1814,98 @@ validation: {
 
 ---
 
+### 5.3 Multi Grid / 3D Grid
+
+**Purpose**: Rate multiple items across multiple columns with multi-select capability per cell
+
+**Type Badge**: "Multi Grid" or "3D Grid"
+
+**Question ID Format**: Q1, MG1, etc.
+
+**When to use**: Complex grids where respondents can select multiple columns per row, with special handling for "Other" rows and "Don't know" exclusive rows.
+
+**Structure**:
+- Question ID badge
+- Type badge
+- Question text
+- Matrix table with checkboxes (multi-select per row)
+- Optional: "Other (specify)" rows that are optional
+- Optional: "Don't know" exclusive rows that deselect all other rows
+
+**Schema Structure**:
+```typescript
+{
+  id: "MG1",
+  type: "multi_grid",
+  text: "For each brand, select all attributes that apply.",
+  required: true,
+  matrixRows: [
+    { id: "brand_a", label: "Brand A" },
+    { id: "brand_b", label: "Brand B" },
+    { id: "other", label: "Other (please specify)" },
+    { id: "dont_know", label: "Don't know" }
+  ],
+  matrixColumns: [
+    { id: "innovative", label: "Innovative", value: "innovative" },
+    { id: "reliable", label: "Reliable", value: "reliable" },
+    { id: "affordable", label: "Affordable", value: "affordable" }
+  ],
+  metadata: {
+    selectionMode: "multiple",
+    otherRowIds: ["other"],
+    exclusiveRowIds: ["dont_know"],
+    columnExclusiveOptions: ["none"],
+    maxPerColumn: 3
+  }
+}
+```
+
+**Metadata Properties**:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `selectionMode` | `"single"` \| `"multiple"` | Single or multi-select per row |
+| `otherRowIds` | `string[]` | Row IDs that are optional (skip validation if not answered) |
+| `exclusiveRowIds` | `string[]` | Row IDs that deselect ALL other rows when selected |
+| `columnExclusiveOptions` | `(string\|number)[]` | Column IDs that deselect other columns in same row |
+| `maxPerColumn` | `number` | Maximum selections allowed per row |
+
+**Behavior**:
+
+1. **Other Rows** (`otherRowIds`):
+   - These rows are OPTIONAL - validation skips them if not answered
+   - Useful for "Other (please specify)" rows where respondent may or may not have additional input
+   - If answered, the response is captured normally
+
+2. **Exclusive Rows** (`exclusiveRowIds`):
+   - Selecting any cell in an exclusive row DESELECTS ALL other rows
+   - Selecting any cell in a non-exclusive row DESELECTS all exclusive rows
+   - Useful for "Don't know", "None of the above", "Not applicable" rows
+
+**Example with Exclusive Row**:
+```
+User selects: Brand A - Innovative, Brand B - Reliable
+User then selects: Don't know - (any column)
+Result: Only "Don't know" row has selection, Brand A and B are cleared
+
+User has: Don't know selected
+User then selects: Brand A - Innovative
+Result: "Don't know" is cleared, only Brand A - Innovative remains
+```
+
+**Validation**:
+```typescript
+metadata: {
+  requireAllRows: true,
+  otherRowIds: ["other_row"],
+  exclusiveRowIds: ["dont_know"]
+}
+```
+- If `exclusiveRowIds` row is selected → validation passes (only that row needed)
+- If no exclusive row selected → all non-`otherRowIds` rows must be answered
+
+---
+
 ## 6. Ranking Question Types
 
 ### 6.1 Ranking (Drag and Drop)

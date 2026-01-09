@@ -3,13 +3,15 @@
 // If skills documentation contradicts this file, follow this file
 
 export type QuestionType =
-  | 'introduction'      // Welcome, termination, thank you screens
-  | 'single_choice'     // Radio buttons
-  | 'multiple_choice'   // Checkboxes
-  | 'matrix'            // Grid questions
-  | 'text'              // Short text, long text (textarea), email, phone, URL
-  | 'numeric'           // Number inputs
-  | 'rating';           // Likert scales, NPS sliders, star ratings
+  | 'introduction'
+  | 'single_choice'
+  | 'multiple_choice'
+  | 'matrix'
+  | 'multi_grid'
+  | 'ranking'
+  | 'text'
+  | 'numeric'
+  | 'rating';
 
 export type LogicAction = 'show' | 'hide' | 'skip' | 'terminate';
 
@@ -32,11 +34,14 @@ export interface Option {
   id: string | number;
   label: string;
   value: string | number;
+  showIf?: Expression;
+  numericValue?: number;
 }
 
 export interface MatrixRow {
   id: string;
   label: string;
+  showIf?: Expression;
 }
 
 export interface ValidationRule {
@@ -115,10 +120,48 @@ export interface NumericMetadata {
   exclusiveOption?: string; // Label for exclusive checkbox (e.g., "Don't know", "Prefer not to answer")
 }
 
-/**
- * Combined metadata type
- * Question metadata can include any combination of these
- */
+export interface OrderingConfig {
+  type: 'fixed' | 'alphabetical' | 'random';
+  randomSeed?: string;
+  anchors?: {
+    optionId: string | number;
+    position: number | 'first' | 'last';
+  }[];
+  otherSpecifyPosition?: 'bottom' | 'above_exclusive';
+  exclusiveAtBottom?: boolean;
+}
+
+export interface MultiGridMetadata {
+  selectionMode: 'single' | 'multiple';
+  maxPerColumn?: number;
+  columnExclusiveOptions?: (string | number)[];
+  otherRowIds?: string[];
+  exclusiveRowIds?: string[];
+  rowOtherSpecify?: {
+    rowId: string;
+    required?: boolean;
+    placeholder?: string;
+  }[];
+  columnOtherSpecify?: {
+    columnId: string | number;
+    required?: boolean;
+    placeholder?: string;
+  }[];
+  cellTerminations?: {
+    rowId: string;
+    columnId: string | number;
+    action: 'terminate';
+    destination?: string;
+  }[];
+}
+
+export interface RankingQuestionMetadata {
+  minRank?: number;
+  maxRank?: number;
+  exactRank?: number;
+  uiMode?: 'drag_drop' | 'number_input' | 'select';
+}
+
 export type QuestionMetadata =
   & Partial<TextMetadata>
   & Partial<MultipleChoiceMetadata>
@@ -126,10 +169,13 @@ export type QuestionMetadata =
   & Partial<MatrixMetadata>
   & Partial<RatingMetadata>
   & Partial<NumericMetadata>
+  & Partial<MultiGridMetadata>
+  & Partial<RankingQuestionMetadata>
   & {
-    piping?: string[]; // Variables to pipe into question text
-    conceptAssigned?: string; // For random concept assignment
-    [key: string]: any; // Allow additional custom properties
+    piping?: string[];
+    conceptAssigned?: string;
+    ordering?: OrderingConfig;
+    [key: string]: any;
   };
 
 export interface Question {

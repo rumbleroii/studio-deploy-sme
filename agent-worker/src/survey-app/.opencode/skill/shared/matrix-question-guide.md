@@ -788,3 +788,116 @@ Notes:
 ---
 
 **Remember**: When in doubt, use Format 1 (Single-Attribute Matrix). It covers 80% of matrix use cases and is simpler to implement and debug.
+
+---
+
+## Multi Grid / 3D Grid Questions
+
+### When to Use Multi Grid Instead of Standard Matrix
+
+Use `type: "multi_grid"` when:
+- Respondents can select MULTIPLE columns per row (not just one)
+- You need "Other (specify)" rows that are optional
+- You need "Don't know" / "None" exclusive rows that clear other selections
+
+### Multi Grid Schema
+
+```typescript
+{
+  id: "MG1",
+  type: "multi_grid",
+  text: "For each brand, select all features that apply.",
+  required: true,
+  matrixRows: [
+    { id: "brand_a", label: "Brand A" },
+    { id: "brand_b", label: "Brand B" },
+    { id: "other", label: "Other (please specify)" },
+    { id: "dont_know", label: "Don't know" }
+  ],
+  matrixColumns: [
+    { id: "fast", label: "Fast", value: "fast" },
+    { id: "reliable", label: "Reliable", value: "reliable" },
+    { id: "cheap", label: "Affordable", value: "cheap" }
+  ],
+  metadata: {
+    selectionMode: "multiple",
+    otherRowIds: ["other"],
+    exclusiveRowIds: ["dont_know"],
+    maxPerColumn: 5
+  }
+}
+```
+
+### Key Metadata Properties
+
+| Property | Purpose | Example |
+|----------|---------|---------|
+| `selectionMode` | Single or multi-select per row | `"multiple"` |
+| `otherRowIds` | Rows that are optional (skip validation) | `["other", "other_specify"]` |
+| `exclusiveRowIds` | Rows that deselect all others when selected | `["dont_know", "none"]` |
+| `columnExclusiveOptions` | Columns that deselect other columns in row | `["none", "na"]` |
+| `maxPerColumn` | Max selections per row | `3` |
+
+### Other Row Behavior
+
+Rows listed in `otherRowIds`:
+- Are OPTIONAL - validation does not require them to be answered
+- If answered, response is captured normally
+- Useful for "Other (please specify)" where user may or may not have input
+
+```typescript
+metadata: {
+  otherRowIds: ["other_row_id"]
+}
+```
+
+### Exclusive Row Behavior
+
+Rows listed in `exclusiveRowIds`:
+- Selecting clears ALL other row selections
+- Selecting any non-exclusive row clears exclusive rows
+- Validation passes if exclusive row is selected (only need that row)
+
+```typescript
+metadata: {
+  exclusiveRowIds: ["dont_know", "none_of_above"]
+}
+```
+
+**User Flow Example**:
+1. User selects: Brand A → Fast, Brand B → Reliable
+2. User clicks: "Don't know" → any column
+3. Result: Only "Don't know" has selection, Brand A and B cleared
+4. User clicks: Brand A → Fast
+5. Result: "Don't know" cleared, only Brand A → Fast remains
+
+### Validation Rules
+
+```typescript
+// Standard validation - all non-other rows required
+metadata: { requireAllRows: true }
+
+// With other rows - other rows optional
+metadata: {
+  requireAllRows: true,
+  otherRowIds: ["other"]
+}
+// Result: All rows except "other" must be answered
+
+// With exclusive rows - if exclusive selected, validation passes
+metadata: {
+  requireAllRows: true,
+  exclusiveRowIds: ["dont_know"]
+}
+// Result: If "dont_know" selected, no other rows required
+```
+
+### Decision: Matrix vs Multi Grid
+
+| Scenario | Use |
+|----------|-----|
+| Single selection per row (radio buttons) | `type: "matrix"` |
+| Multiple selections per row (checkboxes) | `type: "multi_grid"` |
+| Need "Other" optional rows | `type: "multi_grid"` |
+| Need "Don't know" exclusive behavior | `type: "multi_grid"` |
+| Simple rating scale | `type: "matrix"` |
