@@ -36,6 +36,8 @@ export interface Option {
   value: string | number;
   showIf?: Expression;
   numericValue?: number;
+  /** Tooltip/hover text for extended option descriptions */
+  tooltip?: string;
 }
 
 export interface MatrixRow {
@@ -50,31 +52,30 @@ export interface ValidationRule {
   message?: string;
 }
 
-/**
- * Metadata for text input questions
- */
 export interface TextMetadata {
   inputType?: 'text' | 'textarea' | 'email' | 'tel' | 'url' | 'number';
   placeholder?: string;
-  rows?: number; // For textarea
+  rows?: number;
   maxLength?: number;
   showCharCount?: boolean;
-  trimWhitespace?: boolean; // Default: true
-  rejectWhitespaceOnly?: boolean; // Default: true
-  min?: number; // For number inputs
-  max?: number; // For number inputs
-  exclusiveOption?: string; // Label for exclusive checkbox (e.g., "Don't know", "Prefer not to answer")
+  trimWhitespace?: boolean;
+  rejectWhitespaceOnly?: boolean;
+  min?: number;
+  max?: number;
+  exclusiveOption?: string;
+  terminationPattern?: string;
+  terminationWarning?: string;
 }
 
 /**
  * Metadata for multiple choice questions
  */
 export interface MultipleChoiceMetadata {
-  minSelections?: number; // Minimum selections required
-  maxSelections?: number; // Maximum selections allowed
-  exclusiveOptions?: number[]; // Option IDs that deselect all others (e.g., "None of the above")
+  minSelections?: number;
+  maxSelections?: number;
+  exclusiveOptions?: (string | number)[];
   randomize?: boolean;
-  anchor?: number[]; // Option IDs to keep in place when randomizing
+  anchor?: (string | number)[];
 }
 
 /**
@@ -93,6 +94,9 @@ export interface OtherOptionMetadata {
  */
 export interface MatrixMetadata {
   requireAllRows?: boolean; // Must answer every row (default: true)
+  randomizeRows?: boolean;
+  randomizeColumns?: boolean;
+  flipColumns?: boolean; // Reverse column order 50% of time per respondent
 }
 
 /**
@@ -113,11 +117,21 @@ export interface RatingMetadata {
  * Metadata for numeric questions
  */
 export interface NumericMetadata {
-  inputType?: 'number';
+  // inputType is handled by TextMetadata for broader compatibility
   min?: number;
   max?: number;
   suffix?: string; // e.g., "%" for percentages
   exclusiveOption?: string; // Label for exclusive checkbox (e.g., "Don't know", "Prefer not to answer")
+}
+
+/**
+ * Sum validation configuration for questions that must sum to a target value
+ * Used for percentage allocation questions (e.g., "allocate 100% across options")
+ */
+export interface SumValidationConfig {
+  targetSum: number;
+  linkedQuestionIds: string[];
+  errorMessage?: string;
 }
 
 export interface OrderingConfig {
@@ -137,10 +151,13 @@ export interface MultiGridMetadata {
   columnExclusiveOptions?: (string | number)[];
   otherRowIds?: string[];
   exclusiveRowIds?: string[];
+  /** Row IDs that are exclusive per-column (selecting this row in a column clears other rows in that column) */
+  perColumnExclusiveRows?: string[];
   rowOtherSpecify?: {
     rowId: string;
     required?: boolean;
     placeholder?: string;
+    alwaysVisible?: boolean; // Show text input even before row selection
   }[];
   columnOtherSpecify?: {
     columnId: string | number;
@@ -162,6 +179,15 @@ export interface RankingQuestionMetadata {
   uiMode?: 'drag_drop' | 'number_input' | 'select';
 }
 
+/**
+ * Loop question configuration - iterates through each value from a source question
+ */
+export interface LoopQuestionMetadata {
+  loopSourceQuestion: string;
+  loopItemKey?: string;
+  loopDisplayTemplate?: string;
+}
+
 export type QuestionMetadata =
   & Partial<TextMetadata>
   & Partial<MultipleChoiceMetadata>
@@ -171,10 +197,13 @@ export type QuestionMetadata =
   & Partial<NumericMetadata>
   & Partial<MultiGridMetadata>
   & Partial<RankingQuestionMetadata>
+  & Partial<LoopQuestionMetadata>
   & {
     piping?: string[];
     conceptAssigned?: string;
     ordering?: OrderingConfig;
+    sumValidation?: SumValidationConfig;
+    displayGroup?: string; // Questions with same displayGroup render on same screen
     [key: string]: any;
   };
 
@@ -221,9 +250,49 @@ export interface Survey {
     allowBack: boolean;
     showProgress: boolean;
     autoSave: boolean;
-    timeLimit?: number; // Time limit in seconds (optional)
-    showTimer?: boolean; // Whether to display the timer to respondents
+    timeLimit?: number;
+    showTimer?: boolean;
   };
+  respondentMetadata?: RespondentMetadataConfig;
+  hiddenVariables?: HiddenVariable[];
+}
+
+export interface RespondentMetadataConfig {
+  fields: RespondentMetadataField[];
+}
+
+export interface RespondentMetadataField {
+  key: string;
+  label: string;
+  defaultValue?: string;
+  pipingKey?: string;
+}
+
+/**
+ * Hidden variable types for computed/derived values
+ */
+export type HiddenVariableType = 'computed' | 'derived' | 'url_param' | 'timestamp' | 'random';
+
+export interface DerivedRule {
+  condition: string; // Expression string like "Q3 in ['3_US', '4_US']"
+  value: string | number;
+}
+
+export interface HiddenVariable {
+  id: string;
+  name: string;
+  type: HiddenVariableType;
+  // For 'derived' type - rules evaluated in order, first match wins
+  rules?: DerivedRule[];
+  // For 'computed' type - formula string
+  formula?: string;
+  // Question ID that triggers computation
+  computeOn?: string;
+  // For 'url_param' type
+  source?: string;
+  defaultValue?: string | number;
+  // Data type of the result
+  dataType?: 'string' | 'number' | 'boolean';
 }
 
 export interface SurveyResponse {

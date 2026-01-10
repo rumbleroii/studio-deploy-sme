@@ -600,12 +600,14 @@ function applyPiping(
 
 **Purpose**: Automatically generate and repeat questions for each selected option from a previous multi-select question.
 
-**Format**: `{{LOOP.ITEM}}` or `[LOOP ITEM]`
+**Format**: `[INSERT LOOP_ITEM]` or `[INSERT LOOP_ITEM LABEL]`
 
 **Use Cases**:
 - Rate each selected brand individually
 - Describe experience with each selected feature
 - Collect detailed feedback on each chosen product
+
+**IMPORTANT**: For complete loop question implementation details, see `../shared/advanced-features-spec.md` Section 1.
 
 **Example in Questionnaire:**
 ```
@@ -627,8 +629,11 @@ Loop Source: Q5
 {
   id: 'Q6',
   type: 'rating_scale',
-  text: "Rate your satisfaction with [LOOP ITEM]",
-  loopSource: "Q5",  // Reference to multi-select question
+  text: "Rate your satisfaction with [INSERT LOOP_ITEM LABEL]",
+  metadata: {
+    loopSourceQuestion: "Q5",  // Reference to multi-select question
+    loopDisplayTemplate: "Q6_[LOOP_INDEX]"
+  },
   scaleMin: 1,
   scaleMax: 5,
   scaleLabels: {
@@ -641,26 +646,19 @@ Loop Source: Q5
 **Runtime Behavior:**
 If respondent selected "iPhone", "Samsung Galaxy", and "Google Pixel" in Q5:
 
-**Generated Questions:**
+**Loop Iterations:**
 ```
-Q6a: Rate your satisfaction with iPhone
-[1] [2] [3] [4] [5]
-
-Q6b: Rate your satisfaction with Samsung Galaxy
-[1] [2] [3] [4] [5]
-
-Q6c: Rate your satisfaction with Google Pixel
-[1] [2] [3] [4] [5]
+Iteration 1: Rate your satisfaction with iPhone → stored as Q6_iphone
+Iteration 2: Rate your satisfaction with Samsung Galaxy → stored as Q6_samsung_galaxy  
+Iteration 3: Rate your satisfaction with Google Pixel → stored as Q6_google_pixel
 ```
 
 **Response Storage:**
 ```typescript
 {
-  "Q6": {
-    "iPhone": 5,
-    "Samsung Galaxy": 4,
-    "Google Pixel": 3
-  }
+  "Q6_iphone": 5,
+  "Q6_samsung_galaxy": 4,
+  "Q6_google_pixel": 3
 }
 ```
 
@@ -669,7 +667,8 @@ Q6c: Rate your satisfaction with Google Pixel
 - Minimum 1 selection required in source question (or skip loop question)
 - Maximum recommended: 10-12 loop iterations (UX consideration)
 - Progress bar accounts for loop iterations
-- Can pipe loop results in later questions: `[INSERT Q6.iPhone]` → `"5"`
+- Exclusive options (e.g., "None of the above") are filtered from loop items
+- Can pipe loop results in later questions: `[INSERT Q6_iphone]` → `"5"`
 
 ---
 
@@ -1938,10 +1937,219 @@ Notes:
 
 ---
 
+## 7. Cross-Question Sum Validation
+
+Use `sumValidation` in question metadata when multiple numeric questions must sum to a target value (e.g., percentage allocation questions).
+
+**Schema Format:**
+```typescript
+{
+  id: 'Q5',
+  type: 'numeric',
+  text: 'What percentage of CTV purchases are directly from the publisher?',
+  metadata: {
+    suffix: '%',
+    sumValidation: {
+      targetSum: 100,
+      linkedQuestionIds: ['Q5', 'Q5b'],
+      errorMessage: 'Publisher and programmatic percentages must sum to 100%'
+    }
+  }
+},
+{
+  id: 'Q5b',
+  type: 'numeric',
+  text: 'What percentage through a programmatic exchange?',
+  metadata: {
+    suffix: '%',
+    sumValidation: {
+      targetSum: 100,
+      linkedQuestionIds: ['Q5', 'Q5b'],
+      errorMessage: 'Publisher and programmatic percentages must sum to 100%'
+    }
+  }
+}
+```
+
+**Behavior:**
+- Validation runs when user clicks "Next" on ANY linked question
+- Only validates when ALL linked questions have values (prevents premature errors)
+- Uses 0.01 tolerance for floating point comparison
+- Error displays on the current question
+
+**When to Use:**
+- Percentage allocation across categories
+- Budget distribution questions
+- Any numeric inputs that must total a specific value
+
+---
+
+## 8. Grouped Questions (Same Screen Display)
+
+Use `displayGroup` to render multiple questions on the same screen. This is common for follow-up questions that must be viewed together.
+
+**Schema Format:**
+```typescript
+{
+  id: 'Q25',
+  type: 'single_choice',
+  text: 'Do you prefer to buy a particular spot in sports or a certain volume of impressions?',
+  metadata: {
+    displayGroup: 'Q25-Q26'
+  },
+  defaultNextQuestion: 'Q27'
+},
+{
+  id: 'Q26',
+  type: 'text',
+  text: 'Please explain why.',
+  metadata: {
+    displayGroup: 'Q25-Q26',
+    inputType: 'textarea'
+  }
+}
+```
+
+**Behavior:**
+- All questions with the same `displayGroup` value render together
+- Questions are separated by a divider line
+- Validation runs on ALL grouped questions when "Next" is clicked
+- Navigation uses the LAST question in the group for determining next question
+
+**When to Use:**
+- Follow-up open-end after a choice question
+- Related questions that provide context for each other
+- Questionnaire specifies "show on same screen as Q[X]"
+
+---
+
+## 9. Option Tooltips
+
+Use the `tooltip` property on options to provide extended descriptions that appear on hover.
+
+**Schema Format:**
+```typescript
+{
+  id: 'Q12',
+  type: 'multiple_choice',
+  text: 'What is the biggest challenge when buying creator activations?',
+  options: [
+    {
+      id: 1,
+      label: 'Lack of Standardized Metrics',
+      value: 'lack_metrics',
+      tooltip: 'Inability to easily compare rates, guaranteed views, or engagement across diverse creators and platforms'
+    },
+    {
+      id: 2,
+      label: 'Limited Scalability',
+      value: 'limited_scalability',
+      tooltip: 'Difficulty securing enough premium, brand-safe creator inventory to meet large, multi-million dollar commitments'
+    }
+  ]
+}
+```
+
+**When to Use:**
+- Questionnaire has hover-over explanations (e.g., "[PN: program blue text as hover over]")
+- Options have lengthy clarifying text that would clutter the UI
+- Technical terms need definition
+
+---
+
+## 10. Matrix Column Randomization
+
+Matrix questions support column randomization and flipping.
+
+**Schema Format:**
+```typescript
+{
+  id: 'Q21',
+  type: 'matrix',
+  text: 'Which provides more value?',
+  matrixColumns: [
+    { id: 1, label: 'Live Sports', value: 'live' },
+    { id: 2, label: 'Equal', value: 'equal' },
+    { id: 3, label: 'Creators', value: 'creators' }
+  ],
+  metadata: {
+    randomizeRows: true,
+    randomizeColumns: true,  // Shuffle column order
+    flipColumns: true        // 50% chance to reverse column order
+  }
+}
+```
+
+**Properties:**
+- `randomizeRows`: Shuffle row order (existing feature)
+- `randomizeColumns`: Shuffle column order randomly
+- `flipColumns`: Reverse column order 50% of the time per respondent (useful for scale questions to prevent bias)
+
+**When to Use:**
+- Questionnaire specifies "random flip columns"
+- Scale questions where order might influence responses
+- Comparative matrices where column order could bias results
+
+---
+
+## 11. Hidden Variable Evaluation (IMPORTANT)
+
+**CURRENT LIMITATION:** Hidden variables with string-based `condition` or `formula` expressions are NOT automatically evaluated at runtime.
+
+**What Works:**
+- Storing hidden variable definitions in the schema
+- Using hidden variables in piping patterns (if values are pre-computed)
+- URL parameter capture (type: 'url_param')
+- Timestamp capture (type: 'timestamp')
+
+**What Does NOT Work Automatically:**
+- String expression evaluation in `rules[].condition` (e.g., `"S5.social in ['final_dm', 'significant_influence']"`)
+- Formula string evaluation (e.g., `"SUM(Q10.selected_prices)"`)
+
+**Current Workaround - Use Expression Objects:**
+
+Instead of string conditions, use the same Expression object format as logic conditions:
+
+```typescript
+// DON'T USE (not evaluated):
+{
+  id: 'SOCIAL_DM',
+  type: 'derived',
+  rules: [
+    { condition: "S5.social in ['final_dm', 'significant_influence']", value: '1' }
+  ]
+}
+
+// USE INSTEAD (manual computation in code):
+// Hidden variables requiring complex logic should be computed
+// in custom code added to the survey context or question page
+```
+
+**Recommendation for Agents:**
+When generating hidden variables, add a note in the schema indicating these require custom evaluation logic:
+
+```typescript
+hiddenVariables: [
+  {
+    id: 'SOCIAL_DM',
+    name: 'Social Decision Maker',
+    type: 'derived',
+    rules: [
+      { condition: "S5.social in ['final_dm', 'significant_influence']", value: '1' }
+    ],
+    computeOn: 'S5',
+    // NOTE: Requires custom evaluation - string expressions not auto-evaluated
+  }
+]
+```
+
+---
+
 ## Related Documentation
 
 - **Theme Details**: See `survey-ui-theme.md`
 - **Structure Specifications**: See `survey-structure-spec.md`
 - **Component Specifications**: See `survey-components-spec.md`
 - **Question Types**: See `survey-question-types.md`
+- **Advanced Features**: See `advanced-features-spec.md` for loop questions, per-column exclusivity, external metadata piping, real-time termination warnings
 

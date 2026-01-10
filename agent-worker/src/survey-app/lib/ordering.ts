@@ -44,8 +44,8 @@ export function applyOptionOrdering(
   config?: OrderingConfig,
   metadata?: {
     randomize?: boolean;
-    anchor?: number[];
-    exclusiveOptions?: number[];
+    anchor?: (string | number)[];
+    exclusiveOptions?: (string | number)[];
     hasOtherOption?: boolean;
     otherOptionId?: string | number;
   },
@@ -59,12 +59,12 @@ export function applyOptionOrdering(
     exclusiveAtBottom: true,
   };
   
-  const anchorIds = new Set(
+  const anchorIds = new Set<string | number>(
     effectiveConfig.anchors?.map(a => a.optionId) || 
     metadata?.anchor?.map(id => id) || 
     []
   );
-  const exclusiveIds = new Set(metadata?.exclusiveOptions?.map(id => id) || []);
+  const exclusiveIds = new Set<string | number>(metadata?.exclusiveOptions?.map(id => id) || []);
   const otherOptionId = metadata?.otherOptionId;
   
   const anchoredOptions: Option[] = [];
@@ -75,13 +75,11 @@ export function applyOptionOrdering(
   const regularOptions: Option[] = [];
   
   for (const opt of options) {
-    const optId = typeof opt.id === 'number' ? opt.id : parseInt(String(opt.id), 10);
-    
     if (otherOptionId !== undefined && String(opt.id) === String(otherOptionId)) {
       continue;
-    } else if (exclusiveIds.has(optId)) {
+    } else if (exclusiveIds.has(opt.id) || exclusiveIds.has(String(opt.id)) || exclusiveIds.has(Number(opt.id))) {
       exclusiveOptions.push(opt);
-    } else if (anchorIds.has(optId)) {
+    } else if (anchorIds.has(opt.id) || anchorIds.has(String(opt.id)) || anchorIds.has(Number(opt.id))) {
       anchoredOptions.push(opt);
     } else {
       regularOptions.push(opt);
@@ -114,8 +112,7 @@ export function applyOptionOrdering(
   if (effectiveConfig.exclusiveAtBottom !== false) {
     result.push(...exclusiveOptions);
     result.push(...anchoredOptions.filter(opt => {
-      const optId = typeof opt.id === 'number' ? opt.id : parseInt(String(opt.id), 10);
-      return !exclusiveIds.has(optId);
+      return !exclusiveIds.has(opt.id) && !exclusiveIds.has(String(opt.id)) && !exclusiveIds.has(Number(opt.id));
     }));
   } else {
     result.push(...anchoredOptions, ...exclusiveOptions);

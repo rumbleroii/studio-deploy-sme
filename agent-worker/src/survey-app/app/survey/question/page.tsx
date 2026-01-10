@@ -53,6 +53,14 @@ export default function QuestionPage() {
   // Find current question
   const currentQuestion = allQuestions.find(q => q.id === questionId);
 
+  // Find grouped questions (questions with same displayGroup render together)
+  const groupedQuestions = React.useMemo(() => {
+    if (!currentQuestion) return [];
+    if (!currentQuestion.metadata?.displayGroup) return [currentQuestion];
+    const groupId = currentQuestion.metadata.displayGroup;
+    return allQuestions.filter(q => q.metadata?.displayGroup === groupId);
+  }, [currentQuestion, allQuestions]);
+
   useEffect(() => {
     if (isProduction && questionId && currentQuestion) {
       // Allow access if this is the first question being accessed
@@ -130,19 +138,22 @@ export default function QuestionPage() {
     // Prevent multiple clicks
     if (isSubmitting) return;
 
-    // Validate response
-    const currentValue = responses[currentQuestion.id];
-    const validation = validateResponse(currentQuestion, currentValue, responses);
+    // Validate all grouped questions
+    for (const question of groupedQuestions) {
+      const currentValue = responses[question.id];
+      const validation = validateResponse(question, currentValue, responses);
 
-    if (!validation.isValid) {
-      setError(validation.error || 'Please answer this question');
-      return;
+      if (!validation.isValid) {
+        setError(validation.error || 'Please answer this question');
+        return;
+      }
     }
 
     setError('');
 
-    // Get next question to determine status
-    const nextQuestionId = getNextQuestionId(currentQuestion, responses, allQuestions);
+    // Get next question from last in group
+    const lastGroupQuestion = groupedQuestions[groupedQuestions.length - 1] || currentQuestion;
+    const nextQuestionId = getNextQuestionId(lastGroupQuestion, responses, allQuestions);
 
     console.log('Navigating from', currentQuestion.id, 'to', nextQuestionId);
 
@@ -224,17 +235,19 @@ export default function QuestionPage() {
           </div>
         </div>
 
-        {/* Question Card with lazy loading */}
+        {/* Question Card with lazy loading - supports grouped questions */}
         <div className="bg-white rounded-lg shadow-lg p-8 mb-6">
           <Suspense fallback={<QuestionLoader />}>
-            <QuestionRenderer
-              question={currentQuestion}
-              allQuestions={allQuestions}
-              isFirstVisit={isFirstVisit}
-              onComplete={(value) => {
-                // Response is already saved via context
-              }}
-            />
+            {groupedQuestions.map((question, index) => (
+              <div key={question.id} className={index > 0 ? 'mt-8 pt-8 border-t border-gray-200' : ''}>
+                <QuestionRenderer
+                  question={question}
+                  allQuestions={allQuestions}
+                  isFirstVisit={isFirstVisit}
+                  onComplete={() => {}}
+                />
+              </div>
+            ))}
           </Suspense>
 
           {error && (

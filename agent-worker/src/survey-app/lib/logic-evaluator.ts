@@ -93,15 +93,19 @@ export function shouldShowQuestion(
   return true;
 }
 
-/**
- * Get the next question ID based on current question and responses
- */
+export interface LoopNavigationResult {
+  nextQuestionId: string | null;
+  loopAction?: 'start' | 'continue' | 'end';
+  loopItems?: string[];
+  nextLoopIndex?: number;
+}
+
 export function getNextQuestionId(
   currentQuestion: Question,
   responses: Record<string, any>,
-  allQuestions: Question[]
+  allQuestions: Question[],
+  loopState?: { sourceQuestionId: string; currentIndex: number; items: string[] } | null
 ): string | null {
-  // Check for conditional logic first
   if (currentQuestion.logic) {
     for (const logic of currentQuestion.logic) {
       if ((logic.action === 'skip' || logic.action === 'terminate') &&
@@ -114,18 +118,15 @@ export function getNextQuestionId(
     }
   }
 
-  // Use default next question if specified
   if (currentQuestion.defaultNextQuestion) {
     return currentQuestion.defaultNextQuestion;
   }
 
-  // Otherwise, get the next question in sequence
   const currentIndex = allQuestions.findIndex(q => q.id === currentQuestion.id);
   if (currentIndex === -1 || currentIndex === allQuestions.length - 1) {
     return 'COMPLETE';
   }
 
-  // Find next visible question
   for (let i = currentIndex + 1; i < allQuestions.length; i++) {
     const nextQuestion = allQuestions[i];
     if (shouldShowQuestion(nextQuestion, responses)) {
@@ -134,6 +135,93 @@ export function getNextQuestionId(
   }
 
   return 'COMPLETE';
+}
+
+export function getNextQuestionWithLoopSupport(
+  currentQuestion: Question,
+  responses: Record<string, any>,
+  allQuestions: Question[],
+  loopState: { sourceQuestionId: string; currentIndex: number; items: string[] } | null
+): LoopNavigationResult {
+  if (currentQuestion.logic) {
+    for (const logic of currentQuestion.logic) {
+      if ((logic.action === 'skip' || logic.action === 'terminate') &&
+          evaluateExpression(logic.when, responses)) {
+        if (logic.action === 'terminate') {
+          return { nextQuestionId: 'TERMINATE' };
+        }
+        return { nextQuestionId: logic.destination || null };
+      }
+    }
+  }
+
+  const nextQuestionId = currentQuestion.defaultNextQuestion || null;
+  let nextQuestion: Question | undefined;
+  
+  if (nextQuestionId) {
+    nextQuestion = allQuestions.find(q => q.id === nextQuestionId);
+  } else {
+    const currentIndex = allQuestions.findIndex(q => q.id === currentQuestion.id);
+    for (let i = currentIndex + 1; i < allQuestions.length; i++) {
+      if (shouldShowQuestion(allQuestions[i], responses)) {
+        nextQuestion = allQuestions[i];
+        break;
+      }
+    }
+  }
+
+  if (!nextQuestion) {
+    return { nextQuestionId: 'COMPLETE' };
+  }
+
+  const loopMeta = nextQuestion.metadata;
+  if (loopMeta?.loopSourceQuestion) {
+    const sourceResponse = responses[loopMeta.loopSourceQuestion];
+    if (Array.isArray(sourceResponse) && sourceResponse.length > 0) {
+      const filteredItems = sourceResponse.filter(item => {
+        const sourceQuestion = allQuestions.find(q => q.id === loopMeta.loopSourceQuestion);
+        const exclusiveOptions = sourceQuestion?.metadata?.exclusiveOptions || [];
+        const option = sourceQuestion?.options?.find(o => o.value === item);
+        return option && !exclusiveOptions.includes(Number(option.id));
+      });
+      
+      if (filteredItems.length > 0) {
+        return {
+          nextQuestionId: nextQuestion.id,
+          loopAction: 'start',
+          loopItems: filteredItems,
+          nextLoopIndex: 0
+        };
+      }
+    }
+    
+    const afterLoopIndex = allQuestions.findIndex(q => q.id === nextQuestion!.id);
+    for (let i = afterLoopIndex + 1; i < allQuestions.length; i++) {
+      if (shouldShowQuestion(allQuestions[i], responses)) {
+        return { nextQuestionId: allQuestions[i].id };
+      }
+    }
+    return { nextQuestionId: 'COMPLETE' };
+  }
+
+  if (loopState && currentQuestion.metadata?.loopSourceQuestion) {
+    const nextLoopIndex = loopState.currentIndex + 1;
+    if (nextLoopIndex < loopState.items.length) {
+      return {
+        nextQuestionId: currentQuestion.id,
+        loopAction: 'continue',
+        loopItems: loopState.items,
+        nextLoopIndex
+      };
+    } else {
+      return {
+        nextQuestionId: nextQuestion.id,
+        loopAction: 'end'
+      };
+    }
+  }
+
+  return { nextQuestionId: nextQuestion.id };
 }
 
 export function calculateSumFromOptions(
@@ -170,6 +258,9 @@ export function calculateSelectedServicesPrice(selectedServices: string[]): numb
  * - [INSERT Q1] or [INSERT Q1 RESPONSE] - Shows the raw answer value
  * - [INSERT Q1 LABEL] - Shows the label/text of the selected option(s)
  * - [INSERT Q4.SUM] - Custom calculation (legacy support)
+ * - [INSERT LOOP_ITEM] - Current loop item value
+ * - [INSERT LOOP_ITEM LABEL] - Current loop item label
+ * - [INSERT META:KEY] - Respondent metadata value (e.g., META:COUNTRY)
  *
  * Fallback patterns (if questionnaire parsing missed conversion):
  * - {{Q1}}, {Q1}, <Q1> - Converts to raw value
@@ -178,17 +269,41 @@ export function calculateSelectedServicesPrice(selectedServices: string[]): numb
  * @param text - The text containing piping placeholders
  * @param responses - All survey responses
  * @param allQuestions - Optional: All questions for label lookups
+ * @param loopContext - Optional: Current loop item for loop questions
+ * @param respondentMetadata - Optional: External respondent attributes
  */
 export function applyPiping(
   text: string,
   responses: Record<string, any>,
-  allQuestions?: Question[]
+  allQuestions?: Question[],
+  loopContext?: { currentItem: string; sourceQuestionId: string } | null,
+  respondentMetadata?: Record<string, string>
 ): string {
   let result = text;
 
-  // Debug logging
   if (process.env.NODE_ENV === 'development' && text.includes('[INSERT')) {
     console.log('🔄 Piping applied to:', text.substring(0, 80), '...', 'Responses:', Object.keys(responses));
+  }
+
+  const metaPattern = /\[INSERT\s+META:([A-Z0-9_]+)\]/gi;
+  result = result.replace(metaPattern, (match, metaKey) => {
+    if (!respondentMetadata) return '[No metadata]';
+    const value = respondentMetadata[metaKey] || respondentMetadata[metaKey.toLowerCase()];
+    return value || '[No metadata]';
+  });
+
+  if (loopContext) {
+    result = result.replace(/\[INSERT\s+LOOP_ITEM\s+LABEL\]/gi, () => {
+      if (!allQuestions) return loopContext.currentItem;
+      const sourceQuestion = allQuestions.find(q => q.id === loopContext.sourceQuestionId);
+      if (!sourceQuestion?.options) return loopContext.currentItem;
+      const option = sourceQuestion.options.find(opt => opt.value === loopContext.currentItem);
+      return option ? option.label : loopContext.currentItem;
+    });
+
+    result = result.replace(/\[INSERT\s+LOOP_ITEM\]/gi, () => {
+      return loopContext.currentItem;
+    });
   }
 
   // ========================================
@@ -574,7 +689,63 @@ export function validateResponse(
             return { isValid: false, error: rule.message || 'Invalid format' };
           }
           break;
+        case 'custom':
+          if (rule.value === 'sumTo100') {
+            if (value && typeof value === 'object') {
+              const total = Object.values(value).reduce((sum: number, v) => {
+                const numValue = Number(v) || 0;
+                return sum + numValue;
+              }, 0);
+              if (Math.abs(total - 100) > 0.01) {
+                return {
+                  isValid: false,
+                  error: rule.message || `Values must sum to 100%. Current total: ${total}%`
+                };
+              }
+            } else if (question.options) {
+              let total = 0;
+              for (const opt of question.options) {
+                const optKey = `${question.id}_${opt.value}`;
+                const optValue = allResponses?.[optKey];
+                if (optValue !== undefined) {
+                  total += Number(optValue) || 0;
+                }
+              }
+              if (total > 0 && Math.abs(total - 100) > 0.01) {
+                return {
+                  isValid: false,
+                  error: rule.message || `Values must sum to 100%. Current total: ${total}%`
+                };
+              }
+            }
+          }
+          break;
       }
+    }
+  }
+
+  // Cross-question sum validation (e.g., Q5 + Q5b must sum to 100%)
+  const metadata = question.metadata || {};
+  if (metadata.sumValidation && allResponses) {
+    const { targetSum, linkedQuestionIds, errorMessage } = metadata.sumValidation;
+    const currentValue = Number(value) || 0;
+    const otherValues = linkedQuestionIds
+      .filter(id => id !== question.id)
+      .reduce((sum, id) => sum + (Number(allResponses[id]) || 0), 0);
+    
+    const total = currentValue + otherValues;
+    
+    // Only validate when all linked questions have values
+    const allHaveValues = linkedQuestionIds.every(id => 
+      id === question.id ? value !== undefined && value !== '' : 
+      allResponses[id] !== undefined && allResponses[id] !== ''
+    );
+    
+    if (allHaveValues && Math.abs(total - targetSum) > 0.01) {
+      return {
+        isValid: false,
+        error: errorMessage || `Values must sum to ${targetSum}%. Current total: ${total}%`
+      };
     }
   }
 

@@ -45,7 +45,7 @@ export const sampleSurvey: Survey = {
                 left: 'S1',
                 right: 'not_involved'
               },
-              destination: 'TERM1'
+              destination: 'TERMINATE'
             }
           ],
           defaultNextQuestion: 'S11',
@@ -68,7 +68,7 @@ export const sampleSurvey: Survey = {
                 left: 'S11',
                 right: 10
               },
-              destination: 'TERM1'
+              destination: 'TERMINATE'
             }
           ],
           defaultNextQuestion: 'CUSTOMER_TYPE',
@@ -93,7 +93,7 @@ export const sampleSurvey: Survey = {
                 left: 'CUSTOMER_TYPE',
                 right: 'other'
               },
-              destination: 'TERM1'
+              destination: 'TERMINATE'
             }
           ],
           defaultNextQuestion: 'CONCEPT_ASSIGNMENT',
@@ -106,7 +106,7 @@ export const sampleSurvey: Survey = {
           required: false,
           defaultNextQuestion: 'Q4',
           metadata: {
-            conceptAssigned: 'RANDOM'
+            conceptAssigned: 'RANDOM' // In real implementation, this would randomly assign 1, 2, or 3
           },
           notes: ['Randomly assign concept: 1=Satellite Connectivity, 2=Enhanced Network, 3=Enhanced Network Plus']
         }
@@ -154,46 +154,17 @@ export const sampleSurvey: Survey = {
               destination: 'Q8'
             }
           ],
-          defaultNextQuestion: 'Q4a',
+          defaultNextQuestion: 'Q5',
           metadata: {
             randomize: true,
-            anchor: [7],
-            exclusiveOptions: [7]  // "None of the above" deselects all others
+            anchor: [7]
           },
           notes: [
             'Multiple selection allowed',
             'Option 7 (None) should be anchored at bottom',
-            'Option 7 is exclusive - deselects all others when this is selected',
             'Services shown depend on CONCEPT_ASSIGNMENT',
             'Sum of selected prices used in Q5',
             'SKIP to Q8 if ONLY "None of the above" selected'
-          ]
-        },
-        {
-          id: 'Q4a',
-          type: 'multiple_choice',
-          text: 'Which communication tools does your company use? Please select all that apply.',
-          required: true,
-          options: [
-            { id: 1, label: 'Slack', value: 'slack' },
-            { id: 2, label: 'Microsoft Teams', value: 'teams' },
-            { id: 3, label: 'Zoom', value: 'zoom' },
-            { id: 4, label: 'Google Meet', value: 'google_meet' },
-            { id: 5, label: 'Webex', value: 'webex' },
-            { id: 99, label: 'Other (please specify)', value: 'other' }
-          ],
-          defaultNextQuestion: 'Q5',
-          metadata: {
-            hasOtherOption: true,
-            otherOptionId: 99,
-            otherInputRequired: true,
-            otherInputPlaceholder: 'Please specify the tool name',
-            otherInputMaxLength: 100
-          },
-          notes: [
-            'Test question for "Other (please specify)" validation',
-            'When "Other" is selected, text input appears and is required',
-            'User must enter text before proceeding to next question'
           ]
         },
         {
@@ -242,13 +213,7 @@ export const sampleSurvey: Survey = {
             { id: 4, label: 'Probably would not', value: 'probably_not' },
             { id: 5, label: 'Definitely would not', value: 'definitely_not' }
           ],
-          validation: [
-            { type: 'required', message: 'Please answer all rows' }
-          ],
           defaultNextQuestion: 'Q6',
-          metadata: {
-            requireAllRows: true
-          },
           notes: ['Progressive grid/matrix question', 'One response per row required']
         },
         {
@@ -331,7 +296,7 @@ export const sampleSurvey: Survey = {
               }
             }
           ],
-          defaultNextQuestion: 'Q8',
+          defaultNextQuestion: 'COMPLETE',
           metadata: {
             piping: ['CONCEPT_ASSIGNMENT', 'S11']
           },
@@ -400,7 +365,7 @@ export const sampleSurvey: Survey = {
               }
             }
           ],
-          defaultNextQuestion: 'THANK1',
+          defaultNextQuestion: 'COMPLETE',
           metadata: {
             piping: ['CONCEPT_ASSIGNMENT']
           },
@@ -411,34 +376,13 @@ export const sampleSurvey: Survey = {
           ]
         }
       ]
-    },
-    {
-      id: 'termination',
-      title: 'End Screens',
-      description: 'Survey completion and termination screens',
-      questions: [
-        {
-          id: 'TERM1',
-          type: 'introduction',
-          text: 'Thank you for your interest in this survey. Unfortunately, you do not meet the qualification criteria for this particular study. We appreciate your time.',
-          required: false,
-          notes: ['Termination screen for disqualified respondents']
-        },
-        {
-          id: 'THANK1',
-          type: 'introduction',
-          text: 'Thank you for completing our survey! Your responses have been recorded. We appreciate your time and feedback.',
-          required: false,
-          notes: ['Thank you screen for completed surveys']
-        }
-      ]
     }
   ],
   settings: {
     allowBack: true,
     showProgress: true,
     autoSave: true,
-    timeLimit: 600,
+    timeLimit: 600, // 10 minutes in seconds
     showTimer: true
   }
 };

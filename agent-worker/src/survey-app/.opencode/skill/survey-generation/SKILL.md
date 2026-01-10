@@ -304,6 +304,69 @@ text: "Your total is $[INSERT VARIABLE.var_total]. Does this work?";
 ```
 
 - **See**: `../shared/survey-logic-spec.md` Section 6 for complete specification (types, formulas, examples)
+- **IMPORTANT**: String-based conditions in hidden variables are NOT auto-evaluated. See Section 11 in survey-logic-spec.md
+
+**CRITICAL - Sum-to-100% Validation:**
+
+When questionnaire specifies "MUST SUM TO 100%", use `sumValidation`:
+
+```typescript
+{
+  id: 'Q5',
+  type: 'numeric',
+  text: 'Percentage from publisher?',
+  metadata: {
+    suffix: '%',
+    sumValidation: {
+      targetSum: 100,
+      linkedQuestionIds: ['Q5', 'Q5b'],
+      errorMessage: 'Values must sum to 100%'
+    }
+  }
+}
+```
+
+- **See**: `../shared/survey-logic-spec.md` Section 7 for complete details
+
+**CRITICAL - Same Screen Questions:**
+
+When questionnaire specifies "show on same screen as Q[X]", use `displayGroup`:
+
+```typescript
+{
+  id: 'Q25',
+  type: 'single_choice',
+  text: 'Do you prefer spot or impressions?',
+  metadata: { displayGroup: 'Q25-Q26' }
+},
+{
+  id: 'Q26',
+  type: 'text',
+  text: 'Please explain why.',
+  metadata: { displayGroup: 'Q25-Q26', inputType: 'textarea' }
+}
+```
+
+- **See**: `../shared/survey-logic-spec.md` Section 8 for complete details
+
+**CRITICAL - Option Tooltips:**
+
+When questionnaire has hover-over explanations, use `tooltip`:
+
+```typescript
+{
+  options: [
+    {
+      id: 1,
+      label: 'Lack of Standardized Metrics',
+      value: 'lack_metrics',
+      tooltip: 'Inability to compare rates across platforms'
+    }
+  ]
+}
+```
+
+- **See**: `../shared/survey-logic-spec.md` Section 9 for complete details
 
 ### Step 4: Update or Create Files in app
 
@@ -458,6 +521,7 @@ For complete documentation, see `../survey-hosted/API-IMPLEMENTATION.md`.
 10. **../shared/survey-logic-spec.md** - Logic display and badges
 11. **../shared/matrix-question-guide.md** - CRITICAL for matrix questions: Detailed guide to avoid generation failures
 12. **../shared/other-option-spec.md** - "Other (please specify)" options with conditional text inputs
+13. **../shared/advanced-features-spec.md** - Loop questions, per-column exclusivity, external metadata piping, real-time termination warnings
 
 ## Examples
 
@@ -607,7 +671,16 @@ A successful survey generation means:
 
 ## Supporting Files
 
-This skill includes 12 supporting documentation files with ~7,000 lines of detailed specifications. Reference them as needed during generation.
+This skill includes 13 supporting documentation files with ~8,000 lines of detailed specifications. Reference them as needed during generation.
+
+### Advanced Features (CRITICAL for complex surveys)
+
+When questionnaires include any of these patterns, reference `../shared/advanced-features-spec.md`:
+
+- **Loop Questions**: Questionnaire shows "For each selected item in Q8A, ask Q9" or "Iterate through selections"
+- **Per-Column Exclusivity**: Matrix has "Don't Know" that should clear only that column, not all rows
+- **External Metadata Piping**: References like `[COUNTRY]`, `[CURRENCY]`, `[USER_SEGMENT]` that come from external data
+- **Real-Time Termination Warnings**: Text fields that should warn users before termination logic triggers
 
 ## Sequential Workflow
 
