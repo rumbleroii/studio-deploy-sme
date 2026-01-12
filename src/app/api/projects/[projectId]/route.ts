@@ -49,3 +49,43 @@ export async function GET(request: Request, { params }: RouteParams) {
 		);
 	}
 }
+
+export async function DELETE(request: Request, { params }: RouteParams) {
+	try {
+		const user = await requireAuth();
+		const { projectId } = await params;
+
+		// First, verify the project exists and belongs to the user
+		const project = await prisma.project.findUnique({
+			where: { id: projectId },
+			select: {
+				id: true,
+				createdById: true,
+			},
+		});
+
+		if (!project) {
+			return NextResponse.json({ error: "Project not found" }, { status: 404 });
+		}
+
+		if (project.createdById !== user.id) {
+			return NextResponse.json(
+				{ error: "You do not have permission to delete this project" },
+				{ status: 403 }
+			);
+		}
+
+		// Delete the project (cascade will handle related messages)
+		await prisma.project.delete({
+			where: { id: projectId },
+		});
+
+		return NextResponse.json({ success: true, message: "Project deleted successfully" });
+	} catch (error) {
+		console.error("Failed to delete project:", error);
+		return NextResponse.json(
+			{ error: "Failed to delete project" },
+			{ status: 500 }
+		);
+	}
+}

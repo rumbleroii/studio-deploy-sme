@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { formatDistanceToNow } from "@/lib/format";
 import { FolderOpen, ChevronRight } from "lucide-react";
+import { DeleteProjectDialog } from "./delete-project-dialog";
 
 interface Project {
 	id: string;
@@ -37,35 +38,51 @@ export function ProjectList({ projects }: ProjectListProps) {
 		<div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
 			{/* Table Header */}
 			<div className="grid grid-cols-12 gap-6 px-6 py-4 bg-gray-50/50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-				<div className="col-span-9">Project Name</div>
+				<div className="col-span-8">Project Name</div>
 				<div className="col-span-3 text-right">Created</div>
+				<div className="col-span-1 text-right">Actions</div>
 			</div>
 
 			{/* Table Body */}
 			<div className="divide-y divide-gray-50">
 				{projects.map((project) => (
-					<Link
+					<div
 						key={project.id}
-						href={`/projects/${project.id}`}
-						className="block"
+						className="grid grid-cols-12 gap-6 px-6 py-4 hover:bg-gray-50/80 transition-all duration-200 group items-center"
 					>
-						<div className="grid grid-cols-12 gap-6 px-6 py-4 hover:bg-gray-50/80 transition-all duration-200 cursor-pointer group items-center">
-							<div className="col-span-9 flex items-center gap-3">
-								<div className="w-8 h-8 rounded-full bg-[#3D1C35]/5 flex items-center justify-center text-[#3D1C35] group-hover:bg-[#3D1C35]/10 transition-colors">
-									<FolderOpen className="h-4 w-4" />
-								</div>
-								<span className="text-sm font-medium text-gray-900 group-hover:text-[#3D1C35] transition-colors">
-									{project.name}
-								</span>
+						<Link
+							href={`/projects/${project.id}`}
+							className="col-span-8 flex items-center gap-3 cursor-pointer"
+						>
+							<div className="w-8 h-8 rounded-full bg-[#3D1C35]/5 flex items-center justify-center text-[#3D1C35] group-hover:bg-[#3D1C35]/10 transition-colors">
+								<FolderOpen className="h-4 w-4" />
 							</div>
-							<div className="col-span-3 text-right flex items-center justify-end gap-2">
-								<span className="text-sm text-gray-400">
-									{formatDistanceToNow(project.createdAt)}
-								</span>
-								<ChevronRight className="h-4 w-4 text-gray-300 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
-							</div>
+							<span className="text-sm font-medium text-gray-900 group-hover:text-[#3D1C35] transition-colors">
+								{project.name}
+							</span>
+						</Link>
+						<Link
+							href={`/projects/${project.id}`}
+							className="col-span-3 text-right flex items-center justify-end gap-2 cursor-pointer"
+						>
+							<span className="text-sm text-gray-400">
+								{formatDistanceToNow(project.createdAt)}
+							</span>
+							<ChevronRight className="h-4 w-4 text-gray-300 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
+						</Link>
+						<div
+							className="col-span-1 text-right flex items-center justify-end"
+							onClick={(e) => {
+								e.preventDefault();
+								e.stopPropagation();
+							}}
+						>
+							<DeleteProjectDialog
+								projectId={project.id}
+								projectName={project.name}
+							/>
 						</div>
-					</Link>
+					</div>
 				))}
 			</div>
 		</div>
