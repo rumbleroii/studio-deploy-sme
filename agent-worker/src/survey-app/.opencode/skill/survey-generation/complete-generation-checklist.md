@@ -483,7 +483,7 @@ For every question, check for:
 - [ ] **Show conditions**: Should this question be shown conditionally?
   - Add: `showCondition: "..."`
 - [ ] **Randomization**: Should options be randomized?
-  - Add: `randomization: { enabled: true, anchored: [...] }`
+  - Add: `metadata: { randomize: true, anchor: [99, 999] }` // Option IDs to keep at end
 - [ ] **Dynamic options**: Do options come from a previous question?
   - Add: `dynamicOptions: "Q#"`
 - [ ] **Piping**: Does question text reference another question?
@@ -708,7 +708,12 @@ Every question in the schema must have:
   navigation?: NavigationRules,
   logic?: LogicRule[],
   showCondition?: string,
-  randomization?: RandomizationRules,
+  metadata?: {
+    randomize?: boolean,     // Randomize options
+    anchor?: number[],       // Anchor these option IDs at end
+    exclusiveOptions?: number[],
+    // ... other metadata fields
+  },
   dynamicOptions?: string,
   notes?: string[]
 }
@@ -971,7 +976,7 @@ LOGIC & ROUTING:
 - Conditional logic: 12 rules
 - Show conditions: 8 rules
 - Dynamic options: 5 rules
-- Randomization: 3 rules
+- Randomization: 3 questions with randomized options
 
 VALIDATION APPLIED:
 - Required questions: 22

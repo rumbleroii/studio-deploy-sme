@@ -199,6 +199,30 @@ When user uploads a questionnaire:
 - **Single selection** must use `singleChoice`, NOT `multipleChoice`
 - **Common error**: Generating rating scales as multiple choice - AVOID THIS
 
+**CRITICAL - Randomization & Anchoring:**
+
+- **Detect in questionnaires**: "Randomize options", "Randomize order", "Show options in random order", "Anchor: X, Y at bottom"
+- **Schema structure**:
+  ```typescript
+  {
+    type: "single_choice", // or "multiple_choice"
+    options: [
+      { id: 1, label: "Apple", value: "apple" },
+      { id: 2, label: "Samsung", value: "samsung" },
+      { id: 3, label: "Google", value: "google" },
+      { id: 99, label: "Other (specify)", value: "other" },
+      { id: 999, label: "None of the above", value: "none" }
+    ],
+    metadata: {
+      randomize: true,  // Randomize option order
+      anchor: [99, 999]  // Keep these options at the end (use option IDs, not values)
+    }
+  }
+  ```
+- **Behavior**: Options randomized on load, anchored options stay at bottom, order consistent per respondent
+- **Common anchored options**: "Other", "None of the above", "Prefer not to answer", "Don't know"
+- **See working examples**: `data/sample-survey.ts` - Q4 (complex), Q4a (standard)
+
 **CRITICAL - Exclusive Options (Multiple Choice):**
 
 - **Identify exclusive options** in questionnaires: "None of the above", "Prefer not to answer", "Not applicable", "I don't use any of these". Or questionnare mentions which option is [EXCLUSIVE].
@@ -217,6 +241,7 @@ When user uploads a questionnaire:
   }
   ```
 - **Behavior**: Selecting exclusive option deselects all others; selecting regular option deselects exclusive
+- **See working examples**: `data/sample-survey.ts` - Q4
 - **See**: `complete-generation-checklist.md` Section "Multiple Choice with Exclusive Options" for full details
 
 **CRITICAL - "Other (Please Specify)" Options:**
@@ -246,6 +271,7 @@ When user uploads a questionnaire:
   - If text is missing/empty → Error message: "Please enter your answer in the text box when selecting 'Other (please specify)'"
   - User cannot proceed until valid text is entered
 - **Storage**: Text is stored separately as `${questionId}_other_${optionValue}` in responses
+- **See working examples**: `data/sample-survey.ts` - Q4a
 
 **CRITICAL - Validation Based on Expected Answer:**
 

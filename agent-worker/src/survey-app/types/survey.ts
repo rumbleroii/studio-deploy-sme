@@ -68,14 +68,15 @@ export interface TextMetadata {
 }
 
 /**
- * Metadata for multiple choice questions
+ * Metadata for single choice and multiple choice questions
  */
 export interface MultipleChoiceMetadata {
-  minSelections?: number;
-  maxSelections?: number;
-  exclusiveOptions?: (string | number)[];
-  randomize?: boolean;
-  anchor?: (string | number)[];
+  minSelections?: number; // Minimum selections required (multiple choice)
+  maxSelections?: number; // Maximum selections allowed (multiple choice)
+  exclusiveOptions?: number[]; // Option IDs that deselect all others (e.g., "None of the above")
+  randomize?: boolean; // Randomize option order (keeps order consistent per respondent)
+  anchor?: number[]; // Option IDs to keep at end when randomizing (e.g., [99, 999] for "Other", "None")
+  order?: 'default' | 'alphabetical' | 'randomize'; // Note: Only 'randomize' is currently implemented
 }
 
 /**

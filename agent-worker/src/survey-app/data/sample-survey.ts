@@ -156,15 +156,49 @@ export const sampleSurvey: Survey = {
           ],
           defaultNextQuestion: 'Q5',
           metadata: {
-            randomize: true,
-            anchor: [7]
+            randomize: true,       // ✅ EXAMPLE: Randomize option order on load
+            anchor: [7],           // ✅ EXAMPLE: Keep option 7 at bottom (array of option IDs)
+            exclusiveOptions: [7]  // ✅ EXAMPLE: Option 7 deselects all others when selected
           },
           notes: [
+            '✅ RANDOMIZATION EXAMPLE: Options 1-6 randomized, option 7 anchored at bottom',
+            '✅ EXCLUSIVE OPTION EXAMPLE: Option 7 (None) deselects all others when selected',
+            '✅ OTHER FEATURES: Combining randomize + anchor + exclusive in one question',
             'Multiple selection allowed',
-            'Option 7 (None) should be anchored at bottom',
             'Services shown depend on CONCEPT_ASSIGNMENT',
-            'Sum of selected prices used in Q5',
+            'Sum of selected prices used in Q5 via piping',
             'SKIP to Q8 if ONLY "None of the above" selected'
+          ]
+        },
+        {
+          id: 'Q4a',
+          type: 'multiple_choice',
+          text: 'Which communication tools does your company use? Please select all that apply.',
+          required: true,
+          options: [
+            { id: 1, label: 'Slack', value: 'slack' },
+            { id: 2, label: 'Microsoft Teams', value: 'teams' },
+            { id: 3, label: 'Zoom', value: 'zoom' },
+            { id: 4, label: 'Google Meet', value: 'google_meet' },
+            { id: 5, label: 'Webex', value: 'webex' },
+            { id: 99, label: 'Other (please specify)', value: 'other' }
+          ],
+          defaultNextQuestion: 'Q5',
+          metadata: {
+            randomize: true,       // ✅ RANDOMIZATION WITH ANCHOR EXAMPLE: Randomize options 1-5
+            anchor: [99],          // ✅ Keep "Other" option at bottom
+            hasOtherOption: true,
+            otherOptionId: 99,
+            otherInputRequired: true,
+            otherInputPlaceholder: 'Please specify the tool name',
+            otherInputMaxLength: 100
+          },
+          notes: [
+            '✅ RANDOMIZATION + ANCHOR EXAMPLE: Options 1-5 randomized, option 99 anchored at bottom',
+            '✅ "OTHER (PLEASE SPECIFY)" EXAMPLE: Text input validation when option 99 selected',
+            'When "Other" is selected, text input appears and is required',
+            'User must enter text before proceeding to next question',
+            'Shows randomization + anchor + other option all working together'
           ]
         },
         {
