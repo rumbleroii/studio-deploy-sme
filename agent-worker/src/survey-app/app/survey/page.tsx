@@ -39,8 +39,7 @@ export default function SurveyWelcome() {
             </p>
 
             <p className="text-gray-600">
-              This survey will help us understand your preferences for business wireless add-on services.
-              Your feedback is valuable and will take approximately 5-10 minutes to complete.
+              {survey.metadata.description}
             </p>
 
             <div className="bg-blue-50 border-l-4 border-blue-500 p-4 my-4">

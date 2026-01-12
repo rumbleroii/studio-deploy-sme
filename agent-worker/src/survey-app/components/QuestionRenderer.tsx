@@ -27,6 +27,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   const [error, setError] = useState<string>('');
   const [otherTextValues, setOtherTextValues] = useState<Record<string, string>>({});
   const [exclusiveSelected, setExclusiveSelected] = useState<boolean>(false);
+  const [terminationWarning, setTerminationWarning] = useState<string>('');
 
   const questionText = applyPiping(question.text, responses, allQuestions);
 
@@ -123,10 +124,27 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     return null;
   };
 
+  const checkTerminationPattern = (value: string) => {
+    const metadata = question.metadata || {};
+    if (metadata.terminationPattern && typeof value === 'string') {
+      const pattern = new RegExp(metadata.terminationPattern, 'i');
+      if (pattern.test(value)) {
+        setTerminationWarning(metadata.terminationWarning || 'Warning: This response may end the survey');
+        return true;
+      }
+    }
+    setTerminationWarning('');
+    return false;
+  };
+
   const handleChange = (value: any) => {
     setCurrentValue(value);
     setResponse(question.id, value);
     setError('');
+
+    if (question.type === 'text' && typeof value === 'string') {
+      checkTerminationPattern(value);
+    }
 
     if (value && exclusiveSelected) {
       setExclusiveSelected(false);
@@ -418,6 +436,16 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   if (question.type === 'matrix' && question.matrixRows && question.matrixColumns) {
     const filteredRows = filterMatrixRows(question.matrixRows, responses);
     const filteredColumns = filterOptions(question.matrixColumns, responses);
+    const metadata = question.metadata || {};
+    const rowOtherSpecify = metadata.rowOtherSpecify || [];
+    
+    const getOtherSpecify = (rowId: string) => {
+      return rowOtherSpecify.find((spec: { rowId: string }) => spec.rowId === rowId);
+    };
+    
+    const isRowAnswered = (rowId: string): boolean => {
+      return currentValue?.[rowId] !== undefined && currentValue?.[rowId] !== null;
+    };
     
     return (
       <div className="space-y-4">
@@ -441,25 +469,47 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
             <tbody>
               {filteredRows.map((row) => {
                 const rowValue = currentValue?.[row.id];
+                const otherSpec = getOtherSpecify(row.id);
+                const showOtherInput = otherSpec && isRowAnswered(row.id);
+                
                 return (
-                  <tr key={row.id}>
-                    <td className="border-2 border-gray-300 p-3 text-sm font-medium bg-gray-50">{row.label}</td>
-                    {filteredColumns.map((col) => (
-                      <td key={`${row.id}-${col.id}`} className="border-2 border-gray-300 p-3 text-center">
-                        <input
-                          type="radio"
-                          name={`${question.id}-${row.id}`}
-                          value={col.value}
-                          checked={rowValue === col.value}
-                          onChange={(e) => {
-                            const newValue = { ...(currentValue || {}), [row.id]: e.target.value };
-                            handleChange(newValue);
-                          }}
-                          className="radio-button"
-                        />
-                      </td>
-                    ))}
-                  </tr>
+                  <React.Fragment key={row.id}>
+                    <tr>
+                      <td className="border-2 border-gray-300 p-3 text-sm font-medium bg-gray-50">{row.label}</td>
+                      {filteredColumns.map((col) => (
+                        <td key={`${row.id}-${col.id}`} className="border-2 border-gray-300 p-3 text-center">
+                          <input
+                            type="radio"
+                            name={`${question.id}-${row.id}`}
+                            value={col.value}
+                            checked={rowValue === col.value}
+                            onChange={(e) => {
+                              const newValue = { ...(currentValue || {}), [row.id]: e.target.value };
+                              handleChange(newValue);
+                            }}
+                            className="radio-button"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                    {showOtherInput && (
+                      <tr>
+                        <td colSpan={filteredColumns.length + 1} className="border-2 border-gray-300 p-3">
+                          <input
+                            type="text"
+                            value={otherTextValues[row.id] || ''}
+                            onChange={(e) => handleOtherTextChange(row.id, e.target.value)}
+                            onBlur={() => handleOtherTextBlur(row.id)}
+                            placeholder={otherSpec.placeholder || 'Please specify'}
+                            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-[#3D1C35] focus:outline-none"
+                          />
+                          {otherSpec.required && (
+                            <p className="text-xs text-gray-500 mt-1">* Required</p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -501,6 +551,12 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
             </p>
           )}
 
+          {terminationWarning && (
+            <div className="mt-2 p-3 bg-amber-50 border-l-4 border-amber-500 text-amber-700 text-sm">
+              {terminationWarning}
+            </div>
+          )}
+
           {metadata.exclusiveOption && (
             <div className="mt-2">
               <label className="flex items-center cursor-pointer">
@@ -539,6 +595,12 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
           max={metadata.max}
           disabled={exclusiveSelected}
         />
+
+        {terminationWarning && (
+          <div className="mt-2 p-3 bg-amber-50 border-l-4 border-amber-500 text-amber-700 text-sm">
+            {terminationWarning}
+          </div>
+        )}
 
         {metadata.exclusiveOption && (
           <div className="mt-2">
@@ -591,6 +653,60 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
             </label>
           </div>
         )}
+
+        {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+      </div>
+    );
+  }
+
+  if (question.type === 'rating') {
+    const metadata = question.metadata || {};
+    const scale = metadata.scale || { min: 1, max: 5 };
+    const scalePoints = [];
+    for (let i = scale.min; i <= scale.max; i++) {
+      scalePoints.push(i);
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="question-text mb-6">
+          {questionText}
+          {question.required && <span className="text-red-500 ml-1">*</span>}
+        </div>
+
+        {(scale.minLabel || scale.maxLabel) && (
+          <div className="flex justify-between text-sm text-gray-600 mb-4 px-2">
+            <span className="max-w-[40%] text-left">{scale.minLabel || ''}</span>
+            <span className="max-w-[40%] text-right">{scale.maxLabel || ''}</span>
+          </div>
+        )}
+
+        <div className="flex justify-between items-center gap-2">
+          {scalePoints.map((point) => (
+            <label
+              key={point}
+              className={`flex-1 flex flex-col items-center p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                currentValue === point
+                  ? 'border-[#3D1C35] bg-[#F5E6F0]'
+                  : 'border-gray-200 hover:border-[#3D1C35]'
+              }`}
+            >
+              <input
+                type="radio"
+                name={question.id}
+                value={point}
+                checked={currentValue === point}
+                onChange={() => handleChange(point)}
+                className="sr-only"
+              />
+              <span className={`text-lg font-medium ${
+                currentValue === point ? 'text-[#3D1C35]' : 'text-gray-700'
+              }`}>
+                {point}
+              </span>
+            </label>
+          ))}
+        </div>
 
         {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
       </div>

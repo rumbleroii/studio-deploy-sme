@@ -184,6 +184,7 @@ Verify real-time evaluation works:
 - Branching flows
 - **Piping/text substitution**: Displays previous answers in question text (Section 5)
 - **Hidden variables**: Computed values, URL params, random assignments (Section 6)
+- **Loop navigation**: Iterator questions that repeat for each multi-select item
 
 **See `../shared/survey-logic-spec.md` for complete implementation details on:**
 
@@ -191,6 +192,25 @@ Verify real-time evaluation works:
 - Hidden variable types (url_param, computed, derived, timestamp, random)
 - Runtime computation and formula evaluation
 - Integration with show/hide conditions and navigation
+
+**See `../shared/advanced-features-spec.md` for advanced features:**
+
+- Loop questions with `[INSERT LOOP_ITEM LABEL]` piping
+- Per-column exclusivity in multi-grid questions
+- External metadata piping with `[INSERT META:KEY]`
+- Real-time termination warnings for text fields
+
+#### F. Loop Question Navigation
+
+When a question has `metadata.loopSourceQuestion`:
+
+1. Check source question response for items to iterate
+2. Filter out exclusive options (e.g., "None of the above")
+3. If items exist, enter loop state
+4. Present question for first item with piped text
+5. Store response per loop item (e.g., `Q9_aldi`, `Q9_costco`)
+6. On "Next", advance to next loop item or exit loop
+7. Progress indicator should reflect loop iterations
 
 ### Step 5: Apply Theme Consistency
 
@@ -346,6 +366,7 @@ Check that existing functionality works:
 8. **../shared/survey-logic-spec.md** - Logic evaluation (referenced for implementation)
 9. **../shared/survey-question-types.md** - Question rendering formats
 10. **../shared/survey-components-spec.md** - Component specifications
+11. **../shared/advanced-features-spec.md** - Loop questions, per-column exclusivity, external metadata piping, real-time termination warnings
 
 ## Examples
 
