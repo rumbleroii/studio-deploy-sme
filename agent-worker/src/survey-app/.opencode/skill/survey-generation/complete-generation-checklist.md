@@ -385,10 +385,9 @@ For each question in questionnaire:
   - Single: NO "Column Attributes" section
   - Multi: HAS "Column Attributes" section with multiple attributes
 - [ ] Extract Scale Points (becomes columns)
-- [ ] Extract rows (explicit list OR dynamic source)
+- [ ] Extract rows (explicit list)
 - [ ] Extract Column Attributes (if present)
 - [ ] Set correct type: `"matrix"` or `"matrix-multi-attribute"`
-- [ ] Add `dynamicOptions` if rows come from another question
 - [ ] Include `scalePoints` array in schema
 - [ ] Include `attributes` array (if multi-attribute)
 - [ ] **Set validation: `requireAllRows: true`** (DEFAULT - all rows must be answered)
@@ -485,7 +484,9 @@ For every question, check for:
 - [ ] **Randomization**: Should options be randomized?
   - Add: `metadata: { randomize: true, anchor: [99, 999] }` // Option IDs to keep at end
 - [ ] **Dynamic options**: Do options come from a previous question?
-  - Add: `dynamicOptions: "Q#"`
+  - Add to metadata: `pipeOptionsFrom: { sourceQuestionId: 'Q#', generateFrom: 'selected_options', excludeValues: ['none', 'other'], includeOtherText: true }`
+  - Keep `options: []` empty - generated at runtime
+  - Supports chaining (Q9 → Q10 → Q11) automatically
 - [ ] **Piping**: Does question text reference another question?
   - Convert all piping patterns to `[INSERT Q#]` or `[INSERT Q# LABEL]`
 
@@ -680,7 +681,7 @@ Verify the survey flow makes sense:
 
 - [ ] Every question has a `default` navigation target (except terminations)
 - [ ] All logic conditions reference valid question IDs
-- [ ] All `dynamicOptions` reference valid source questions
+- [ ] All `pipeOptionsFrom.sourceQuestionId` reference valid source questions
 - [ ] No circular references (Q1 → Q2 → Q1)
 - [ ] Termination screens have no navigation targets
 - [ ] Thank you screens have no navigation targets
@@ -712,9 +713,14 @@ Every question in the schema must have:
     randomize?: boolean,     // Randomize options
     anchor?: number[],       // Anchor these option IDs at end
     exclusiveOptions?: number[],
+    pipeOptionsFrom?: {      // Dynamic option piping
+      sourceQuestionId: string,
+      generateFrom: 'selected_options' | 'all_options',
+      excludeValues?: (string | number)[],
+      includeOtherText?: boolean
+    },
     // ... other metadata fields
   },
-  dynamicOptions?: string,
   notes?: string[]
 }
 ```

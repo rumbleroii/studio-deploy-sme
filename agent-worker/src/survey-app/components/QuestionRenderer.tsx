@@ -5,7 +5,7 @@ import { Question } from '../types/survey';
 import { useSurvey } from '../lib/survey-context';
 import { applyPiping } from '../lib/logic-evaluator';
 import { applyOptionOrdering } from '../lib/ordering';
-import { filterOptions, filterMatrixRows } from '../lib/masking';
+import { filterOptions, filterMatrixRows, generateDynamicOptions, generateDynamicRows } from '../lib/masking';
 import { MultiGridRenderer } from './MultiGridRenderer';
 import { RankingRenderer } from './RankingRenderer';
 
@@ -32,8 +32,35 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   const questionText = applyPiping(question.text, responses, allQuestions);
 
   const orderedOptions = useMemo(() => {
-    if (!question.options) return [];
     const metadata = question.metadata || {};
+
+    // Check if options should be dynamically generated from another question
+    if (metadata.pipeOptionsFrom) {
+      const sourceQuestion = allQuestions?.find(q => q.id === metadata.pipeOptionsFrom?.sourceQuestionId);
+      const dynamicOptions = generateDynamicOptions(
+        metadata.pipeOptionsFrom,
+        responses,
+        sourceQuestion,
+        allQuestions
+      );
+
+      // Apply ordering to dynamically generated options
+      return applyOptionOrdering(
+        dynamicOptions,
+        metadata.ordering,
+        {
+          randomize: metadata.randomize,
+          anchor: metadata.anchor,
+          exclusiveOptions: metadata.exclusiveOptions,
+          hasOtherOption: metadata.hasOtherOption,
+          otherOptionId: metadata.otherOptionId,
+        },
+        responses['_respondentId']
+      );
+    }
+
+    // Normal static options
+    if (!question.options) return [];
     const filteredOpts = filterOptions(question.options, responses);
     return applyOptionOrdering(
       filteredOpts,
@@ -47,7 +74,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
       },
       responses['_respondentId']
     );
-  }, [question.options, question.metadata, responses]);
+  }, [question.options, question.metadata, responses, allQuestions]);
 
   useEffect(() => {
     const storedValue = responses[question.id];
@@ -433,10 +460,23 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     );
   }
 
-  if (question.type === 'matrix' && question.matrixRows && question.matrixColumns) {
-    const filteredRows = filterMatrixRows(question.matrixRows, responses);
-    const filteredColumns = filterOptions(question.matrixColumns, responses);
+  if (question.type === 'matrix' && question.matrixColumns) {
     const metadata = question.metadata || {};
+
+    // Check if rows should be dynamically generated from another question
+    let matrixRows = question.matrixRows || [];
+    if (metadata.pipeRowsFrom) {
+      const sourceQuestion = allQuestions?.find(q => q.id === metadata.pipeRowsFrom?.sourceQuestionId);
+      matrixRows = generateDynamicRows(
+        metadata.pipeRowsFrom,
+        responses,
+        sourceQuestion,
+        allQuestions
+      );
+    }
+
+    const filteredRows = filterMatrixRows(matrixRows, responses);
+    const filteredColumns = filterOptions(question.matrixColumns, responses);
     const rowOtherSpecify = metadata.rowOtherSpecify || [];
     
     const getOtherSpecify = (rowId: string) => {

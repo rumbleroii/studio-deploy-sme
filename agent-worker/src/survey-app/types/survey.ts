@@ -77,6 +77,7 @@ export interface MultipleChoiceMetadata {
   randomize?: boolean; // Randomize option order (keeps order consistent per respondent)
   anchor?: number[]; // Option IDs to keep at end when randomizing (e.g., [99, 999] for "Other", "None")
   order?: 'default' | 'alphabetical' | 'randomize'; // Note: Only 'randomize' is currently implemented
+  pipeOptionsFrom?: DynamicOptionsConfig; // Generate options dynamically from previous question responses
 }
 
 /**
@@ -91,6 +92,26 @@ export interface OtherOptionMetadata {
 }
 
 /**
+ * Metadata for dynamic option piping (generating options from previous question responses)
+ */
+export interface DynamicOptionsConfig {
+  sourceQuestionId: string; // Question ID to pull options from (e.g., 'Q9')
+  generateFrom: 'selected_options' | 'all_options'; // What to use: user selections or all available options
+  excludeValues?: (string | number)[]; // Values to filter out (e.g., ['none', 'other'])
+  includeOtherText?: boolean; // If true, includes user-typed "Other" text as an option
+}
+
+/**
+ * Metadata for dynamic row piping in matrix questions (generating rows from previous question responses)
+ */
+export interface DynamicRowsConfig {
+  sourceQuestionId: string; // Question ID to pull rows from (e.g., 'Q9')
+  generateFrom: 'selected_options' | 'all_options'; // What to use: user selections or all available options
+  excludeValues?: (string | number)[]; // Values to filter out (e.g., ['none', 'other'])
+  includeOtherText?: boolean; // If true, includes user-typed "Other" text as a row
+}
+
+/**
  * Metadata for matrix questions
  */
 export interface MatrixMetadata {
@@ -98,6 +119,8 @@ export interface MatrixMetadata {
   randomizeRows?: boolean;
   randomizeColumns?: boolean;
   flipColumns?: boolean; // Reverse column order 50% of time per respondent
+  pipeRowsFrom?: DynamicRowsConfig; // Generate rows dynamically from previous question responses
+  rowOtherSpecify?: Array<{ rowId: string; placeholder?: string; required?: boolean }>;
 }
 
 /**

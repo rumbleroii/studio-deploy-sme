@@ -332,6 +332,168 @@ text: "Your total is $[INSERT VARIABLE.var_total]. Does this work?";
 - **See**: `../shared/survey-logic-spec.md` Section 6 for complete specification (types, formulas, examples)
 - **IMPORTANT**: String-based conditions in hidden variables are NOT auto-evaluated. See Section 11 in survey-logic-spec.md
 
+**CRITICAL - Dynamic Option Piping:**
+
+When questionnaire specifies "show selected items from previous question" or "based on Q[X] answer", use `pipeOptionsFrom`:
+
+```typescript
+// Q9: Source question (has normal options)
+{
+  id: 'Q9',
+  type: 'multiple_choice',
+  text: 'Which tools do you use?',
+  options: [
+    { id: 1, label: 'Tool A', value: 'tool_a' },
+    { id: 2, label: 'Tool B', value: 'tool_b' },
+    { id: 3, label: 'None', value: 'none' },
+    { id: 99, label: 'Other (please specify)', value: 'other' }
+  ]
+}
+
+// Q10: Dynamic question (options generated from Q9 selections)
+{
+  id: 'Q10',
+  type: 'multiple_choice', // or 'single_choice'
+  text: 'Which tools would you recommend?',
+  options: [], // ⚠️ KEEP EMPTY - options generated at runtime
+  metadata: {
+    pipeOptionsFrom: {
+      sourceQuestionId: 'Q9',
+      generateFrom: 'selected_options', // or 'all_options'
+      excludeValues: ['none', 'other'], // Filter out these values
+      includeOtherText: true // Include user-typed "Other" text as option
+    }
+  }
+}
+```
+
+**Key differences from text piping:**
+- **Text piping** (`[INSERT Q1]`): Inserts values into question text
+- **Dynamic option piping** (`pipeOptionsFrom`): Generates the OPTIONS themselves from previous responses
+
+**Detect in questionnaires:**
+- "Show selected items from Q[X]"
+- "Based on your answer to Q[X], which..."
+- "Of the [items] you selected..."
+- "Rank the options you chose in Q[X]"
+- "For each [item] mentioned above..."
+
+**Parameters:**
+- `sourceQuestionId`: Question ID to pull options from (e.g., 'Q9')
+- `generateFrom`: 'selected_options' (what user selected) or 'all_options' (all available)
+- `excludeValues`: Array of values to exclude (e.g., ['none', 'other'])
+- `includeOtherText`: If true, includes user-typed "Other" text as an option
+
+**Examples:**
+- Q6 asks about services → Q7 asks to rate ONLY services selected in Q6
+- Q10 asks about tools → Q11 asks which of those tools to recommend (chain piping)
+- Q15 lists products → Q16 asks to rank the products they selected
+
+**IMPORTANT - Chained Dynamic Piping:**
+
+Dynamic option piping supports **multi-level chaining** (Q9 → Q10 → Q11):
+
+```typescript
+// Q9: Source question with static options
+{
+  id: 'Q9',
+  type: 'multiple_choice',
+  options: [/* static options */]
+}
+
+// Q10: Gets options from Q9 selections
+{
+  id: 'Q10',
+  type: 'multiple_choice',
+  options: [], // empty - generated from Q9
+  metadata: {
+    pipeOptionsFrom: {
+      sourceQuestionId: 'Q9',
+      generateFrom: 'selected_options'
+    }
+  }
+}
+
+// Q11: Gets options from Q10 selections (which came from Q9)
+{
+  id: 'Q11',
+  type: 'single_choice',
+  options: [], // empty - generated from Q10
+  metadata: {
+    pipeOptionsFrom: {
+      sourceQuestionId: 'Q10', // Points to Q10, not Q9!
+      generateFrom: 'selected_options'
+    }
+  }
+}
+```
+
+**How it works:**
+1. User selects 5 tools in Q9
+2. Q10 shows those 5 tools as options (dynamically generated)
+3. User selects 3 of the 5 in Q10
+4. Q11 shows those 3 tools as options (recursively resolved: Q11 → Q10 → Q9)
+
+**The system automatically resolves chains** - you just point to the immediate source question.
+
+**See**: `data/sample-survey.ts` Q9, Q10, Q12 for complete working examples
+
+**CRITICAL - Dynamic Matrix Row Piping:**
+
+When questionnaire specifies "rate the items you selected" or "for each [item] from Q[X]", use `pipeRowsFrom` in matrix questions:
+
+```typescript
+{
+  id: 'Q11',
+  type: 'matrix',
+  text: 'For each tool you recommended, please rate its performance:',
+  matrixRows: [], // ⚠️ KEEP EMPTY - rows generated at runtime
+  matrixColumns: [
+    { id: 1, label: 'Poor', value: 'poor' },
+    { id: 2, label: 'Fair', value: 'fair' },
+    { id: 3, label: 'Good', value: 'good' },
+    { id: 4, label: 'Very Good', value: 'very_good' },
+    { id: 5, label: 'Excellent', value: 'excellent' }
+  ],
+  metadata: {
+    pipeRowsFrom: {
+      sourceQuestionId: 'Q10',
+      generateFrom: 'selected_options', // or 'all_options'
+      excludeValues: ['none'],
+      includeOtherText: true
+    },
+    requireAllRows: true
+  }
+}
+```
+
+**Key differences:**
+- **Dynamic options** (`pipeOptionsFrom`): Generates OPTIONS for single_choice/multiple_choice
+- **Dynamic rows** (`pipeRowsFrom`): Generates ROWS for matrix questions
+- Both support chained piping automatically
+
+**Detect in questionnaires:**
+- "Rate each [item] you selected in Q[X]"
+- "For each brand mentioned above..."
+- "Evaluate the tools you chose"
+- "Assess each service from the previous question"
+
+**Chained piping example:**
+```typescript
+// Q9: Source with static options (multiple_choice)
+{ id: 'Q9', options: [/* tools */] }
+
+// Q10: Gets options from Q9 (multiple_choice)
+{ id: 'Q10', options: [], metadata: { pipeOptionsFrom: { sourceQuestionId: 'Q9' }}}
+
+// Q11: Gets rows from Q10 (which came from Q9) - matrix
+{ id: 'Q11', matrixRows: [], metadata: { pipeRowsFrom: { sourceQuestionId: 'Q10' }}}
+```
+
+**The system recursively resolves:** Q11 → Q10 → Q9
+
+**See**: `data/sample-survey.ts` Q11 for complete working example
+
 **CRITICAL - Sum-to-100% Validation:**
 
 When questionnaire specifies "MUST SUM TO 100%", use `sumValidation`:

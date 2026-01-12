@@ -557,6 +557,46 @@ Questionnaire → Schema
 
 ---
 
+## 🔗 Dynamic Option Piping
+
+**When to use:** Questions where options are generated from previous question responses.
+
+**Detect these patterns:**
+- "Show selected items from Q[X]"
+- "Based on your answer to Q[X], which..."
+- "Of the [items] you selected..."
+- "Rank the options you chose in Q[X]"
+
+**Schema structure:**
+```typescript
+{
+  id: 'Q10',
+  type: 'multiple_choice',
+  options: [], // ⚠️ KEEP EMPTY - options generated at runtime
+  metadata: {
+    pipeOptionsFrom: {
+      sourceQuestionId: 'Q9',            // Question to pull from
+      generateFrom: 'selected_options',  // or 'all_options'
+      excludeValues: ['none', 'other'],  // Filter out these
+      includeOtherText: true             // Include typed "Other" text
+    }
+  }
+}
+```
+
+**Key differences:**
+- **Text piping** (`[INSERT Q1]`): Inserts values into question text
+- **Dynamic option piping** (`pipeOptionsFrom`): Generates OPTIONS themselves
+
+**Chained piping support:**
+- Q9 → Q10 → Q11 chains work automatically
+- Q11 points to Q10, system resolves Q10 → Q9 recursively
+- No special configuration needed for chains
+
+**Working examples:** `data/sample-survey.ts` - Q9, Q10, Q11
+
+---
+
 ## 📊 Matrix Table Format
 
 **⚠️ CRITICAL**: Matrix questions fail often! See ../shared/matrix-question-guide.md for detailed instructions.

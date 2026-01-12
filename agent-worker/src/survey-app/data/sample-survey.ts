@@ -1,5 +1,38 @@
 import { Survey } from '../types/survey';
 
+/**
+ * Sample Survey - Complete Reference Implementation
+ *
+ * 📚 PIPING EXAMPLES INDEX:
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ *
+ * TEXT PIPING (Insert dynamic values into question text):
+ * Q5:  [INSERT Q4.SUM] - Calculate sum (e.g., "$45/month")
+ * Q7:  [INSERT CONCEPT NAME] + [INSERT S11 RESPONSE] - Multiple piping
+ * Q8:  [INSERT CONCEPT NAME] - Variable piping
+ * Q8a: [INSERT CUSTOMER_TYPE LABEL] - Label piping (shows "Verizon" not "verizon")
+ * Q8b: [INSERT Q4.COUNT] - Count piping (number of selections)
+ * Q8c: [INSERT Q4a LABEL] - Multiple choice labels (comma-separated)
+ * Q8d: [INSERT S11] - Raw value piping (exact number)
+ *
+ * DYNAMIC OPTION PIPING (Generate options from previous responses):
+ * Q10: pipeOptionsFrom Q9 (selected_options) - Options = what user selected
+ * Q12: pipeOptionsFrom Q10 (selected_options) - Chain piping (Q9 → Q10 → Q12)
+ *
+ * DYNAMIC MATRIX ROW PIPING (Generate matrix rows from previous responses):
+ * Q11: pipeRowsFrom Q10 (selected_options) - Rows = what user selected in Q10
+ *      Supports chained piping: Q11 → Q10 → Q9
+ *
+ * Other features demonstrated:
+ * - Randomization & Anchoring (Q4, Q4a)
+ * - Exclusive Options (Q4)
+ * - "Other (Please Specify)" (Q4a, Q9)
+ * - Logic & Navigation (S1, Q4, Q6, Q7, Q8)
+ * - Validation (S11, Q7)
+ * - Matrix Questions (Q5a, Q11)
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ */
+
 export const sampleSurvey: Survey = {
   id: 'sample-survey',
   metadata: {
@@ -228,7 +261,11 @@ export const sampleSurvey: Survey = {
           metadata: {
             piping: ['Q4.SUM']
           },
-          notes: ['Price shown is sum of services selected in Q4', 'SKIP to Q8 if "Definitely would not"']
+          notes: [
+            '✅ SUM/CALCULATION PIPING EXAMPLE: Shows calculated total (e.g., "$45/month")',
+            'Uses [INSERT Q4.SUM] to calculate sum of selected service prices',
+            'SKIP to Q8 if "Definitely would not"'
+          ]
         },
         {
           id: 'Q5a',
@@ -287,57 +324,36 @@ export const sampleSurvey: Survey = {
               action: 'show',
               when: {
                 operator: 'or',
-                left: '',
-                right: '',
                 conditions: [
                   {
-                    operator: 'and',
-                    left: 'CONCEPT_ASSIGNMENT',
-                    right: '1',
-                    conditions: [
-                      {
-                        operator: 'in',
-                        left: 'Q4',
-                        right: ['satellite']
-                      }
-                    ]
+                    operator: 'in',
+                    left: 'Q4',
+                    right: ['satellite']
                   },
                   {
-                    operator: 'and',
-                    left: 'CONCEPT_ASSIGNMENT',
-                    right: '2',
-                    conditions: [
-                      {
-                        operator: 'in',
-                        left: 'Q4',
-                        right: ['enhanced_network']
-                      }
-                    ]
+                    operator: 'in',
+                    left: 'Q4',
+                    right: ['enhanced_network']
                   },
                   {
-                    operator: 'and',
-                    left: 'CONCEPT_ASSIGNMENT',
-                    right: '3',
-                    conditions: [
-                      {
-                        operator: 'in',
-                        left: 'Q4',
-                        right: ['enhanced_plus']
-                      }
-                    ]
+                    operator: 'in',
+                    left: 'Q4',
+                    right: ['enhanced_plus']
                   }
                 ]
               }
             }
           ],
-          defaultNextQuestion: 'COMPLETE',
+          defaultNextQuestion: 'Q8a',
           metadata: {
             piping: ['CONCEPT_ASSIGNMENT', 'S11']
           },
           notes: [
-            'ASK IF (CONCEPT 1 AND Satellite selected) OR (CONCEPT 2 AND Enhanced Network selected) OR (CONCEPT 3 AND Enhanced Network Plus selected)',
-            'Pipes in concept name and number of lines',
-            'Must not exceed 100%'
+            '✅ MULTIPLE PIPING EXAMPLE: Combines variable + numeric piping in one question',
+            'Uses [INSERT CONCEPT NAME] (shows "Satellite Connectivity") and [INSERT S11 RESPONSE] (shows number like "50")',
+            'ASK IF user selected ANY concept service in Q4 (satellite OR enhanced_network OR enhanced_plus)',
+            'Must not exceed 100%',
+            'Both Q7 and Q8 paths converge at Q8a'
           ]
         },
         {
@@ -355,58 +371,240 @@ export const sampleSurvey: Survey = {
             {
               action: 'show',
               when: {
-                operator: 'or',
-                left: '',
-                right: '',
+                operator: 'and',
                 conditions: [
                   {
-                    operator: 'and',
-                    left: 'CONCEPT_ASSIGNMENT',
-                    right: '1',
-                    conditions: [
-                      {
-                        operator: 'notIn',
-                        left: 'Q4',
-                        right: ['satellite']
-                      }
-                    ]
+                    operator: 'notIn',
+                    left: 'Q4',
+                    right: ['satellite']
                   },
                   {
-                    operator: 'and',
-                    left: 'CONCEPT_ASSIGNMENT',
-                    right: '2',
-                    conditions: [
-                      {
-                        operator: 'notIn',
-                        left: 'Q4',
-                        right: ['enhanced_network']
-                      }
-                    ]
+                    operator: 'notIn',
+                    left: 'Q4',
+                    right: ['enhanced_network']
                   },
                   {
-                    operator: 'and',
-                    left: 'CONCEPT_ASSIGNMENT',
-                    right: '3',
-                    conditions: [
-                      {
-                        operator: 'notIn',
-                        left: 'Q4',
-                        right: ['enhanced_plus']
-                      }
-                    ]
+                    operator: 'notIn',
+                    left: 'Q4',
+                    right: ['enhanced_plus']
                   }
                 ]
               }
             }
           ],
-          defaultNextQuestion: 'COMPLETE',
+          defaultNextQuestion: 'Q8a',
           metadata: {
             piping: ['CONCEPT_ASSIGNMENT']
           },
           notes: [
-            'ASK IF (CONCEPT 1 AND Satellite NOT selected) OR (CONCEPT 2 AND Enhanced Network NOT selected) OR (CONCEPT 3 AND Enhanced Network Plus NOT selected)',
-            'Multiple selection allowed',
-            'Pipes in concept name'
+            '✅ VARIABLE PIPING EXAMPLE: Shows dynamic text based on concept assignment',
+            'Uses [INSERT CONCEPT NAME] pattern',
+            'ASK IF user did NOT select ANY concept services in Q4 (none of: satellite, enhanced_network, enhanced_plus)',
+            'Mutually exclusive with Q7 - either Q7 or Q8 will show, not both',
+            'Multiple selection allowed'
+          ]
+        },
+        {
+          id: 'Q8a',
+          type: 'single_choice',
+          text: 'You indicated your company primarily uses [INSERT CUSTOMER_TYPE LABEL]. How satisfied are you with their service?',
+          required: true,
+          options: [
+            { id: 1, label: 'Very satisfied', value: 'very_satisfied' },
+            { id: 2, label: 'Somewhat satisfied', value: 'somewhat_satisfied' },
+            { id: 3, label: 'Neither satisfied nor dissatisfied', value: 'neutral' },
+            { id: 4, label: 'Somewhat dissatisfied', value: 'somewhat_dissatisfied' },
+            { id: 5, label: 'Very dissatisfied', value: 'very_dissatisfied' }
+          ],
+          defaultNextQuestion: 'Q8b',
+          metadata: {
+            piping: ['CUSTOMER_TYPE']
+          },
+          notes: [
+            '✅ LABEL PIPING EXAMPLE: Shows carrier name (e.g., "Verizon") instead of value (e.g., "verizon")',
+            'Pipes in carrier name from CUSTOMER_TYPE question',
+            'Uses [INSERT CUSTOMER_TYPE LABEL] pattern'
+          ]
+        },
+        {
+          id: 'Q8b',
+          type: 'text',
+          text: 'You selected [INSERT Q4.COUNT] services in total. Which one is most important to your business?',
+          required: true,
+          defaultNextQuestion: 'Q8c',
+          metadata: {
+            inputType: 'textarea',
+            maxLength: 500,
+            piping: ['Q4.COUNT']
+          },
+          notes: [
+            '✅ COUNT PIPING EXAMPLE: Shows number of items selected (e.g., "You selected 3 services...")',
+            'Uses [INSERT Q4.COUNT] pattern',
+            'Dynamically calculates count from multiple choice response'
+          ]
+        },
+        {
+          id: 'Q8c',
+          type: 'single_choice',
+          text: 'You mentioned you use [INSERT Q4a LABEL] for communication. How critical is this tool to your daily operations?',
+          required: true,
+          options: [
+            { id: 1, label: 'Absolutely critical - cannot function without it', value: 'critical' },
+            { id: 2, label: 'Very important - significant impact if unavailable', value: 'very_important' },
+            { id: 3, label: 'Moderately important - some impact if unavailable', value: 'moderately_important' },
+            { id: 4, label: 'Slightly important - minimal impact', value: 'slightly_important' },
+            { id: 5, label: 'Not important', value: 'not_important' }
+          ],
+          defaultNextQuestion: 'Q8d',
+          metadata: {
+            piping: ['Q4a']
+          },
+          notes: [
+            '✅ MULTIPLE CHOICE LABEL PIPING EXAMPLE: Shows selected tool names (e.g., "Slack, Teams")',
+            'Pipes in selected communication tools from Q4a',
+            'Uses [INSERT Q4a LABEL] to show comma-separated list of labels',
+            'If multiple selected: "Slack, Microsoft Teams, Zoom"'
+          ]
+        },
+        {
+          id: 'Q8d',
+          type: 'numeric',
+          text: 'Your company has [INSERT S11] wireless lines. Approximately how many employees use these lines daily?',
+          required: true,
+          validation: [
+            { type: 'required', message: 'Please enter a number' },
+            { type: 'min', value: 1, message: 'Must be at least 1' }
+          ],
+          defaultNextQuestion: 'Q9',
+          metadata: {
+            inputType: 'number',
+            min: 1,
+            piping: ['S11']
+          },
+          notes: [
+            '✅ RAW VALUE PIPING EXAMPLE: Shows exact numeric response (e.g., "Your company has 50 wireless lines")',
+            'Uses [INSERT S11] pattern (no LABEL keyword)',
+            'Pipes in numeric response from S11 question',
+            'Shows raw value, not option label'
+          ]
+        },
+        {
+          id: 'Q9',
+          type: 'multiple_choice',
+          text: 'Which of the following technology tools does your IT department currently use? Select all that apply.',
+          required: true,
+          options: [
+            { id: 1, label: 'Cloud Storage (Dropbox, Google Drive, OneDrive)', value: 'cloud_storage' },
+            { id: 2, label: 'Project Management (Asana, Trello, Monday.com)', value: 'project_mgmt' },
+            { id: 3, label: 'CRM Software (Salesforce, HubSpot)', value: 'crm' },
+            { id: 4, label: 'Analytics Platform (Tableau, Power BI)', value: 'analytics' },
+            { id: 5, label: 'Cybersecurity Tools (Firewall, VPN, Antivirus)', value: 'cybersecurity' },
+            { id: 6, label: 'None of the above', value: 'none' },
+            { id: 99, label: 'Other (please specify)', value: 'other' }
+          ],
+          defaultNextQuestion: 'Q10',
+          metadata: {
+            randomize: true,
+            anchor: [6, 99],
+            exclusiveOptions: [6],
+            hasOtherOption: true,
+            otherOptionId: 99,
+            otherInputRequired: true,
+            otherInputPlaceholder: 'Please specify the technology tool',
+            otherInputMaxLength: 100
+          },
+          notes: [
+            '⚙️ SOURCE QUESTION for dynamic option piping',
+            'Q10 will dynamically generate options based on selections here',
+            'Combines multiple features: randomization, anchoring, exclusive option, other option',
+            'This is the "source question" that Q10 will reference'
+          ]
+        },
+        {
+          id: 'Q10',
+          type: 'multiple_choice',
+          text: 'Of the tools you selected, which ones would you recommend to other companies? Select all that apply.',
+          required: true,
+          options: [],
+          defaultNextQuestion: 'Q11',
+          metadata: {
+            minSelections: 1,
+            pipeOptionsFrom: {
+              sourceQuestionId: 'Q9',
+              generateFrom: 'selected_options',
+              excludeValues: ['none', 'other'],
+              includeOtherText: true
+            }
+          },
+          notes: [
+            '✅ DYNAMIC OPTION PIPING EXAMPLE #1: Options generated from Q9 selected values',
+            'options: [] stays EMPTY - options are generated at runtime',
+            'pipeOptionsFrom.sourceQuestionId: "Q9" - Get options from Q9',
+            'pipeOptionsFrom.generateFrom: "selected_options" - Only show what user selected in Q9',
+            'pipeOptionsFrom.excludeValues: ["none", "other"] - Filter out "None" and "Other" options',
+            'pipeOptionsFrom.includeOtherText: true - Include user-typed text from Q9 "Other" input',
+            'Example: If user selected Cloud Storage, CRM, and typed "Slack" in Other → Q10 shows those 3 as options',
+            'This is different from text piping - we\'re generating the OPTIONS themselves, not inserting text'
+          ]
+        },
+        {
+          id: 'Q11',
+          type: 'matrix',
+          text: 'For each tool you recommended, please rate its performance in the following areas:',
+          required: true,
+          matrixRows: [], // ⚠️ KEEP EMPTY - rows generated at runtime
+          matrixColumns: [
+            { id: 1, label: 'Poor', value: 'poor' },
+            { id: 2, label: 'Fair', value: 'fair' },
+            { id: 3, label: 'Good', value: 'good' },
+            { id: 4, label: 'Very Good', value: 'very_good' },
+            { id: 5, label: 'Excellent', value: 'excellent' }
+          ],
+          defaultNextQuestion: 'Q12',
+          metadata: {
+            pipeRowsFrom: {
+              sourceQuestionId: 'Q10',
+              generateFrom: 'selected_options',
+              excludeValues: [],
+              includeOtherText: true
+            },
+            requireAllRows: true
+          },
+          notes: [
+            '✅ DYNAMIC MATRIX ROW PIPING EXAMPLE: Rows generated from Q10 selections',
+            'matrixRows: [] stays EMPTY - rows are generated at runtime',
+            'pipeRowsFrom.sourceQuestionId: "Q10" - Get rows from Q10 selections',
+            'pipeRowsFrom.generateFrom: "selected_options" - Only show what user selected in Q10',
+            'Each tool from Q10 becomes a row in this matrix',
+            'Supports chained piping: Q11 → Q10 → Q9 (Q10 itself has dynamic options from Q9)',
+            'Example: User selected 3 tools in Q10 → Q11 shows 3 rows (one per tool)',
+            'This demonstrates DYNAMIC MATRIX ROWS with chained source resolution'
+          ]
+        },
+        {
+          id: 'Q12',
+          type: 'single_choice',
+          text: 'Of the tools you would recommend, which ONE is the most critical for business operations?',
+          required: true,
+          options: [],
+          defaultNextQuestion: 'COMPLETE',
+          metadata: {
+            pipeOptionsFrom: {
+              sourceQuestionId: 'Q10',
+              generateFrom: 'selected_options',
+              excludeValues: [],
+              includeOtherText: false
+            }
+          },
+          notes: [
+            '✅ DYNAMIC OPTION PIPING EXAMPLE #2: Chained piping (Q9 → Q10 → Q12)',
+            'options: [] stays EMPTY - options are generated at runtime',
+            'pipeOptionsFrom.sourceQuestionId: "Q10" - Get options from Q10 (not Q9!)',
+            'pipeOptionsFrom.generateFrom: "selected_options" - Only show what user selected in Q10',
+            'pipeOptionsFrom.excludeValues: [] - No exclusions this time',
+            'pipeOptionsFrom.includeOtherText: false - Don\'t include other text (already filtered in Q10)',
+            'Example: User selected 5 tools in Q9 → recommended 3 in Q10 → picks 1 most critical in Q12',
+            'This demonstrates CHAINED dynamic option piping across multiple questions'
           ]
         }
       ]

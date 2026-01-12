@@ -414,6 +414,7 @@ export function applyPiping(
     return otherTexts.length > 0 ? otherTexts.join(', ') : '[No other text]';
   });
 
+  // Pattern: [INSERT Q4.SUM] - Calculate sum
   const sumPattern = /\[INSERT\s+([A-Z0-9_]+)\.SUM\]/gi;
   result = result.replace(sumPattern, (match, questionId) => {
     if (questionId === 'Q4') {
@@ -423,15 +424,33 @@ export function applyPiping(
       }
       return '0';
     }
-    
+
     const response = responses[questionId];
     if (!allQuestions) return '0';
-    
+
     const question = allQuestions.find(q => q.id === questionId);
     if (!question?.options || !Array.isArray(response)) return '0';
-    
+
     const sum = calculateSumFromOptions(response, question.options);
     return sum.toString();
+  });
+
+  // Pattern: [INSERT Q4.COUNT] - Count number of selections
+  const countPattern = /\[INSERT\s+([A-Z0-9_]+)\.COUNT\]/gi;
+  result = result.replace(countPattern, (match, questionId) => {
+    const response = responses[questionId];
+
+    // For multiple choice (array of selections)
+    if (Array.isArray(response)) {
+      return response.length.toString();
+    }
+
+    // For single choice or text (1 if answered, 0 if not)
+    if (response !== undefined && response !== null && response !== '') {
+      return '1';
+    }
+
+    return '0';
   });
 
   if (result.includes('[INSERT CONCEPT NAME]')) {
