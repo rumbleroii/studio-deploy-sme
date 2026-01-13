@@ -82,6 +82,24 @@ export function generateDynamicRows(
 
   // Filter out excluded values
   const excludeSet = new Set(config.excludeValues || []);
+
+  // When includeOtherText is true, automatically exclude option values that have "other" text
+  // This prevents showing both "Other (please specify)" row and the typed text row
+  if (config.includeOtherText) {
+    const otherTextKeys = Object.keys(responses).filter(
+      key => key.startsWith(`${config.sourceQuestionId}_other_`)
+    );
+
+    for (const key of otherTextKeys) {
+      const otherText = responses[key];
+      if (otherText && typeof otherText === 'string' && otherText.trim()) {
+        // Extract the option value from the key: "Q9_other_other" → "other"
+        const optionValue = key.replace(`${config.sourceQuestionId}_other_`, '');
+        excludeSet.add(optionValue);
+      }
+    }
+  }
+
   selectedValues = selectedValues.filter(v => !excludeSet.has(v));
 
   const rows: MatrixRow[] = [];
@@ -165,6 +183,24 @@ export function generateDynamicOptions(
 
   // Filter out excluded values
   const excludeSet = new Set(config.excludeValues || []);
+
+  // When includeOtherText is true, automatically exclude option values that have "other" text
+  // This prevents showing both "Other (please specify)" and the typed text
+  if (config.includeOtherText) {
+    const otherTextKeys = Object.keys(responses).filter(
+      key => key.startsWith(`${config.sourceQuestionId}_other_`)
+    );
+
+    for (const key of otherTextKeys) {
+      const otherText = responses[key];
+      if (otherText && typeof otherText === 'string' && otherText.trim()) {
+        // Extract the option value from the key: "Q9_other_other" → "other"
+        const optionValue = key.replace(`${config.sourceQuestionId}_other_`, '');
+        excludeSet.add(optionValue);
+      }
+    }
+  }
+
   selectedValues = selectedValues.filter(v => !excludeSet.has(v));
 
   const options: Option[] = [];
