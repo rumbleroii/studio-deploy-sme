@@ -1,4 +1,5 @@
 import { Expression, LogicCondition, Question } from '../types/survey';
+import { generateDynamicOptions } from './masking';
 
 /**
  * Evaluates a logic expression against current survey responses
@@ -472,7 +473,8 @@ export function applyPiping(
 export function validateResponse(
   question: Question,
   value: any,
-  allResponses?: Record<string, any>
+  allResponses?: Record<string, any>,
+  allQuestions?: Question[]
 ): { isValid: boolean; error?: string } {
   // Check if exclusive option is selected (for text/numeric inputs)
   if (allResponses && allResponses[`${question.id}_exclusive`] === true) {
@@ -490,12 +492,26 @@ export function validateResponse(
   }
 
   // Single choice and Multiple choice "Other" option validation
-  if ((question.type === 'single_choice' || question.type === 'multiple_choice') && question.options) {
+  if ((question.type === 'single_choice' || question.type === 'multiple_choice')) {
     const metadata = question.metadata || {};
 
     if (metadata.hasOtherOption && metadata.otherOptionId) {
+      // Get actual options (either static or dynamically generated)
+      let actualOptions = question.options || [];
+
+      // If options are empty but question has dynamic piping, generate them
+      if (actualOptions.length === 0 && metadata.pipeOptionsFrom && allQuestions && allResponses) {
+        const sourceQuestion = allQuestions.find(q => q.id === metadata.pipeOptionsFrom?.sourceQuestionId);
+        actualOptions = generateDynamicOptions(
+          metadata.pipeOptionsFrom,
+          allResponses,
+          sourceQuestion,
+          allQuestions
+        );
+      }
+
       // Find the "Other" option
-      const otherOption = question.options.find(opt => String(opt.id) === String(metadata.otherOptionId));
+      const otherOption = actualOptions.find(opt => String(opt.id) === String(metadata.otherOptionId));
 
       if (otherOption) {
         let isOtherSelected = false;

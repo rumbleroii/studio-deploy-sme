@@ -141,7 +141,7 @@ export default function QuestionPage() {
     // Validate all grouped questions
     for (const question of groupedQuestions) {
       const currentValue = responses[question.id];
-      const validation = validateResponse(question, currentValue, responses);
+      const validation = validateResponse(question, currentValue, responses, allQuestions);
 
       if (!validation.isValid) {
         setError(validation.error || 'Please answer this question');
