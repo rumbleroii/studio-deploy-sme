@@ -438,6 +438,141 @@ Dynamic option piping supports **multi-level chaining** (Q9 → Q10 → Q11):
 
 **See**: `data/sample-survey.ts` Q9, Q10, Q12 for complete working examples
 
+**CRITICAL - Conditional Options vs Combined Options:**
+
+When questionnaires show **variants of the same option** (different currencies, regions, segments), ALWAYS ask yourself:
+
+**"Should the respondent see ALL variants, or only the relevant one?"**
+
+| Pattern in Questionnaire | What It Means | Implementation |
+|--------------------------|---------------|----------------|
+| Multiple currencies in same row | Location-specific variants | Separate options with `showIf` |
+| Table columns: [Q1=US], [Q1=Canada] | Conditional display | Separate options with `showIf` |
+| "IF US:" / "IF Canada:" prefixes | Conditional display | Separate options with `showIf` |
+| Side-by-side regional variants | Almost always conditional | Separate options with `showIf` |
+| "(US only)" / "(Canada only)" notes | Conditional display | Separate options with `showIf` |
+
+**WRONG Approach - Combining variants:**
+```typescript
+// ❌ DO NOT DO THIS - combining all currencies into one label
+{
+  id: 1,
+  label: 'Less than $50M USD / $70M CAD / £37M GBP',
+  value: 'revenue_tier_1'
+}
+```
+
+**CORRECT Approach - Conditional options:**
+```typescript
+// ✅ DO THIS - separate options with showIf conditions
+{
+  id: 1,
+  label: 'Less than $50M USD',
+  value: 'revenue_tier_1',
+  showIf: {
+    questionId: 'Q1',
+    operator: 'equals',
+    value: 20 // US country code
+  }
+},
+{
+  id: 2,
+  label: 'Less than $70M CAD',
+  value: 'revenue_tier_1',
+  showIf: {
+    questionId: 'Q1',
+    operator: 'equals',
+    value: 4 // Canada country code
+  }
+},
+{
+  id: 3,
+  label: 'Less than £37M GBP',
+  value: 'revenue_tier_1',
+  showIf: {
+    questionId: 'Q1',
+    operator: 'equals',
+    value: 19 // UK country code
+  }
+}
+```
+
+**Semantic Checklist - Use showIf when:**
+- ✓ Options contain location/currency/region-specific text
+- ✓ Options are variants of the same concept (different wording for different segments)
+- ✓ Showing ALL variants would confuse the respondent
+- ✓ Variants are presented side-by-side in the questionnaire
+- ✓ Previous question determines which variant applies (country, role, segment, etc.)
+
+**Detection is format-agnostic:**
+These patterns appear in many forms:
+- Tables with conditional column headers
+- Bullet lists with "IF..." prefixes
+- Inline notes like "(US respondents see...)"
+- Multiple currency symbols in same option ($ £ € ¥)
+- Separate sections per segment/region
+
+**The key**: Look at **intent**, not syntax. If variants serve the same purpose but differ by respondent attribute, use conditional options.
+
+**Working Example in Sample Survey:**
+
+See `data/sample-survey.ts` Q1 and Q2 for a complete implementation:
+- Q1: Country selection (US, Canada, UK)
+- Q2: Revenue question with 15 options (5 USD + 5 CAD + 5 GBP)
+- Each option has `showIf: { operator: 'eq', left: 'Q1', right: <country_code> }`
+- getQuestionOptions() automatically filters to show only relevant currency
+
+**How the system handles it:**
+1. QuestionRenderer calls `getQuestionOptions(Q2, responses, allQuestions)`
+2. Returns all 15 options
+3. Built-in `filterOptions()` evaluates each `showIf` condition
+4. Only options matching Q1's value pass through
+5. US respondent (Q1=20) sees only 5 USD options
+
+**No manual filtering needed** - just define showIf conditions!
+
+**Validation Approach:**
+
+The system uses a validation strategy:
+
+**1. Structural Validation (Automatic)**
+- `lib/schema-validator.ts` catches missing required fields
+- Checks for missing options/rows (no static data, no piping config)
+- Checks for missing matrix columns
+- Runs automatically in development mode
+
+**Example behavioral test:**
+```typescript
+import { testConditionalLogic } from './lib/test-helpers';
+
+const tests = [
+  {
+    description: 'US respondent sees only USD options',
+    questionId: 'Q3',
+    responses: { Q1: 20 }, // US country code
+    expectedBehavior: {
+      hasOptions: ['tier_1_usd', 'tier_2_usd'] // USD option values
+      // Test fails if combined "$50M USD / $70M CAD" options exist
+    }
+  }
+];
+
+const results = testConditionalLogic(survey, tests);
+// Results show which conditional logic works/fails
+```
+
+**Why behavioral testing is better:**
+- ✅ Works regardless of text format/pattern
+- ✅ Tests what actually happens, not what text contains
+- ✅ Catches logic errors, not just text issues
+- ✅ More maintainable than pattern matching
+
+**You must:**
+1. Use the semantic checklist above when reviewing questionnaires
+2. Add behavioral tests for conditional scenarios
+3. Run tests before deployment
+
+
 **CRITICAL - Dynamic Matrix Row Piping:**
 
 When questionnaire specifies "rate the items you selected" or "for each [item] from Q[X]", use `pipeRowsFrom` in matrix questions:

@@ -352,7 +352,8 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
                     value={option.value}
                     checked={isSelected}
                     onChange={(e) => {
-                      handleChange(e.target.value);
+                      // Use the original option.value to preserve type (e.g., number vs string)
+                      handleChange(option.value);
                       if (!isOtherOption) {
                         const newOtherTextValues = { ...otherTextValues };
                         delete newOtherTextValues[String(option.value)];
@@ -524,7 +525,8 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
                             value={col.value}
                             checked={rowValue === col.value}
                             onChange={(e) => {
-                              const newValue = { ...(currentValue || {}), [row.id]: e.target.value };
+                              // Use the original col.value to preserve type
+                              const newValue = { ...(currentValue || {}), [row.id]: col.value };
                               handleChange(newValue);
                             }}
                             className="radio-button"

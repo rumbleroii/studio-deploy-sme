@@ -80,7 +80,9 @@
     { id: 3, label: "Google", value: "google" },
     { id: 4, label: "OnePlus", value: "oneplus" },
     { id: 99, label: "Other (please specify)", value: "other" },
-    { id: 0, label: "None of the above", value: "none" }
+    { id: 0, label: "None of the above", value: "none" },
+    { id: 10, label: "None", value: "none" },
+    { id: 20, label: "Not Applicable", value: "na" }
   ],
   metadata: {
     hasOtherOption: true,
@@ -89,7 +91,7 @@
     otherInputPlaceholder: "Please specify brand",
     otherInputMaxLength: 50,
     minSelections: 1,
-    exclusiveOptions: [0]              // "None of the above" deselects all others
+    exclusiveOptions: [0, 10, 20]              // "None of the above" deselects all others
   },
   validation: [
     { type: 'required', message: 'Please select at least one option' }

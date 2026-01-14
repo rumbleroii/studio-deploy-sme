@@ -15,6 +15,10 @@ import { Survey } from '../types/survey';
  * Q8c: [INSERT Q4a LABEL] - Multiple choice labels (comma-separated)
  * Q8d: [INSERT S11] - Raw value piping (exact number)
  *
+ * CONDITIONAL OPTIONS (Show/hide options based on previous responses):
+ * Q2:  showIf based on Q1 - Different currency options for different countries
+ *      US respondents see USD, Canada sees CAD, UK sees GBP
+ *
  * DYNAMIC OPTION PIPING (Generate options from previous responses):
  * Q10: pipeOptionsFrom Q9 (selected_options) - Options = what user selected
  * Q12: pipeOptionsFrom Q10 (selected_options) - Chain piping (Q9 → Q10 → Q12)
@@ -137,11 +141,75 @@ export const sampleSurvey: Survey = {
           type: 'introduction',
           text: 'Thank you. In this survey, we will show you information about potential add-on services for business wireless plans. Please review the concepts carefully.',
           required: false,
-          defaultNextQuestion: 'Q4',
+          defaultNextQuestion: 'Q1',
           metadata: {
             conceptAssigned: 'RANDOM' // In real implementation, this would randomly assign 1, 2, or 3
           },
           notes: ['Randomly assign concept: 1=Satellite Connectivity, 2=Enhanced Network, 3=Enhanced Network Plus']
+        },
+        {
+          id: 'Q1',
+          type: 'single_choice',
+          text: 'In which country is your company headquarters located?',
+          required: true,
+          options: [
+            { id: 20, label: 'United States', value: 20 },
+            { id: 4, label: 'Canada', value: 4 },
+            { id: 19, label: 'United Kingdom', value: 19 }
+          ],
+          defaultNextQuestion: 'Q2',
+          notes: [
+            '✅ CONDITIONAL OPTIONS EXAMPLE',
+            'This question determines which currency options appear in Q2',
+            'Q2 uses showIf conditions to display USD, CAD, or GBP based on this answer'
+          ]
+        },
+        {
+          id: 'Q2',
+          type: 'single_choice',
+          text: "What is your organization's annual global revenue? Please provide your best estimate.",
+          required: true,
+          options: [
+            // US OPTIONS - shown when Q1=20
+            { id: 1, label: 'Less than $50 million USD', value: 'tier_1_usd', showIf: { operator: 'eq', left: 'Q1', right: 20 } },
+            { id: 2, label: '$50 million to less than $250 million USD', value: 'tier_2_usd', showIf: { operator: 'eq', left: 'Q1', right: 20 } },
+            { id: 3, label: '$250 million to less than $500 million USD', value: 'tier_3_usd', showIf: { operator: 'eq', left: 'Q1', right: 20 } },
+            { id: 4, label: '$500 million to less than $1 billion USD', value: 'tier_4_usd', showIf: { operator: 'eq', left: 'Q1', right: 20 } },
+            { id: 5, label: '$1 billion USD or more', value: 'tier_5_usd', showIf: { operator: 'eq', left: 'Q1', right: 20 } },
+
+            // CANADA OPTIONS - shown when Q1=4
+            { id: 11, label: 'Less than $70 million CAD', value: 'tier_1_cad', showIf: { operator: 'eq', left: 'Q1', right: 4 } },
+            { id: 12, label: '$70 million to less than $348 million CAD', value: 'tier_2_cad', showIf: { operator: 'eq', left: 'Q1', right: 4 } },
+            { id: 13, label: '$348 million to $695 million CAD', value: 'tier_3_cad', showIf: { operator: 'eq', left: 'Q1', right: 4 } },
+            { id: 14, label: '$695 million to less than $1.4 billion CAD', value: 'tier_4_cad', showIf: { operator: 'eq', left: 'Q1', right: 4 } },
+            { id: 15, label: '$1.4 billion CAD or more', value: 'tier_5_cad', showIf: { operator: 'eq', left: 'Q1', right: 4 } },
+
+            // UK OPTIONS - shown when Q1=19
+            { id: 21, label: 'Less than £37 million GBP', value: 'tier_1_gbp', showIf: { operator: 'eq', left: 'Q1', right: 19 } },
+            { id: 22, label: '£37 million to less than £185 million GBP', value: 'tier_2_gbp', showIf: { operator: 'eq', left: 'Q1', right: 19 } },
+            { id: 23, label: '£185 million to less than £370 million GBP', value: 'tier_3_gbp', showIf: { operator: 'eq', left: 'Q1', right: 19 } },
+            { id: 24, label: '£370 million to less than £740 million GBP', value: 'tier_4_gbp', showIf: { operator: 'eq', left: 'Q1', right: 19 } },
+            { id: 25, label: '£740 million GBP or more', value: 'tier_5_gbp', showIf: { operator: 'eq', left: 'Q1', right: 19 } }
+          ],
+          defaultNextQuestion: 'Q4',
+          notes: [
+            '✅ CONDITIONAL OPTIONS EXAMPLE',
+            'All 15 options defined (5 USD + 5 CAD + 5 GBP)',
+            'getQuestionOptions() automatically filters based on Q1 value',
+            'US respondent (Q1=20) sees only 5 USD options',
+            'Canada respondent (Q1=4) sees only 5 CAD options',
+            'UK respondent (Q1=19) sees only 5 GBP options',
+            '',
+            'HOW IT WORKS:',
+            '1. QuestionRenderer calls: getQuestionOptions(Q2, responses, allQuestions)',
+            '2. Returns all 15 options',
+            '3. filterOptions() evaluates each showIf condition',
+            '4. Only options matching Q1 value pass through',
+            '5. Result: Respondent sees only relevant currency options',
+            '',
+            '⚠️ WRONG: Combining currencies like "Less than $50M USD / $70M CAD / £37M GBP"',
+            '✅ CORRECT: Separate options with showIf (this approach)'
+          ]
         }
       ]
     },
@@ -618,3 +686,13 @@ export const sampleSurvey: Survey = {
     showTimer: true
   }
 };
+
+// Run schema validation in development
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  import('../lib/schema-validator').then(({ validateSurveySchema, printValidationWarnings }) => {
+    const warnings = validateSurveySchema(sampleSurvey);
+    if (warnings.length > 0) {
+      printValidationWarnings(warnings);
+    }
+  });
+}

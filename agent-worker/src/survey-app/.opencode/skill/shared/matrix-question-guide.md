@@ -798,7 +798,7 @@ Notes:
 Use `type: "multi_grid"` when:
 - Respondents can select MULTIPLE columns per row (not just one)
 - You need "Other (specify)" rows that are optional
-- You need "Don't know" / "None" exclusive rows that clear other selections
+- You need "Don't know" / "None" / "None of the above" / "Not applicable" exclusive rows that clear other selections
 
 ### Multi Grid Schema
 
@@ -813,6 +813,9 @@ Use `type: "multi_grid"` when:
     { id: "brand_b", label: "Brand B" },
     { id: "other", label: "Other (please specify)" },
     { id: "dont_know", label: "Don't know" }
+    { id: "none", label: "None" }
+    { id: "none_of_the_above", label: "None of the above" },
+    { id: "not_applicable", label: "Not Applicable" },
   ],
   matrixColumns: [
     { id: "fast", label: "Fast", value: "fast" },
@@ -822,7 +825,7 @@ Use `type: "multi_grid"` when:
   metadata: {
     selectionMode: "multiple",
     otherRowIds: ["other"],
-    exclusiveRowIds: ["dont_know"],
+    exclusiveRowIds: ["dont_know", "none", "none_of_the_above", "na", "not_applicable"],
     maxPerColumn: 5
   }
 }
@@ -860,7 +863,7 @@ Rows listed in `exclusiveRowIds`:
 
 ```typescript
 metadata: {
-  exclusiveRowIds: ["dont_know", "none_of_above"]
+  exclusiveRowIds: ["dont_know", "none_of_above", "na", "none"]
 }
 ```
 
