@@ -244,6 +244,14 @@ When user uploads a questionnaire:
 - **See working examples**: `data/sample-survey.ts` - Q4
 - **See**: `complete-generation-checklist.md` Section "Multiple Choice with Exclusive Options" for full details
 
+**CRITICAL - Conditional Routing & Branching (Show/Hide/Skip/Terminate):**
+
+- **Identify routing** in questionnaires: "IF answer is X, show Question A", "Only for developers", "Skip to Q20", "Terminate survey"
+- **Use `logic` array** with `action` and `when` conditions
+- **Actions**: `show` (most common), `hide`, `skip`, `terminate`
+- **See detailed section below** titled "CRITICAL - Conditional Routing and Branching" (after Conditional Options)
+- **Working examples**: `data/sample-survey.ts` - Q8e-Q8g (A/B branching), Q6 (show logic), Q7/Q8 (mutually exclusive paths), S1 (termination)
+
 **CRITICAL - "Other (Please Specify)" Options:**
 
 - **Identify "Other" options** in questionnaires: "Other (please specify)", "Other, please describe", "Other:", etc.
@@ -571,6 +579,332 @@ const results = testConditionalLogic(survey, tests);
 1. Use the semantic checklist above when reviewing questionnaires
 2. Add behavioral tests for conditional scenarios
 3. Run tests before deployment
+
+
+**CRITICAL - Conditional Routing and Branching:**
+
+When questionnaire specifies different follow-up questions based on previous answers, use conditional display logic:
+
+**Use Cases:**
+- "IF answer is X, show Question A. IF answer is Y, show Question B"
+- "Based on your role, answer the following..."
+- "Only ask this question if user selected..."
+- Branching paths that converge later
+
+**Implementation Pattern:**
+
+```typescript
+// Step 1: Branching point question
+{
+  id: 'Q8e',
+  type: 'single_choice',
+  text: 'Which type of technology assessment are you most interested in?',
+  options: [
+    { id: 1, label: 'Software and cloud services assessment', value: 'software' },
+    { id: 2, label: 'Hardware and infrastructure assessment', value: 'hardware' }
+  ],
+  defaultNextQuestion: 'Q8f', // First possible branch
+  notes: [
+    '✅ BRANCHING POINT: Software → Q8f, Hardware → Q8g',
+    'Both paths converge at Q9'
+  ]
+}
+
+// Step 2: Branch A - Shows only if "software" selected
+{
+  id: 'Q8f',
+  type: 'text',
+  text: 'What specific software or cloud services would you like to assess?',
+  required: true,
+  logic: [
+    {
+      action: 'show',
+      when: {
+        operator: 'eq',
+        left: 'Q8e',
+        right: 'software'
+      }
+    }
+  ],
+  defaultNextQuestion: 'Q9', // Convergence point
+  metadata: {
+    inputType: 'textarea',
+    maxLength: 500
+  },
+  notes: [
+    '✅ CONDITIONAL DISPLAY: Only shown if Q8e = "software"',
+    'Uses logic.action = "show" with operator "eq"',
+    'Routes to Q9 after completion'
+  ]
+}
+
+// Step 3: Branch B - Shows only if "hardware" selected
+{
+  id: 'Q8g',
+  type: 'text',
+  text: 'What specific hardware or infrastructure would you like to assess?',
+  required: true,
+  logic: [
+    {
+      action: 'show',
+      when: {
+        operator: 'eq',
+        left: 'Q8e',
+        right: 'hardware'
+      }
+    }
+  ],
+  defaultNextQuestion: 'Q9', // Convergence point
+  metadata: {
+    inputType: 'textarea',
+    maxLength: 500
+  },
+  notes: [
+    '✅ CONDITIONAL DISPLAY: Only shown if Q8e = "hardware"',
+    'Together with Q8f, demonstrates A/B branching pattern'
+  ]
+}
+
+// Step 4: Convergence point - Shows to everyone
+{
+  id: 'Q9',
+  type: 'multiple_choice',
+  text: 'Which technology tools does your IT department use?',
+  // No logic - shown to everyone regardless of path taken
+}
+```
+
+**How it works:**
+1. User answers branching question (Q8e)
+2. System evaluates each subsequent question's `show` logic
+3. Only questions where condition is `true` are displayed
+4. Questions where condition is `false` are automatically skipped
+5. Flow continues to convergence point
+
+**Logic Actions:**
+
+| Action | Description | When to Use |
+|--------|-------------|-------------|
+| `show` | Display question only if condition true | Most common - questions hidden by default |
+| `hide` | Hide question if condition true | Questions shown by default, hide in certain cases |
+| `skip` | Jump to specific question, bypassing others | Skip multiple questions at once |
+| `terminate` | End survey early | Screening out unqualified respondents |
+
+**Operators Available:**
+
+```typescript
+// Single value comparison
+{ operator: 'eq', left: 'Q1', right: 'software' }      // Equal to
+{ operator: 'neq', left: 'Q1', right: 'none' }         // Not equal to
+
+// Numeric comparison
+{ operator: 'gt', left: 'AGE', right: 18 }             // Greater than
+{ operator: 'lt', left: 'AGE', right: 65 }             // Less than
+{ operator: 'gte', left: 'AGE', right: 18 }            // Greater than or equal
+{ operator: 'lte', left: 'AGE', right: 65 }            // Less than or equal
+
+// Array comparison (for multiple choice)
+{ operator: 'in', left: 'Q4', right: ['a', 'b'] }      // Selected ANY of these
+{ operator: 'notIn', left: 'Q4', right: ['none'] }     // Did NOT select these
+
+// Compound conditions
+{
+  operator: 'and',
+  conditions: [
+    { operator: 'eq', left: 'Q1', right: 'yes' },
+    { operator: 'gt', left: 'Q2', right: 100 }
+  ]
+}
+
+{
+  operator: 'or',
+  conditions: [
+    { operator: 'eq', left: 'Q1', right: 'option_a' },
+    { operator: 'eq', left: 'Q1', right: 'option_b' }
+  ]
+}
+```
+
+**Detection Patterns in Questionnaires:**
+
+When parsing questionnaires, look for:
+
+1. **Explicit branching:**
+   ```
+   Q5. Are you interested in software or hardware?
+
+   IF SOFTWARE:
+     Q6. What software platforms?
+
+   IF HARDWARE:
+     Q7. What hardware needs?
+   ```
+
+2. **Skip instructions:**
+   ```
+   Q10. Do you own a car? [Yes/No]
+   IF NO, SKIP TO Q20
+   ```
+
+3. **Role-based questions:**
+   ```
+   Q1. What is your role? [Developer/Designer/Manager]
+
+   (ONLY FOR DEVELOPERS)
+   Q2a. What programming languages?
+
+   (ONLY FOR DESIGNERS)
+   Q2b. What design tools?
+   ```
+
+4. **Screening/Termination:**
+   ```
+   S1. Are you 18 or older?
+   IF NO, TERMINATE SURVEY
+   ```
+
+**Skip Logic Example:**
+
+```typescript
+{
+  id: 'Q4',
+  type: 'multiple_choice',
+  text: 'Which services interest you?',
+  options: [
+    { id: 1, label: 'Service A', value: 'service_a' },
+    { id: 7, label: 'None of the above', value: 'none' }
+  ],
+  logic: [
+    {
+      action: 'skip',
+      when: {
+        operator: 'and',
+        conditions: [
+          { operator: 'in', left: 'Q4', right: ['none'] },
+          { operator: 'eq', left: 'Q4.length', right: 1 }
+        ]
+      },
+      destination: 'Q8'
+    }
+  ],
+  defaultNextQuestion: 'Q5'
+}
+```
+
+**Termination Logic Example:**
+
+```typescript
+{
+  id: 'S1',
+  type: 'single_choice',
+  text: 'Are you involved in making decisions about wireless service?',
+  options: [
+    { id: 1, label: 'Yes, primary decision maker', value: 'primary' },
+    { id: 2, label: 'Yes, involved', value: 'involved' },
+    { id: 3, label: 'No, not involved', value: 'not_involved' }
+  ],
+  logic: [
+    {
+      action: 'terminate',
+      when: {
+        operator: 'eq',
+        left: 'S1',
+        right: 'not_involved'
+      },
+      destination: 'TERMINATE'
+    }
+  ],
+  defaultNextQuestion: 'S11'
+}
+```
+
+**Best Practices:**
+
+1. **Always set defaultNextQuestion** - Even for questions with show logic, set the default next question for clarity
+2. **Ensure paths converge** - All branches should eventually lead to common questions
+3. **Use descriptive question IDs** - Q8e (branching point), Q8f/Q8g (branches) shows relationship
+4. **Document in notes** - Clearly note branching logic and convergence points
+5. **Type matching is critical** - Value types must match (number vs string) or conditions will fail
+
+**CRITICAL - "ASK IF" Pattern Requires BOTH Source Routing AND Target Show Condition:**
+
+When questionnaire says "ASK IF [condition]", you MUST implement BOTH parts:
+
+**❌ WRONG - Only target show condition:**
+```typescript
+// Source question
+{
+  id: 'Q6',
+  defaultNextQuestion: 'Q7'  // ❌ No routing logic
+}
+
+// Target question
+{
+  id: 'Q7',
+  logic: [{ action: 'show', when: {...} }]  // Only has show condition
+}
+```
+
+**✅ CORRECT - Both source routing AND target show condition:**
+```typescript
+// Source question - ADD ROUTING LOGIC HERE
+{
+  id: 'Q6',
+  logic: [
+    {
+      action: 'skip',
+      when: { operator: 'eq', left: 'Q4', right: 'yes' },
+      destination: 'Q7'  // ✅ Explicit routing
+    }
+  ],
+  defaultNextQuestion: 'Q8'  // Fallback if skip condition is false
+}
+
+// Target question - ALSO ADD SHOW CONDITION
+{
+  id: 'Q7',
+  logic: [
+    {
+      action: 'show',
+      when: { operator: 'eq', left: 'Q4', right: 'yes' }  // ✅ Show condition
+    }
+  ]
+}
+```
+
+**Why both are needed:**
+1. **Source routing** (skip logic) explicitly directs the flow
+2. **Target show condition** ensures question only displays if condition is met
+3. Without source routing, system relies on sequential evaluation which can fail
+4. Without target show condition, question might display incorrectly
+
+**Detection keywords in questionnaires:**
+- "ASK IF [condition]"
+- "SHOW IF [condition]"
+- "IF Q[X] = [value], ask..."
+- "[ONLY FOR DEVELOPERS]"
+- "[FOR VERIZON CUSTOMERS ONLY]"
+
+**Generation checklist for "ASK IF" patterns:**
+- [ ] Add skip logic with `destination` to PREVIOUS question (source)
+- [ ] Add show condition to TARGET question
+- [ ] Ensure condition in BOTH places matches exactly
+- [ ] Set `defaultNextQuestion` on source to the alternative path
+- [ ] Verify all branches eventually converge
+
+**Working Example:**
+
+See `data/sample-survey.ts` Q6 → Q7/Q8 for complete "ASK IF" implementation:
+- Q6 has skip logic (routes to Q7 if services selected, else Q8)
+- Q7 has show condition (only if services selected)
+- Q8 has show condition (only if services NOT selected)
+- Demonstrates BOTH source routing AND target show conditions
+
+**Also see:**
+- Q8e-Q8g: A/B branching with routing
+- Q6: Complete example with source routing + target show conditions
+- Q7/Q8: Mutually exclusive paths with show conditions
+- S1: Termination logic example
 
 
 **CRITICAL - Dynamic Matrix Row Piping:**

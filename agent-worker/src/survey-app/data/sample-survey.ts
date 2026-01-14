@@ -19,6 +19,12 @@ import { Survey } from '../types/survey';
  * Q2:  showIf based on Q1 - Different currency options for different countries
  *      US respondents see USD, Canada sees CAD, UK sees GBP
  *
+ * CONDITIONAL ROUTING/BRANCHING (Show different questions based on selection):
+ * Q6→Q7/Q8: Complete "ASK IF" pattern - Source has skip logic, targets have show conditions
+ *            Demonstrates BOTH source routing AND target show (critical for reliability)
+ * Q8e-Q8g: Branching example - Select "Software" → Q8f shows, Select "Hardware" → Q8g shows
+ *          Demonstrates A/B routing pattern based on option selection
+ *
  * DYNAMIC OPTION PIPING (Generate options from previous responses):
  * Q10: pipeOptionsFrom Q9 (selected_options) - Options = what user selected
  * Q12: pipeOptionsFrom Q10 (selected_options) - Chain piping (Q9 → Q10 → Q12)
@@ -31,7 +37,7 @@ import { Survey } from '../types/survey';
  * - Randomization & Anchoring (Q4, Q4a)
  * - Exclusive Options (Q4)
  * - "Other (Please Specify)" (Q4a, Q9)
- * - Logic & Navigation (S1, Q4, Q6, Q7, Q8)
+ * - Logic & Navigation (S1, Q4, Q6, Q7, Q8, Q8e-Q8g)
  * - Validation (S11, Q7)
  * - Matrix Questions (Q5a, Q11)
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -372,10 +378,38 @@ export const sampleSurvey: Survey = {
                 left: 'CUSTOMER_TYPE',
                 right: 'verizon'
               }
+            },
+            {
+              action: 'skip',
+              when: {
+                operator: 'or',
+                conditions: [
+                  {
+                    operator: 'in',
+                    left: 'Q4',
+                    right: ['satellite']
+                  },
+                  {
+                    operator: 'in',
+                    left: 'Q4',
+                    right: ['enhanced_network']
+                  },
+                  {
+                    operator: 'in',
+                    left: 'Q4',
+                    right: ['enhanced_plus']
+                  }
+                ]
+              },
+              destination: 'Q7'
             }
           ],
-          defaultNextQuestion: 'Q7',
-          notes: ['Only shown to Verizon customers', 'ASK IF CUSTOMER_TYPE=VERIZON CUSTOMER']
+          defaultNextQuestion: 'Q8',
+          notes: [
+            'Only shown to Verizon customers - ASK IF CUSTOMER_TYPE=VERIZON',
+            '✅ ROUTING LOGIC EXAMPLE: Routes to Q7 if selected services, Q8 if not',
+            'Demonstrates BOTH source routing (this question) AND target show conditions (Q7/Q8)'
+          ]
         },
         {
           id: 'Q7',
@@ -554,6 +588,81 @@ export const sampleSurvey: Survey = {
             'Uses [INSERT S11] pattern (no LABEL keyword)',
             'Pipes in numeric response from S11 question',
             'Shows raw value, not option label'
+          ]
+        },
+        {
+          id: 'Q8e',
+          type: 'single_choice',
+          text: 'Which type of technology assessment are you most interested in?',
+          required: true,
+          options: [
+            { id: 1, label: 'Software and cloud services assessment', value: 'software' },
+            { id: 2, label: 'Hardware and infrastructure assessment', value: 'hardware' }
+          ],
+          defaultNextQuestion: 'Q8f',
+          notes: [
+            '✅ BRANCHING/ROUTING EXAMPLE: This question branches to different follow-ups',
+            'If user selects "Software" (software) → shows Q8f',
+            'If user selects "Hardware" (hardware) → shows Q8g',
+            'Demonstrates conditional routing based on option selection',
+            'Both Q8f and Q8g eventually route to Q9'
+          ]
+        },
+        {
+          id: 'Q8f',
+          type: 'text',
+          text: 'What specific software or cloud services would you like to assess?',
+          required: true,
+          logic: [
+            {
+              action: 'show',
+              when: {
+                operator: 'eq',
+                left: 'Q8e',
+                right: 'software'
+              }
+            }
+          ],
+          defaultNextQuestion: 'Q9',
+          metadata: {
+            inputType: 'textarea',
+            maxLength: 500,
+            placeholder: 'Describe the software/cloud services you want to evaluate...'
+          },
+          notes: [
+            '✅ CONDITIONAL DISPLAY EXAMPLE: Only shown if Q8e = "software"',
+            'Uses logic.action = "show" with operator "eq"',
+            'If condition is false, this question is skipped automatically',
+            'Routes to Q9 after completion'
+          ]
+        },
+        {
+          id: 'Q8g',
+          type: 'text',
+          text: 'What specific hardware or infrastructure would you like to assess?',
+          required: true,
+          logic: [
+            {
+              action: 'show',
+              when: {
+                operator: 'eq',
+                left: 'Q8e',
+                right: 'hardware'
+              }
+            }
+          ],
+          defaultNextQuestion: 'Q9',
+          metadata: {
+            inputType: 'textarea',
+            maxLength: 500,
+            placeholder: 'Describe the hardware/infrastructure you want to evaluate...'
+          },
+          notes: [
+            '✅ CONDITIONAL DISPLAY EXAMPLE: Only shown if Q8e = "hardware"',
+            'Uses logic.action = "show" with operator "eq"',
+            'If condition is false, this question is skipped automatically',
+            'Routes to Q9 after completion',
+            'Together with Q8f, demonstrates A/B branching pattern'
           ]
         },
         {
