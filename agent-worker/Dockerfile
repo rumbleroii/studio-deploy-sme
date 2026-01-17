@@ -20,8 +20,6 @@ RUN npx --yes oh-my-opencode install --no-tui --claude=yes --chatgpt=no --gemini
 RUN mkdir -p /root/.config/opencode && \
     echo '{"plugin": ["oh-my-opencode"]}' > /root/.config/opencode/opencode.json
 
-RUN npx playwright install --with-deps chromium
-
 # Install Vercel CLI globally
 RUN npm install -g vercel && vercel --version
 

@@ -6,9 +6,11 @@
 		"node": ">=20.9.0"
 	},
 	"scripts": {
-		"dev": "wrangler dev --config wrangler.jsonc",
-		"deploy": "wrangler deploy --config wrangler.jsonc",
-		"tail": "wrangler tail --config wrangler.jsonc"
+		"dev": "wrangler dev --config wrangler.dev.jsonc",
+		"deploy": "wrangler deploy --config wrangler.dev.jsonc",
+		"deploy:prod": "wrangler deploy --config wrangler.jsonc",
+		"tail": "wrangler tail --config wrangler.dev.jsonc",
+		"tail:prod": "wrangler tail --config wrangler.jsonc"
 	},
 	"dependencies": {
 		"@cloudflare/sandbox": "^0.6.7"

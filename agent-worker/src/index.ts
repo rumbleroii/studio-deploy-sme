@@ -18,6 +18,8 @@ interface Env {
 	AWS_SECRET_ACCESS_KEY: string;
 	R2_ENDPOINT: string;
 	R2_BUCKET_NAME: string;
+	PREVIEW_DOMAIN: string;
+	SANDBOX_SUFFIX?: string;
 }
 
 interface ChatRequestBody {
@@ -76,7 +78,6 @@ interface SSEEvent {
 type SandboxInstance = ReturnType<typeof getSandbox>;
 
 const PREVIEW_PORT = 3001;
-const CUSTOM_DOMAIN = "metaforms-sandbox.com";
 
 /**
  * Validate and resolve a relative path to an absolute path under workingDir.
@@ -620,20 +621,20 @@ async function startDevServer(sandbox: SandboxInstance, appDir: string, projectI
 	throw new Error("Server startup failed after 60s");
 }
 
-async function getPreviewUrl(sandbox: SandboxInstance): Promise<string | undefined> {
+async function getPreviewUrl(sandbox: SandboxInstance, previewDomain: string): Promise<string | undefined> {
 	try {
-		const ports = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
+		const ports = await sandbox.getExposedPorts(previewDomain);
 		const existing = ports.find((p) => p.port === PREVIEW_PORT);
 		if (existing) return existing.url;
-		return (await sandbox.exposePort(PREVIEW_PORT, { hostname: CUSTOM_DOMAIN })).url;
+		return (await sandbox.exposePort(PREVIEW_PORT, { hostname: previewDomain })).url;
 	} catch {
 		return undefined;
 	}
 }
 
-async function getPreviewUrlCached(sandbox: SandboxInstance): Promise<string | undefined> {
+async function getPreviewUrlCached(sandbox: SandboxInstance, previewDomain: string): Promise<string | undefined> {
 	try {
-		const ports = await sandbox.getExposedPorts(CUSTOM_DOMAIN);
+		const ports = await sandbox.getExposedPorts(previewDomain);
 		const existing = ports.find((p) => p.port === PREVIEW_PORT);
 		return existing?.url;
 	} catch {
@@ -676,7 +677,7 @@ async function handleEnsure(
 			const [devServerHealthy, opencodeHealthy, cachedPreviewUrl] = await Promise.all([
 				isDevServerHealthy(sandbox),
 				isOpencodeHealthy(sandbox),
-				getPreviewUrlCached(sandbox)
+				getPreviewUrlCached(sandbox, env.PREVIEW_DOMAIN)
 			]);
 
 			// If everything is running, return immediately (fast path ~50-100ms)
@@ -704,7 +705,7 @@ async function handleEnsure(
 			await Promise.all(startPromises);
 
 			// Get preview URL (expose if needed)
-			const previewUrl = cachedPreviewUrl || await getPreviewUrl(sandbox);
+			const previewUrl = cachedPreviewUrl || await getPreviewUrl(sandbox, env.PREVIEW_DOMAIN);
 
 			// Check if we need to init storage (rare case: warm container without R2 backup)
 			ctx.waitUntil((async () => {
@@ -765,7 +766,7 @@ async function handleEnsure(
 		// Step 3: Start services in parallel (biggest win for cold start)
 		console.log(`[${projectId}] Starting services in parallel...`);
 		const [previewUrl] = await Promise.all([
-			getPreviewUrl(sandbox),
+			getPreviewUrl(sandbox, env.PREVIEW_DOMAIN),
 			startDevServer(sandbox, appDir, projectId),
 			ensureOpencodeServer(sandbox, appDir, env.ANTHROPIC_API_KEY)
 		]);

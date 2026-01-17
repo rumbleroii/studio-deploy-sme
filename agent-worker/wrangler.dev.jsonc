@@ -1,5 +1,5 @@
 {
-	"name": "studio-agent-worker",
+	"name": "studio-dev-worker",
 	"main": "src/index.ts",
 	"compatibility_date": "2024-12-01",
 	"account_id": "573d1b2ea922ae79ad5277bfa9df4aa7",
@@ -7,14 +7,8 @@
 	"vars": {
 		"PREVIEW_DOMAIN": "metaforms-sandbox.com",
 		"R2_ENDPOINT": "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com",
-		"R2_BUCKET_NAME": "studio-bucket"
+		"R2_BUCKET_NAME": "studio-dev-bucket"
 	},
-	"routes": [
-		{
-			"pattern": "*.metaforms-sandbox.com/*",
-			"zone_name": "metaforms-sandbox.com"
-		}
-	],
 	"durable_objects": {
 		"bindings": [
 			{
@@ -26,7 +20,7 @@
 	"r2_buckets": [
 		{
 			"binding": "DATA_BUCKET",
-			"bucket_name": "studio-bucket"
+			"bucket_name": "studio-dev-bucket"
 		}
 	],
 	"migrations": [
