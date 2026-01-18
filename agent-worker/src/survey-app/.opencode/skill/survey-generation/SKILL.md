@@ -1073,6 +1073,61 @@ When questionnaire specifies "rate the items you selected" or "for each [item] f
 
 **See**: `data/sample-survey.ts` Q11 for complete working example
 
+**CRITICAL - Matrix Reference Notation:**
+
+When generating logic that references matrix sub-questions, **ALWAYS use dot notation**:
+
+```typescript
+// ✓ CORRECT - dot notation
+left: 'S19.pacifico'
+
+// ✗ WRONG - underscore notation
+left: 'S19_pacifico'
+```
+
+**Examples in termination logic:**
+```typescript
+logic: [{
+  action: 'terminate',
+  when: {
+    operator: 'neq',
+    left: 'S19.pacifico',  // DOT notation
+    right: 'drank_past_month'
+  }
+}]
+```
+
+**Examples in show conditions:**
+```typescript
+showCondition: "S20.corona === 'frequently' || S20.pacifico === 'frequently'"
+```
+
+**Detection pattern when parsing questionnaires:**
+- "IF S19_Pacifico = ..." → Convert to `S19.pacifico`
+- "SHOW IF S20_Corona ≠ ..." → Convert to `S20.corona`
+
+**Parser rule:**
+```typescript
+if (questionType === 'matrix' && logicExpression.includes('_')) {
+  // Convert: QuestionID_RowID → QuestionID.rowId
+  const [qId, rowId] = reference.split('_');
+  const correctedRef = `${qId}.${rowId.toLowerCase()}`;
+}
+```
+
+**Why dot notation:**
+Matrix responses are stored as nested objects:
+```typescript
+responses['S19'] = {
+  'pacifico': 'drank_past_month',
+  'corona': 'never_heard'
+}
+```
+
+The logic evaluator uses dot notation to access: `responses['S19']['pacifico']`
+
+**See**: `../shared/survey-logic-spec.md` Section 5.4 for complete documentation
+
 **CRITICAL - Sum-to-100% Validation:**
 
 When questionnaire specifies "MUST SUM TO 100%", use `sumValidation`:

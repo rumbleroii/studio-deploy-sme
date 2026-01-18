@@ -6,11 +6,14 @@ import { useSurvey } from '../lib/survey-context';
 import { applyPiping } from '../lib/logic-evaluator';
 import { filterOptions } from '../lib/masking';
 import { applyOptionOrdering } from '../lib/ordering';
+import { LoopState, getEffectiveQuestionId } from '../lib/loop-utils';
 
 interface RankingRendererProps {
   question: Question;
   allQuestions?: Question[];
   isFirstVisit?: boolean;
+  loopState?: LoopState | null;
+  currentLoopItem?: string | null;
 }
 
 type RankingValue = Record<string | number, number | null>;
@@ -18,13 +21,25 @@ type RankingValue = Record<string | number, number | null>;
 export const RankingRenderer: React.FC<RankingRendererProps> = ({
   question,
   allQuestions,
-  isFirstVisit
+  isFirstVisit,
+  loopState,
+  currentLoopItem
 }) => {
-  const { responses, setResponse } = useSurvey();
+  const { responses, setResponse, respondentMetadata } = useSurvey();
   const [rankings, setRankings] = useState<RankingValue>({});
   const [error, setError] = useState<string>('');
+  const [pendingInputs, setPendingInputs] = useState<Record<string, string>>({});
 
-  const questionText = applyPiping(question.text, responses, allQuestions);
+  // Compute effective question ID for loop questions
+  const effectiveQuestionId = getEffectiveQuestionId(question.id, loopState ?? null, currentLoopItem ?? null);
+
+  // Build loop context for piping
+  const loopContext = loopState && currentLoopItem ? {
+    currentItem: currentLoopItem,
+    sourceQuestionId: loopState.sourceQuestionId
+  } : undefined;
+
+  const questionText = applyPiping(question.text, responses, allQuestions, loopContext, respondentMetadata);
   const metadata = question.metadata || {};
   const minRank = metadata.minRank;
   const maxRank = metadata.maxRank;
@@ -46,11 +61,15 @@ export const RankingRenderer: React.FC<RankingRendererProps> = ({
   }, [question.options, metadata, responses]);
 
   useEffect(() => {
-    const storedValue = responses[question.id];
+    const storedValue = responses[effectiveQuestionId];
     if (storedValue && typeof storedValue === 'object' && !isFirstVisit) {
       setRankings(storedValue);
+    } else {
+      // Reset state for new loop iterations or first visits
+      setRankings({});
+      setPendingInputs({});
     }
-  }, [question.id, responses, isFirstVisit]);
+  }, [effectiveQuestionId, responses, isFirstVisit]);
 
   const handleRankChange = (optionValue: string | number, rank: number | null) => {
     const newRankings = { ...rankings };
@@ -77,7 +96,7 @@ export const RankingRenderer: React.FC<RankingRendererProps> = ({
 
     newRankings[optionValue] = rank;
     setRankings(newRankings);
-    setResponse(question.id, newRankings);
+    setResponse(effectiveQuestionId, newRankings);
     setError('');
   };
 
@@ -116,13 +135,25 @@ export const RankingRenderer: React.FC<RankingRendererProps> = ({
             <div className="flex-shrink-0 w-20 mr-4">
               {uiMode === 'number_input' ? (
                 <input
-                  type="number"
-                  min={1}
-                  max={exactRank || maxRank || filteredOptions.length}
-                  value={rankings[option.value] || ''}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={pendingInputs[String(option.value)] ?? (rankings[option.value] || '')}
                   onChange={(e) => {
-                    const val = e.target.value === '' ? null : parseInt(e.target.value, 10);
-                    handleRankChange(option.value, val);
+                    // Allow typing without immediate validation (deferred validation pattern)
+                    setPendingInputs(prev => ({ ...prev, [String(option.value)]: e.target.value }));
+                    setError('');
+                  }}
+                  onBlur={() => {
+                    // Validate and commit on blur
+                    const inputValue = pendingInputs[String(option.value)];
+                    const rank = inputValue === '' || inputValue === undefined ? null : parseInt(inputValue, 10);
+                    setPendingInputs(prev => {
+                      const next = { ...prev };
+                      delete next[String(option.value)];
+                      return next;
+                    });
+                    handleRankChange(option.value, rank);
                   }}
                   className="w-full px-2 py-1 border-2 border-gray-300 rounded text-center"
                   placeholder="#"

@@ -5,11 +5,14 @@ import { Question, Option, MatrixRow } from '../types/survey';
 import { useSurvey } from '../lib/survey-context';
 import { applyPiping } from '../lib/logic-evaluator';
 import { filterMatrixRows, filterOptions } from '../lib/masking';
+import { LoopState, getEffectiveQuestionId } from '../lib/loop-utils';
 
 interface MultiGridRendererProps {
   question: Question;
   allQuestions?: Question[];
   isFirstVisit?: boolean;
+  loopState?: LoopState | null;
+  currentLoopItem?: string | null;
 }
 
 type GridValue = Record<string, Record<string | number, boolean>>;
@@ -17,14 +20,25 @@ type GridValue = Record<string, Record<string | number, boolean>>;
 export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
   question,
   allQuestions,
-  isFirstVisit
+  isFirstVisit,
+  loopState,
+  currentLoopItem
 }) => {
-  const { responses, setResponse } = useSurvey();
+  const { responses, setResponse, respondentMetadata } = useSurvey();
   const [gridValue, setGridValue] = useState<GridValue>({});
   const [otherTextValues, setOtherTextValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string>('');
 
-  const questionText = applyPiping(question.text, responses, allQuestions);
+  // Compute effective question ID for loop questions
+  const effectiveQuestionId = getEffectiveQuestionId(question.id, loopState ?? null, currentLoopItem ?? null);
+
+  // Build loop context for piping
+  const loopContext = loopState && currentLoopItem ? {
+    currentItem: currentLoopItem,
+    sourceQuestionId: loopState.sourceQuestionId
+  } : undefined;
+
+  const questionText = applyPiping(question.text, responses, allQuestions, loopContext, respondentMetadata);
   const metadata = question.metadata || {};
   const selectionMode = metadata.selectionMode || 'single';
   const columnExclusiveOptions = new Set(metadata.columnExclusiveOptions || []);
@@ -38,18 +52,22 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
   const filteredColumns = filterOptions(question.matrixColumns || [], responses);
 
   useEffect(() => {
-    const storedValue = responses[question.id];
+    const storedValue = responses[effectiveQuestionId];
     if (storedValue && typeof storedValue === 'object' && !isFirstVisit) {
       setGridValue(storedValue);
+    } else {
+      // Reset state for new loop iterations or first visits
+      setGridValue({});
+      setOtherTextValues({});
     }
-    
+
     rowOtherSpecify.forEach((spec: { rowId: string }) => {
-      const otherKey = `${question.id}_other_${spec.rowId}`;
+      const otherKey = `${effectiveQuestionId}_other_${spec.rowId}`;
       if (responses[otherKey]) {
         setOtherTextValues(prev => ({ ...prev, [spec.rowId]: responses[otherKey] }));
       }
     });
-  }, [question.id, responses, isFirstVisit]);
+  }, [effectiveQuestionId, responses, isFirstVisit]);
 
   const isRowHasSelection = (rowId: string): boolean => {
     const rowVal = gridValue[rowId];
@@ -128,7 +146,7 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
     }
 
     setGridValue(newValue);
-    setResponse(question.id, newValue);
+    setResponse(effectiveQuestionId, newValue);
     setError('');
 
     if (metadata.cellTerminations) {
@@ -136,14 +154,14 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
         (t: { rowId: string; columnId: string | number }) => t.rowId === rowId && t.columnId === colId
       );
       if (termination && checked) {
-        setResponse(`${question.id}_terminate`, termination.destination || 'TERMINATE');
+        setResponse(`${effectiveQuestionId}_terminate`, termination.destination || 'TERMINATE');
       }
     }
   };
 
   const handleOtherTextChange = (rowId: string, text: string) => {
     setOtherTextValues(prev => ({ ...prev, [rowId]: text }));
-    setResponse(`${question.id}_other_${rowId}`, text);
+    setResponse(`${effectiveQuestionId}_other_${rowId}`, text);
   };
 
   const isCellSelected = (rowId: string, colId: string | number): boolean => {

@@ -566,6 +566,69 @@ Before marking matrix generation as complete, verify:
 - [ ] Validation notes present
 - [ ] All metadata badges correctly styled
 
+---
+
+## Referencing Matrix Responses in Logic
+
+Matrix responses are stored as nested objects:
+
+```typescript
+responses['Q5'] = {
+  'row1': 'col_a',
+  'row2': 'col_b'
+}
+```
+
+### In Termination/Skip Logic
+
+Use **dot notation** to reference specific rows:
+
+```typescript
+{
+  action: 'terminate',
+  when: {
+    operator: 'eq',
+    left: 'Q5.row1',    // DOT notation - NOT 'Q5_row1'
+    right: 'col_a'
+  }
+}
+```
+
+### In Show/Hide Conditions
+
+```typescript
+showCondition: "Q5.row1 === 'col_a' && Q5.row2 !== 'col_b'"
+```
+
+### As Loop Source
+
+Matrix questions can be loop sources. Loop iterates through answered row IDs:
+
+```typescript
+{
+  metadata: {
+    loopSourceQuestion: 'Q5'  // Loops through answered rows (row1, row2, ...)
+  }
+}
+```
+
+### As Dynamic Row Source
+
+Generate matrix rows from another matrix's answered rows:
+
+```typescript
+{
+  metadata: {
+    pipeRowsFrom: {
+      sourceQuestionId: 'Q5',
+      generateFrom: 'answered_rows'  // Creates rows from Q5's answered rows
+    }
+  }
+}
+```
+
+---
+
 ### Responsiveness
 - [ ] Table scrolls horizontally on mobile
 - [ ] Touch targets minimum 44x44px

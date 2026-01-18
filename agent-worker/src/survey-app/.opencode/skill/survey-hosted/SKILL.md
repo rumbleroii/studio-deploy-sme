@@ -303,6 +303,64 @@ When a question has `metadata.loopSourceQuestion`:
 6. On "Next", advance to next loop item or exit loop
 7. Progress indicator should reflect loop iterations
 
+**CRITICAL Implementation Requirements:**
+
+**Navigation in `app/survey/question/page.tsx`:**
+```typescript
+// MUST use getNextQuestionWithLoopSupport() instead of getNextQuestionId()
+const navResult = getNextQuestionWithLoopSupport(
+  currentQuestion,
+  responses,
+  allQuestions,
+  loopState
+);
+
+// Handle loop actions
+if (navResult.loopAction === 'start' || navResult.loopAction === 'continue') {
+  setLoopState({
+    sourceQuestionId: navResult.loopSourceId!,
+    currentIndex: navResult.nextLoopIndex!,
+    items: navResult.loopItems!
+  });
+}
+
+if (navResult.loopAction === 'end') {
+  setLoopState(null);
+}
+```
+
+**Component Props - ALL components must accept loop context:**
+```typescript
+interface ComponentProps {
+  question: Question;
+  allQuestions: Question[];
+  loopState?: LoopState | null;
+  currentLoopItem?: string | null;
+}
+```
+
+**Response Storage - use effective question ID:**
+```typescript
+const effectiveQuestionId = loopState && currentLoopItem
+  ? `${question.id}_${currentLoopItem}`
+  : question.id;
+
+setResponse(effectiveQuestionId, value);
+```
+
+**Piping - pass loop context to applyPiping():**
+```typescript
+const loopContext = loopState && currentLoopItem ? {
+  currentItem: currentLoopItem,
+  sourceQuestionId: loopState.sourceQuestionId
+} : null;
+
+const text = applyPiping(question.text, responses, allQuestions, loopContext);
+```
+
+**Matrix Sources:**
+Loops also work with matrix sources. When the source is a matrix, loop items are the answered row IDs (not the response values).
+
 ### Step 5: Apply Theme Consistency
 
 **CRITICAL:** Use the **exact same theme** as questionnaire view.
