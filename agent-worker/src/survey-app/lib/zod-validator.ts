@@ -723,6 +723,30 @@ function performSemanticValidation(survey: any): ValidationError[] {
           }
         }
       }
+
+      // Check text/textarea questions for whitespace-only validation
+      if (question.type === 'text' && question.required === true) {
+        const metadata = question.metadata || {};
+        const inputType = metadata.inputType || 'text';
+
+        // Check if rejectWhitespaceOnly is explicitly set to false or missing
+        const rejectWhitespaceOnly = metadata.rejectWhitespaceOnly;
+
+        if (rejectWhitespaceOnly === false) {
+          warnings.push({
+            path: `sections[${sectionIndex}].questions[${questionIndex}].metadata.rejectWhitespaceOnly`,
+            message: `Text question "${question.id}" has rejectWhitespaceOnly=false, which allows whitespace-only answers (e.g., "   "). This is usually unintentional. Consider setting rejectWhitespaceOnly: true or removing this field (defaults to true).`,
+            questionId: question.id
+          });
+        } else if (rejectWhitespaceOnly === undefined && (inputType === 'text' || inputType === 'textarea')) {
+          // Note: The frontend defaults to true, but warn if not explicitly set for clarity
+          warnings.push({
+            path: `sections[${sectionIndex}].questions[${questionIndex}].metadata`,
+            message: `Text question "${question.id}" does not explicitly set rejectWhitespaceOnly. While it defaults to true, consider adding "rejectWhitespaceOnly: true" to the metadata for clarity and to prevent whitespace-only answers.`,
+            questionId: question.id
+          });
+        }
+      }
     });
   });
 

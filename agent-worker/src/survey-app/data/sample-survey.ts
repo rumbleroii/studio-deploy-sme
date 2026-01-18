@@ -537,6 +537,7 @@ export const sampleSurvey: Survey = {
           metadata: {
             inputType: 'textarea',
             maxLength: 500,
+            rejectWhitespaceOnly: true,
             piping: ['Q4.COUNT']
           },
           notes: [
@@ -647,6 +648,7 @@ export const sampleSurvey: Survey = {
           metadata: {
             inputType: 'textarea',
             maxLength: 500,
+            rejectWhitespaceOnly: true,
             placeholder: 'Describe the software/cloud services you want to evaluate...'
           },
           notes: [
@@ -675,6 +677,7 @@ export const sampleSurvey: Survey = {
           metadata: {
             inputType: 'textarea',
             maxLength: 500,
+            rejectWhitespaceOnly: true,
             placeholder: 'Describe the hardware/infrastructure you want to evaluate...'
           },
           notes: [

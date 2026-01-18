@@ -1176,23 +1176,33 @@ From `survey-generation-guide.md`, verify:
 - [ ] Consistent spacing throughout
 - [ ] Exact colors from specification
 
-### Step 6: Validate Survey Schema with Zod (CRITICAL)
+### Step 6: Validate Survey Schema with Zod (CRITICAL - MANDATORY AFTER EVERY GENERATION)
 
-**IMPORTANT: Always validate generated surveys before delivery!**
+**IMPORTANT: AUTOMATICALLY validate ALL generated surveys before delivery!**
 
-After creating or modifying a survey schema, **you MUST validate it** using the Zod validator to catch:
+After creating or modifying a survey schema, **you MUST IMMEDIATELY validate it** using the Zod validator to catch:
 - Type mismatches (string vs number in showIf conditions)
 - Missing required fields
 - Invalid structures
 - Logic errors
 - "ASK IF" pattern issues
+- Empty matrix rows without dynamic piping
+- Other configuration errors
 
-**How to validate:**
+**MANDATORY VALIDATION COMMAND:**
 
 ```bash
-# Run validation test
+# Run validation test - EXECUTE THIS AUTOMATICALLY AFTER EVERY SURVEY GENERATION OR MODIFICATION
 npx tsx test-validation.ts
 ```
+
+**This step is NOT optional. You MUST:**
+1. Execute `npx tsx test-validation.ts` after creating/modifying any survey
+2. Review ALL validation output
+3. Fix ALL errors (❌) before proceeding
+4. Review ALL warnings (⚠️) and address if needed
+5. Re-run validation until it passes
+6. ONLY proceed to Step 7 (Run Automatic Validation) which will execute this command
 
 **Or add validation to your survey file:**
 
@@ -1298,17 +1308,93 @@ logic: [
 ]
 ```
 
-**Validation Checklist:**
+**Validation Checklist (MANDATORY - EXECUTE AUTOMATICALLY):**
 
-- [ ] Run `npx tsx test-validation.ts` after generating survey
-- [ ] Fix all errors (red ❌)
-- [ ] Review all warnings (yellow ⚠️)
+- [ ] ✅ **AUTOMATICALLY RUN** `npx tsx test-validation.ts` after generating/modifying survey (NOT OPTIONAL)
+- [ ] Fix all errors (red ❌) immediately
+- [ ] Review all warnings (yellow ⚠️) and address if needed
+- [ ] Re-run validation if errors were fixed
+- [ ] ONLY proceed after validation passes with zero errors
 - [ ] Test survey in browser to confirm functionality
 - [ ] Commit only after validation passes
 
-**NON-BREAKING:** Validation runs only in development mode and logs to console. It won't crash the app if errors exist, but the survey may not work as expected.
+**IMPORTANT:** While validation is NON-BREAKING (runs in dev mode, won't crash app), you MUST still run it and fix all errors before delivery. Surveys with validation errors may appear to work but will have broken conditional logic, type mismatches, or missing data.
 
-### Step 7: Start Development Server
+### Step 7: Run Automatic Validation (MANDATORY)
+
+**CRITICAL: This step executes AUTOMATICALLY after every survey generation or modification.**
+
+After creating or updating a survey schema in Step 3-5, you MUST:
+
+```bash
+# Execute validation - THIS IS MANDATORY, NOT OPTIONAL
+npx tsx test-validation.ts
+```
+
+**Expected Output:**
+
+✅ **Success (proceed to Step 8):**
+```
+================================================================================
+📋 SURVEY VALIDATION RESULTS: sample-survey
+================================================================================
+
+✅ SUCCESS: No errors found
+
+⚠️  WARNINGS (1):
+1. sections[0].questions[6]
+   Deferred conditional: Question "Q6" checks "CUSTOMER_TYPE" which may not be
+   answered yet. Ensure this is intentional (e.g., hidden variable, URL param)
+
+================================================================================
+✅ Survey is structurally valid
+================================================================================
+```
+
+❌ **Errors Found (FIX BEFORE PROCEEDING):**
+```
+================================================================================
+📋 SURVEY VALIDATION RESULTS: my-survey
+================================================================================
+
+❌ ERRORS (2):
+
+1. sections[0].questions[2].options[3].showIf.right
+   Type mismatch in showIf: source question "Q1" has number values, but
+   comparing to string. This will cause the condition to ALWAYS fail
+
+2. sections[0].questions[5].matrixRows
+   Matrix question "Q5" must have EITHER:
+   1. matrixRows array with at least one row (static rows), OR
+   2. metadata.pipeRowsFrom configuration (dynamic rows)
+   Currently has neither - matrix will have no rows to display!
+
+================================================================================
+```
+
+**Action on Errors:**
+1. Read error messages carefully
+2. Fix each error in the survey schema
+3. Re-run `npx tsx test-validation.ts`
+4. Repeat until all errors are resolved
+5. ONLY proceed to Step 8 after validation passes
+
+**Action on Warnings:**
+- Review each warning
+- Verify if behavior is intentional
+- Most warnings are informational and safe to ignore if intentional
+- Common safe warning: "Deferred conditional" for hidden variables
+
+**Communication to User:**
+
+❌ **DO NOT** say: "Running validation..." or "Validation passed"
+✅ **DO** silently execute validation
+✅ **DO** only mention if errors are found: "Found X validation errors. Fixing them now..."
+✅ **DO** proceed to Step 8 once validation passes
+
+---
+
+### Step 8: Start Development Server
 
 **IMPORTANT - Internal Implementation Details (DO NOT mention to user):**
 

@@ -98,30 +98,36 @@ Use this skill independently when the user:
 
 ## Instructions
 
-### Step 1: Verify Survey Schema is Valid (CRITICAL)
+### Step 1: Verify Survey Schema is Valid (CRITICAL - AUTO-VALIDATED)
 
-**IMPORTANT: Before implementing the hosted survey, ensure the survey schema is valid!**
+**IMPORTANT: Survey schema validation happens AUTOMATICALLY in survey-generation skill!**
 
-All surveys should be validated with Zod before being used in the hosted experience:
+By the time survey-hosted skill is triggered, the survey schema has ALREADY been validated via:
 
 ```bash
-# Validate survey schema
+# This command was AUTOMATICALLY executed by survey-generation skill
 npx tsx test-validation.ts
 ```
 
-**Why this matters:**
-- ✅ Catches type mismatches (e.g., string vs number in showIf conditions)
-- ✅ Ensures logic conditions are correctly structured
-- ✅ Validates "ASK IF" patterns have both source routing AND target show conditions
-- ✅ Prevents runtime errors in the hosted survey
+**What was automatically checked:**
+- ✅ Type mismatches (e.g., string vs number in showIf conditions)
+- ✅ Logic conditions are correctly structured
+- ✅ "ASK IF" patterns have both source routing AND target show conditions
+- ✅ Matrix questions have rows (static or dynamic)
+- ✅ All required fields present
+- ✅ No structural errors
 
-**If validation fails:**
-- Fix all errors (❌) in the survey schema
-- Review warnings (⚠️) for potential issues
-- Re-run validation until it passes
-- Only then proceed to implement the hosted survey
+**Your task in survey-hosted skill:**
+- Assume validation has ALREADY passed (survey-generation skill ensures this)
+- If you encounter unexpected behavior, you MAY re-run validation: `npx tsx test-validation.ts`
+- Focus on implementing the hosted survey runtime using the validated schema
 
-**See:** `survey-generation/SKILL.md` Step 6 for complete Zod validation documentation.
+**When to re-validate:**
+- ⚠️ Only if you modify the survey schema during hosted implementation (rare)
+- ⚠️ Only if user reports logic not working as expected
+- ✅ Otherwise, proceed directly to Step 2
+
+**See:** `survey-generation/SKILL.md` Step 7 for complete automatic validation documentation.
 
 ### Step 2: Understand the Boilerplate Structure
 
@@ -407,20 +413,9 @@ npx prisma db push
 
 ### Step 8: Verify Implementation
 
-**First, validate the survey schema:**
+**Schema validation was ALREADY completed by survey-generation skill automatically.**
 
-```bash
-# Run Zod validation
-npx tsx test-validation.ts
-```
-
-**Ensure:**
-- [ ] No validation errors (❌) exist
-- [ ] Warnings (⚠️) are reviewed and understood
-- [ ] Type mismatches are fixed (string vs number in showIf)
-- [ ] "ASK IF" patterns have both source routing and target show conditions
-
-**Then check that existing functionality works:**
+**Check that existing functionality works:**
 
 - [ ] Routes exist at `app/app/survey/*`
 - [ ] Welcome screen displays correct survey
@@ -750,12 +745,7 @@ PORT=3001 npm run dev
 
 A successful hosted survey update means:
 
-**Schema Validation:**
-- [ ] Zod validation passes (`npx tsx test-validation.ts`)
-- [ ] No validation errors (❌)
-- [ ] All warnings (⚠️) reviewed and understood
-- [ ] Type consistency verified (numbers vs strings in showIf conditions)
-- [ ] "ASK IF" patterns complete (source routing + target show conditions)
+**Note:** Schema validation was ALREADY completed automatically by survey-generation skill in Step 7. You are working with a pre-validated schema.
 
 **Hosted Survey Functionality:**
 - [ ] Existing routes at `app/app/survey/*` work correctly
@@ -787,11 +777,11 @@ A successful hosted survey update means:
 
 ### Sequential Workflow
 
-The hosted survey is typically part of a three-step process:
+The hosted survey is part of a three-step automated process:
 
-1. **survey-generation skill** updates questionnaire schema in `app/data/`
-2. **Zod validation** runs automatically to verify schema correctness
-3. **survey-hosted skill** (this skill, auto-triggered) verifies hosted routes work with validated schema
+1. **survey-generation skill** - Updates questionnaire schema in `app/data/`
+2. **Automatic Zod validation** - Runs IMMEDIATELY in survey-generation Step 7 to verify schema correctness (MANDATORY)
+3. **survey-hosted skill** (this skill, auto-triggered) - Verifies hosted routes work with the pre-validated schema
 
 ### Data Flow
 
