@@ -98,7 +98,32 @@ Use this skill independently when the user:
 
 ## Instructions
 
-### Step 1: Understand the Boilerplate Structure
+### Step 1: Verify Survey Schema is Valid (CRITICAL)
+
+**IMPORTANT: Before implementing the hosted survey, ensure the survey schema is valid!**
+
+All surveys should be validated with Zod before being used in the hosted experience:
+
+```bash
+# Validate survey schema
+npx tsx test-validation.ts
+```
+
+**Why this matters:**
+- ✅ Catches type mismatches (e.g., string vs number in showIf conditions)
+- ✅ Ensures logic conditions are correctly structured
+- ✅ Validates "ASK IF" patterns have both source routing AND target show conditions
+- ✅ Prevents runtime errors in the hosted survey
+
+**If validation fails:**
+- Fix all errors (❌) in the survey schema
+- Review warnings (⚠️) for potential issues
+- Re-run validation until it passes
+- Only then proceed to implement the hosted survey
+
+**See:** `survey-generation/SKILL.md` Step 6 for complete Zod validation documentation.
+
+### Step 2: Understand the Boilerplate Structure
 
 **ALWAYS work with existing routes in `app/app/survey/`:**
 
@@ -186,12 +211,72 @@ Verify real-time evaluation works:
 - **Hidden variables**: Computed values, URL params, random assignments (Section 6)
 - **Loop navigation**: Iterator questions that repeat for each multi-select item
 
+**CRITICAL - Value Type Preservation:**
+
+When collecting responses from form inputs (radio, checkbox, text), preserve the original value type:
+
+```typescript
+// ✅ CORRECT - Preserve original type
+onChange={() => handleChange(option.value)}  // Uses option.value directly
+
+// ❌ WRONG - Always converts to string
+onChange={(e) => handleChange(e.target.value)}  // HTML input always returns string
+```
+
+**Why this matters:**
+- Source question stores `value: 20` (number)
+- Target uses `showIf: { operator: 'eq', left: 'Q1', right: 20 }` (number)
+- If response stored as `"20"` (string), condition fails: `"20" !== 20`
+
+**See:** `components/QuestionRenderer.tsx:356` and `:529` for implementation.
+
+**CRITICAL - "ASK IF" Pattern Implementation:**
+
+When implementing routing for "ASK IF" patterns, ensure BOTH parts are handled:
+
+1. **Source routing (skip logic):** Add skip logic to source question with `destination`
+2. **Target show condition:** Add show condition to target question
+
+**Example from `data/sample-survey.ts`:**
+
+```typescript
+// Source question (Q8e) - HAS skip logic
+{
+  id: 'Q8e',
+  logic: [
+    {
+      action: 'skip',
+      when: { operator: 'eq', left: 'Q8e', right: 'software' },
+      destination: 'Q8f'  // ✅ Explicit routing
+    }
+  ],
+  defaultNextQuestion: 'Q9'  // Fallback
+}
+
+// Target question (Q8f) - HAS show condition
+{
+  id: 'Q8f',
+  logic: [
+    {
+      action: 'show',
+      when: { operator: 'eq', left: 'Q8e', right: 'software' }  // ✅ Show condition
+    }
+  ]
+}
+```
+
+**Working examples in `data/sample-survey.ts`:**
+- Q8e-Q8g: A/B branching with both source routing and target show conditions
+- Q6→Q7/Q8: Complete "ASK IF" pattern implementation
+- S1: Termination logic example
+
 **See `../shared/survey-logic-spec.md` for complete implementation details on:**
 
 - All piping patterns (raw values, labels, counts, aggregates)
 - Hidden variable types (url_param, computed, derived, timestamp, random)
 - Runtime computation and formula evaluation
 - Integration with show/hide conditions and navigation
+- Complete routing and branching patterns
 
 **See `../shared/advanced-features-spec.md` for advanced features:**
 
@@ -322,7 +407,20 @@ npx prisma db push
 
 ### Step 8: Verify Implementation
 
-Check that existing functionality works:
+**First, validate the survey schema:**
+
+```bash
+# Run Zod validation
+npx tsx test-validation.ts
+```
+
+**Ensure:**
+- [ ] No validation errors (❌) exist
+- [ ] Warnings (⚠️) are reviewed and understood
+- [ ] Type mismatches are fixed (string vs number in showIf)
+- [ ] "ASK IF" patterns have both source routing and target show conditions
+
+**Then check that existing functionality works:**
 
 - [ ] Routes exist at `app/app/survey/*`
 - [ ] Welcome screen displays correct survey
@@ -331,6 +429,9 @@ Check that existing functionality works:
 - [ ] Navigation logic working (Previous/Next)
 - [ ] Progress tracking accurate
 - [ ] Logic evaluation works with updated schema
+- [ ] Conditional routing works correctly (Q8e→Q8f/Q8g pattern)
+- [ ] Value types preserved (numbers stay numbers, strings stay strings)
+- [ ] showIf conditions evaluate correctly
 - [ ] Validation working
 - [ ] Auto-save functional
 - [ ] Theme consistent with questionnaire view
@@ -649,17 +750,28 @@ PORT=3001 npm run dev
 
 A successful hosted survey update means:
 
-- Existing routes at `app/app/survey/*` work correctly
-- Respondents can complete survey start to finish
-- Navigation works with updated schema (Previous/Next)
-- Logic evaluates properly with new questions/conditions
-- Responses are saved reliably
-- Validation works correctly
-- Theme consistency maintained
-- Mobile friendly
-- Accessible (keyboard + screen reader)
-- Fast page transitions
-- No data loss on refresh
+**Schema Validation:**
+- [ ] Zod validation passes (`npx tsx test-validation.ts`)
+- [ ] No validation errors (❌)
+- [ ] All warnings (⚠️) reviewed and understood
+- [ ] Type consistency verified (numbers vs strings in showIf conditions)
+- [ ] "ASK IF" patterns complete (source routing + target show conditions)
+
+**Hosted Survey Functionality:**
+- [ ] Existing routes at `app/app/survey/*` work correctly
+- [ ] Respondents can complete survey start to finish
+- [ ] Navigation works with updated schema (Previous/Next)
+- [ ] Logic evaluates properly with new questions/conditions
+- [ ] Conditional routing works (branching patterns like Q8e→Q8f/Q8g)
+- [ ] Value types preserved correctly (no string/number conversion)
+- [ ] showIf conditions evaluate as expected
+- [ ] Responses are saved reliably
+- [ ] Validation works correctly
+- [ ] Theme consistency maintained
+- [ ] Mobile friendly
+- [ ] Accessible (keyboard + screen reader)
+- [ ] Fast page transitions
+- [ ] No data loss on refresh
 
 **Production Mode Additional Success Criteria:**
 
@@ -675,10 +787,11 @@ A successful hosted survey update means:
 
 ### Sequential Workflow
 
-The hosted survey is typically part of a two-step process:
+The hosted survey is typically part of a three-step process:
 
 1. **survey-generation skill** updates questionnaire schema in `app/data/`
-2. **survey-hosted skill** (this skill, auto-triggered) verifies hosted routes work with updated schema
+2. **Zod validation** runs automatically to verify schema correctness
+3. **survey-hosted skill** (this skill, auto-triggered) verifies hosted routes work with validated schema
 
 ### Data Flow
 

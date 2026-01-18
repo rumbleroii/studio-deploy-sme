@@ -244,6 +244,14 @@ When user uploads a questionnaire:
 - **See working examples**: `data/sample-survey.ts` - Q4
 - **See**: `complete-generation-checklist.md` Section "Multiple Choice with Exclusive Options" for full details
 
+**CRITICAL - Zod Schema Validation (Always Run After Generation):**
+
+- **ALWAYS validate** generated surveys using Zod: `npx tsx test-validation.ts`
+- **Catches errors BEFORE they cause problems**: Type mismatches, missing fields, invalid logic, "ASK IF" pattern issues
+- **See Step 6 below** for complete validation guide
+- **NON-BREAKING**: Runs in dev mode only, logs warnings/errors
+- **Fix all errors (❌)** before delivery, review warnings (⚠️)
+
 **CRITICAL - Conditional Routing & Branching (Show/Hide/Skip/Terminate):**
 
 - **Identify routing** in questionnaires: "IF answer is X, show Question A", "Only for developers", "Skip to Q20", "Terminate survey"
@@ -907,6 +915,108 @@ See `data/sample-survey.ts` Q6 → Q7/Q8 for complete "ASK IF" implementation:
 - S1: Termination logic example
 
 
+**CRITICAL - Matrix Questions MUST Have Rows:**
+
+**COMMON ERROR:** Generating matrix questions with only column headers and no rows!
+
+Every matrix question MUST have rows defined using ONE of these methods:
+
+**Method 1: Static Rows (Most Common)**
+```typescript
+{
+  type: 'matrix',
+  matrixRows: [
+    { id: 'row1', label: 'Brand A' },
+    { id: 'row2', label: 'Brand B' },
+    { id: 'row3', label: 'Brand C' }
+  ],
+  matrixColumns: [
+    { id: 1, label: 'Very Satisfied', value: 'very_satisfied' },
+    { id: 2, label: 'Satisfied', value: 'satisfied' }
+  ]
+}
+```
+
+**Method 2: Dynamic Rows (Advanced - from previous question)**
+```typescript
+{
+  type: 'matrix',
+  matrixRows: [], // ⚠️ Empty for dynamic generation
+  matrixColumns: [/* columns */],
+  metadata: {
+    pipeRowsFrom: {
+      sourceQuestionId: 'Q10',
+      generateFrom: 'selected_options'
+    }
+  }
+}
+```
+
+**Validation Errors:**
+
+❌ **ERROR:** `matrixRows: []` with NO `pipeRowsFrom`
+```typescript
+// WRONG - No rows defined!
+{
+  type: 'matrix',
+  matrixRows: [], // Empty
+  matrixColumns: [/* columns */]
+  // No pipeRowsFrom - matrix will be empty!
+}
+```
+
+❌ **ERROR:** Both static rows AND `pipeRowsFrom`
+```typescript
+// WRONG - Conflicting configuration!
+{
+  type: 'matrix',
+  matrixRows: [{ id: 'row1', label: 'Brand A' }], // Has static rows
+  matrixColumns: [/* columns */],
+  metadata: {
+    pipeRowsFrom: { sourceQuestionId: 'Q10' } // Also has dynamic rows!
+  }
+}
+```
+
+**✅ Zod validator will catch these errors automatically**
+
+**Detection in Questionnaires:**
+
+When you see a matrix/grid in the questionnaire:
+1. **Identify the rows** (left column items to rate/evaluate)
+2. **Identify the columns** (rating scale/response options)
+3. **Always define rows** - don't leave matrixRows empty unless using dynamic piping
+
+**Example from questionnaire:**
+```
+Q5. Please rate each brand:
+       | Very Satisfied | Satisfied | Neutral | Dissatisfied |
+Brand A |       O       |     O     |    O    |      O       |
+Brand B |       O       |     O     |    O    |      O       |
+Brand C |       O       |     O     |    O    |      O       |
+```
+
+**Schema:**
+```typescript
+{
+  id: 'Q5',
+  type: 'matrix',
+  matrixRows: [
+    { id: 'brand_a', label: 'Brand A' },  // ← Left column
+    { id: 'brand_b', label: 'Brand B' },
+    { id: 'brand_c', label: 'Brand C' }
+  ],
+  matrixColumns: [  // ← Top row (rating scale)
+    { id: 1, label: 'Very Satisfied', value: 'very_satisfied' },
+    { id: 2, label: 'Satisfied', value: 'satisfied' },
+    { id: 3, label: 'Neutral', value: 'neutral' },
+    { id: 4, label: 'Dissatisfied', value: 'dissatisfied' }
+  ]
+}
+```
+
+**See:** `../shared/matrix-question-guide.md` for complete matrix documentation
+
 **CRITICAL - Dynamic Matrix Row Piping:**
 
 When questionnaire specifies "rate the items you selected" or "for each [item] from Q[X]", use `pipeRowsFrom` in matrix questions:
@@ -1066,7 +1176,139 @@ From `survey-generation-guide.md`, verify:
 - [ ] Consistent spacing throughout
 - [ ] Exact colors from specification
 
-### Step 6: Start Development Server
+### Step 6: Validate Survey Schema with Zod (CRITICAL)
+
+**IMPORTANT: Always validate generated surveys before delivery!**
+
+After creating or modifying a survey schema, **you MUST validate it** using the Zod validator to catch:
+- Type mismatches (string vs number in showIf conditions)
+- Missing required fields
+- Invalid structures
+- Logic errors
+- "ASK IF" pattern issues
+
+**How to validate:**
+
+```bash
+# Run validation test
+npx tsx test-validation.ts
+```
+
+**Or add validation to your survey file:**
+
+```typescript
+// At the end of your survey file (e.g., data/my-survey.ts)
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  import('../lib/zod-validator').then(({ validateSurvey, formatValidationResults }) => {
+    const result = validateSurvey(mySurvey);
+    if (!result.success || result.warnings.length > 0) {
+      console.log(formatValidationResults(result, mySurvey.id));
+    }
+  });
+}
+```
+
+**What the validator catches:**
+
+1. **Type Mismatches** (Most Common Error):
+   ```typescript
+   // ❌ WRONG - Will be caught
+   {
+     id: 'Q1',
+     options: [{ id: 1, value: 20 }] // Number
+   }
+   {
+     id: 'Q2',
+     options: [{
+       showIf: { operator: 'eq', left: 'Q1', right: '20' } // String ≠ Number
+     }]
+   }
+   ```
+
+2. **Missing Required Fields**:
+   - Questions without `id`, `type`, `text`, or `required`
+   - Options without `id`, `label`, or `value`
+   - Matrix questions without rows or columns
+
+3. **Invalid Metadata**:
+   - `hasOtherOption: true` but missing `otherOptionId`
+   - `otherOptionId` doesn't exist in options array
+   - `exclusiveOptions` referencing non-existent option IDs
+
+4. **Logic Errors**:
+   - Compound operators (`and`/`or`) without `conditions` array
+   - Simple operators without `left` or `right` fields
+   - Invalid operator names
+
+5. **"ASK IF" Pattern Issues**:
+   - Target has show condition but source lacks skip logic
+   - Warns when routing may be unreliable
+
+**Validation Output Example:**
+
+```
+================================================================================
+📋 SURVEY VALIDATION RESULTS: my-survey
+================================================================================
+
+❌ ERRORS (2):
+
+1. sections[0].questions[2].options[3].showIf.right
+   Type mismatch in showIf: source question "Q1" has number values, but
+   comparing to string. This will cause the condition to ALWAYS fail
+
+2. sections[0].questions[5].metadata.otherOptionId
+   otherOptionId "99" not found in options array
+
+⚠️  WARNINGS (1):
+
+1. sections[0].questions[7].logic
+   "ASK IF" pattern incomplete: Question "Q7" has show condition based on "Q6",
+   but "Q6" lacks skip logic to route to "Q7"
+
+================================================================================
+```
+
+**Response to Validation:**
+
+- **ERRORS:** MUST be fixed before delivery. Survey won't work correctly.
+- **WARNINGS:** Should be reviewed. May indicate issues but won't break functionality.
+
+**Common Fixes:**
+
+```typescript
+// Fix type mismatch
+// Before: showIf: { operator: 'eq', left: 'Q1', right: '20' }
+// After:  showIf: { operator: 'eq', left: 'Q1', right: 20 }
+
+// Fix missing otherOptionId
+metadata: {
+  hasOtherOption: true,
+  otherOptionId: 99  // Must match an option ID
+}
+
+// Fix "ASK IF" pattern
+// Add skip logic to source question:
+logic: [
+  {
+    action: 'skip',
+    when: { operator: 'eq', left: 'Q6', right: 'yes' },
+    destination: 'Q7'
+  }
+]
+```
+
+**Validation Checklist:**
+
+- [ ] Run `npx tsx test-validation.ts` after generating survey
+- [ ] Fix all errors (red ❌)
+- [ ] Review all warnings (yellow ⚠️)
+- [ ] Test survey in browser to confirm functionality
+- [ ] Commit only after validation passes
+
+**NON-BREAKING:** Validation runs only in development mode and logs to console. It won't crash the app if errors exist, but the survey may not work as expected.
+
+### Step 7: Start Development Server
 
 **IMPORTANT - Internal Implementation Details (DO NOT mention to user):**
 
