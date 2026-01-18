@@ -244,6 +244,14 @@ When user uploads a questionnaire:
 - **See working examples**: `data/sample-survey.ts` - Q4
 - **See**: `complete-generation-checklist.md` Section "Multiple Choice with Exclusive Options" for full details
 
+**CRITICAL - Zod Schema Validation (Always Run After Generation):**
+
+- **ALWAYS validate** generated surveys using Zod: `npx tsx test-validation.ts`
+- **Catches errors BEFORE they cause problems**: Type mismatches, missing fields, invalid logic, "ASK IF" pattern issues
+- **See Step 6 below** for complete validation guide
+- **NON-BREAKING**: Runs in dev mode only, logs warnings/errors
+- **Fix all errors (❌)** before delivery, review warnings (⚠️)
+
 **CRITICAL - Conditional Routing & Branching (Show/Hide/Skip/Terminate):**
 
 - **Identify routing** in questionnaires: "IF answer is X, show Question A", "Only for developers", "Skip to Q20", "Terminate survey"
@@ -907,6 +915,108 @@ See `data/sample-survey.ts` Q6 → Q7/Q8 for complete "ASK IF" implementation:
 - S1: Termination logic example
 
 
+**CRITICAL - Matrix Questions MUST Have Rows:**
+
+**COMMON ERROR:** Generating matrix questions with only column headers and no rows!
+
+Every matrix question MUST have rows defined using ONE of these methods:
+
+**Method 1: Static Rows (Most Common)**
+```typescript
+{
+  type: 'matrix',
+  matrixRows: [
+    { id: 'row1', label: 'Brand A' },
+    { id: 'row2', label: 'Brand B' },
+    { id: 'row3', label: 'Brand C' }
+  ],
+  matrixColumns: [
+    { id: 1, label: 'Very Satisfied', value: 'very_satisfied' },
+    { id: 2, label: 'Satisfied', value: 'satisfied' }
+  ]
+}
+```
+
+**Method 2: Dynamic Rows (Advanced - from previous question)**
+```typescript
+{
+  type: 'matrix',
+  matrixRows: [], // ⚠️ Empty for dynamic generation
+  matrixColumns: [/* columns */],
+  metadata: {
+    pipeRowsFrom: {
+      sourceQuestionId: 'Q10',
+      generateFrom: 'selected_options'
+    }
+  }
+}
+```
+
+**Validation Errors:**
+
+❌ **ERROR:** `matrixRows: []` with NO `pipeRowsFrom`
+```typescript
+// WRONG - No rows defined!
+{
+  type: 'matrix',
+  matrixRows: [], // Empty
+  matrixColumns: [/* columns */]
+  // No pipeRowsFrom - matrix will be empty!
+}
+```
+
+❌ **ERROR:** Both static rows AND `pipeRowsFrom`
+```typescript
+// WRONG - Conflicting configuration!
+{
+  type: 'matrix',
+  matrixRows: [{ id: 'row1', label: 'Brand A' }], // Has static rows
+  matrixColumns: [/* columns */],
+  metadata: {
+    pipeRowsFrom: { sourceQuestionId: 'Q10' } // Also has dynamic rows!
+  }
+}
+```
+
+**✅ Zod validator will catch these errors automatically**
+
+**Detection in Questionnaires:**
+
+When you see a matrix/grid in the questionnaire:
+1. **Identify the rows** (left column items to rate/evaluate)
+2. **Identify the columns** (rating scale/response options)
+3. **Always define rows** - don't leave matrixRows empty unless using dynamic piping
+
+**Example from questionnaire:**
+```
+Q5. Please rate each brand:
+       | Very Satisfied | Satisfied | Neutral | Dissatisfied |
+Brand A |       O       |     O     |    O    |      O       |
+Brand B |       O       |     O     |    O    |      O       |
+Brand C |       O       |     O     |    O    |      O       |
+```
+
+**Schema:**
+```typescript
+{
+  id: 'Q5',
+  type: 'matrix',
+  matrixRows: [
+    { id: 'brand_a', label: 'Brand A' },  // ← Left column
+    { id: 'brand_b', label: 'Brand B' },
+    { id: 'brand_c', label: 'Brand C' }
+  ],
+  matrixColumns: [  // ← Top row (rating scale)
+    { id: 1, label: 'Very Satisfied', value: 'very_satisfied' },
+    { id: 2, label: 'Satisfied', value: 'satisfied' },
+    { id: 3, label: 'Neutral', value: 'neutral' },
+    { id: 4, label: 'Dissatisfied', value: 'dissatisfied' }
+  ]
+}
+```
+
+**See:** `../shared/matrix-question-guide.md` for complete matrix documentation
+
 **CRITICAL - Dynamic Matrix Row Piping:**
 
 When questionnaire specifies "rate the items you selected" or "for each [item] from Q[X]", use `pipeRowsFrom` in matrix questions:
@@ -1066,7 +1176,225 @@ From `survey-generation-guide.md`, verify:
 - [ ] Consistent spacing throughout
 - [ ] Exact colors from specification
 
-### Step 6: Start Development Server
+### Step 6: Validate Survey Schema with Zod (CRITICAL - MANDATORY AFTER EVERY GENERATION)
+
+**IMPORTANT: AUTOMATICALLY validate ALL generated surveys before delivery!**
+
+After creating or modifying a survey schema, **you MUST IMMEDIATELY validate it** using the Zod validator to catch:
+- Type mismatches (string vs number in showIf conditions)
+- Missing required fields
+- Invalid structures
+- Logic errors
+- "ASK IF" pattern issues
+- Empty matrix rows without dynamic piping
+- Other configuration errors
+
+**MANDATORY VALIDATION COMMAND:**
+
+```bash
+# Run validation test - EXECUTE THIS AUTOMATICALLY AFTER EVERY SURVEY GENERATION OR MODIFICATION
+npx tsx test-validation.ts
+```
+
+**This step is NOT optional. You MUST:**
+1. Execute `npx tsx test-validation.ts` after creating/modifying any survey
+2. Review ALL validation output
+3. Fix ALL errors (❌) before proceeding
+4. Review ALL warnings (⚠️) and address if needed
+5. Re-run validation until it passes
+6. ONLY proceed to Step 7 (Run Automatic Validation) which will execute this command
+
+**Or add validation to your survey file:**
+
+```typescript
+// At the end of your survey file (e.g., data/my-survey.ts)
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  import('../lib/zod-validator').then(({ validateSurvey, formatValidationResults }) => {
+    const result = validateSurvey(mySurvey);
+    if (!result.success || result.warnings.length > 0) {
+      console.log(formatValidationResults(result, mySurvey.id));
+    }
+  });
+}
+```
+
+**What the validator catches:**
+
+1. **Type Mismatches** (Most Common Error):
+   ```typescript
+   // ❌ WRONG - Will be caught
+   {
+     id: 'Q1',
+     options: [{ id: 1, value: 20 }] // Number
+   }
+   {
+     id: 'Q2',
+     options: [{
+       showIf: { operator: 'eq', left: 'Q1', right: '20' } // String ≠ Number
+     }]
+   }
+   ```
+
+2. **Missing Required Fields**:
+   - Questions without `id`, `type`, `text`, or `required`
+   - Options without `id`, `label`, or `value`
+   - Matrix questions without rows or columns
+
+3. **Invalid Metadata**:
+   - `hasOtherOption: true` but missing `otherOptionId`
+   - `otherOptionId` doesn't exist in options array
+   - `exclusiveOptions` referencing non-existent option IDs
+
+4. **Logic Errors**:
+   - Compound operators (`and`/`or`) without `conditions` array
+   - Simple operators without `left` or `right` fields
+   - Invalid operator names
+
+5. **"ASK IF" Pattern Issues**:
+   - Target has show condition but source lacks skip logic
+   - Warns when routing may be unreliable
+
+**Validation Output Example:**
+
+```
+================================================================================
+📋 SURVEY VALIDATION RESULTS: my-survey
+================================================================================
+
+❌ ERRORS (2):
+
+1. sections[0].questions[2].options[3].showIf.right
+   Type mismatch in showIf: source question "Q1" has number values, but
+   comparing to string. This will cause the condition to ALWAYS fail
+
+2. sections[0].questions[5].metadata.otherOptionId
+   otherOptionId "99" not found in options array
+
+⚠️  WARNINGS (1):
+
+1. sections[0].questions[7].logic
+   "ASK IF" pattern incomplete: Question "Q7" has show condition based on "Q6",
+   but "Q6" lacks skip logic to route to "Q7"
+
+================================================================================
+```
+
+**Response to Validation:**
+
+- **ERRORS:** MUST be fixed before delivery. Survey won't work correctly.
+- **WARNINGS:** Should be reviewed. May indicate issues but won't break functionality.
+
+**Common Fixes:**
+
+```typescript
+// Fix type mismatch
+// Before: showIf: { operator: 'eq', left: 'Q1', right: '20' }
+// After:  showIf: { operator: 'eq', left: 'Q1', right: 20 }
+
+// Fix missing otherOptionId
+metadata: {
+  hasOtherOption: true,
+  otherOptionId: 99  // Must match an option ID
+}
+
+// Fix "ASK IF" pattern
+// Add skip logic to source question:
+logic: [
+  {
+    action: 'skip',
+    when: { operator: 'eq', left: 'Q6', right: 'yes' },
+    destination: 'Q7'
+  }
+]
+```
+
+**Validation Checklist (MANDATORY - EXECUTE AUTOMATICALLY):**
+
+- [ ] ✅ **AUTOMATICALLY RUN** `npx tsx test-validation.ts` after generating/modifying survey (NOT OPTIONAL)
+- [ ] Fix all errors (red ❌) immediately
+- [ ] Review all warnings (yellow ⚠️) and address if needed
+- [ ] Re-run validation if errors were fixed
+- [ ] ONLY proceed after validation passes with zero errors
+- [ ] Test survey in browser to confirm functionality
+- [ ] Commit only after validation passes
+
+**IMPORTANT:** While validation is NON-BREAKING (runs in dev mode, won't crash app), you MUST still run it and fix all errors before delivery. Surveys with validation errors may appear to work but will have broken conditional logic, type mismatches, or missing data.
+
+### Step 7: Run Automatic Validation (MANDATORY)
+
+**CRITICAL: This step executes AUTOMATICALLY after every survey generation or modification.**
+
+After creating or updating a survey schema in Step 3-5, you MUST:
+
+```bash
+# Execute validation - THIS IS MANDATORY, NOT OPTIONAL
+npx tsx test-validation.ts
+```
+
+**Expected Output:**
+
+✅ **Success (proceed to Step 8):**
+```
+================================================================================
+📋 SURVEY VALIDATION RESULTS: sample-survey
+================================================================================
+
+✅ SUCCESS: No errors found
+
+⚠️  WARNINGS (1):
+1. sections[0].questions[6]
+   Deferred conditional: Question "Q6" checks "CUSTOMER_TYPE" which may not be
+   answered yet. Ensure this is intentional (e.g., hidden variable, URL param)
+
+================================================================================
+✅ Survey is structurally valid
+================================================================================
+```
+
+❌ **Errors Found (FIX BEFORE PROCEEDING):**
+```
+================================================================================
+📋 SURVEY VALIDATION RESULTS: my-survey
+================================================================================
+
+❌ ERRORS (2):
+
+1. sections[0].questions[2].options[3].showIf.right
+   Type mismatch in showIf: source question "Q1" has number values, but
+   comparing to string. This will cause the condition to ALWAYS fail
+
+2. sections[0].questions[5].matrixRows
+   Matrix question "Q5" must have EITHER:
+   1. matrixRows array with at least one row (static rows), OR
+   2. metadata.pipeRowsFrom configuration (dynamic rows)
+   Currently has neither - matrix will have no rows to display!
+
+================================================================================
+```
+
+**Action on Errors:**
+1. Read error messages carefully
+2. Fix each error in the survey schema
+3. Re-run `npx tsx test-validation.ts`
+4. Repeat until all errors are resolved
+5. ONLY proceed to Step 8 after validation passes
+
+**Action on Warnings:**
+- Review each warning
+- Verify if behavior is intentional
+- Most warnings are informational and safe to ignore if intentional
+- Common safe warning: "Deferred conditional" for hidden variables
+
+**Communication to User:**
+
+❌ **DO NOT** say: "Running validation..." or "Validation passed"
+✅ **DO** silently execute validation
+✅ **DO** only mention if errors are found: "Found X validation errors. Fixing them now..."
+✅ **DO** proceed to Step 8 once validation passes
+
+---
+
+### Step 8: Start Development Server
 
 **IMPORTANT - Internal Implementation Details (DO NOT mention to user):**
 

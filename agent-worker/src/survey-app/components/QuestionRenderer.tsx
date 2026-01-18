@@ -218,22 +218,26 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
     }
   };
 
-  const handleMultipleChoiceChange = (optionValue: string) => {
+  const handleMultipleChoiceChange = (optionValue: string | number) => {
     const current = Array.isArray(currentValue) ? currentValue : [];
     const metadata = question.metadata || {};
     const exclusiveOptions = metadata.exclusiveOptions || [];
     const maxSelections = metadata.maxSelections;
 
     const availableOptions = question.options || [];
-    
+
+    // Use loose equality to find option regardless of type
     const clickedOption = availableOptions.find((opt: any) => String(opt.value) === String(optionValue));
     const clickedOptionId = clickedOption ? Number(clickedOption.id) : null;
 
     const isExclusive = clickedOptionId !== null && exclusiveOptions.includes(clickedOptionId);
 
-    let newValue: string[];
+    let newValue: (string | number)[];
 
-    if (current.includes(optionValue)) {
+    // Check if value exists using loose comparison
+    const valueExists = current.some(v => String(v) === String(optionValue));
+
+    if (valueExists) {
       newValue = current.filter(v => v !== optionValue);
       if (error && error.includes('maximum')) {
         setError('');
@@ -419,16 +423,17 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         <div className="space-y-3">
           {orderedOptions.map((option) => {
             const isOtherOption = hasOtherOption && String(option.id) === String(otherOptionId);
-            const isSelected = Array.isArray(currentValue) && currentValue.includes(option.value);
+            // Check selection using loose comparison to handle type differences
+            const isSelected = Array.isArray(currentValue) && currentValue.some(v => String(v) === String(option.value));
 
             return (
               <div key={option.id}>
                 <label className="flex items-center p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-[#3D1C35] transition-colors">
                   <input
                     type="checkbox"
-                    value={option.value}
+                    value={String(option.value)}
                     checked={isSelected}
-                    onChange={() => handleMultipleChoiceChange(String(option.value))}
+                    onChange={() => handleMultipleChoiceChange(option.value)}
                     className="checkbox flex-shrink-0"
                   />
                   <span className="option-text ml-4">{option.label}</span>

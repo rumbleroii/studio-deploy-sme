@@ -537,6 +537,7 @@ export const sampleSurvey: Survey = {
           metadata: {
             inputType: 'textarea',
             maxLength: 500,
+            rejectWhitespaceOnly: true,
             piping: ['Q4.COUNT']
           },
           notes: [
@@ -599,12 +600,32 @@ export const sampleSurvey: Survey = {
             { id: 1, label: 'Software and cloud services assessment', value: 'software' },
             { id: 2, label: 'Hardware and infrastructure assessment', value: 'hardware' }
           ],
-          defaultNextQuestion: 'Q8f',
+          logic: [
+            {
+              action: 'skip',
+              when: {
+                operator: 'eq',
+                left: 'Q8e',
+                right: 'software'
+              },
+              destination: 'Q8f'
+            },
+            {
+              action: 'skip',
+              when: {
+                operator: 'eq',
+                left: 'Q8e',
+                right: 'hardware'
+              },
+              destination: 'Q8g'
+            }
+          ],
+          defaultNextQuestion: 'Q9', // Fallback if neither condition matches
           notes: [
             '✅ BRANCHING/ROUTING EXAMPLE: This question branches to different follow-ups',
-            'If user selects "Software" (software) → shows Q8f',
-            'If user selects "Hardware" (hardware) → shows Q8g',
-            'Demonstrates conditional routing based on option selection',
+            'If user selects "Software" → skip logic routes to Q8f',
+            'If user selects "Hardware" → skip logic routes to Q8g',
+            'Demonstrates BOTH source routing (skip logic) AND target show conditions',
             'Both Q8f and Q8g eventually route to Q9'
           ]
         },
@@ -627,6 +648,7 @@ export const sampleSurvey: Survey = {
           metadata: {
             inputType: 'textarea',
             maxLength: 500,
+            rejectWhitespaceOnly: true,
             placeholder: 'Describe the software/cloud services you want to evaluate...'
           },
           notes: [
@@ -655,6 +677,7 @@ export const sampleSurvey: Survey = {
           metadata: {
             inputType: 'textarea',
             maxLength: 500,
+            rejectWhitespaceOnly: true,
             placeholder: 'Describe the hardware/infrastructure you want to evaluate...'
           },
           notes: [
@@ -796,8 +819,17 @@ export const sampleSurvey: Survey = {
   }
 };
 
-// Run schema validation in development
+// Run Zod schema validation in development (NON-BREAKING)
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  // Run new Zod validator (comprehensive, catches type mismatches)
+  import('../lib/zod-validator').then(({ validateSurvey, formatValidationResults }) => {
+    const result = validateSurvey(sampleSurvey);
+    if (!result.success || result.warnings.length > 0) {
+      console.log(formatValidationResults(result, sampleSurvey.id));
+    }
+  });
+
+  // Also run legacy validator for backwards compatibility
   import('../lib/schema-validator').then(({ validateSurveySchema, printValidationWarnings }) => {
     const warnings = validateSurveySchema(sampleSurvey);
     if (warnings.length > 0) {
