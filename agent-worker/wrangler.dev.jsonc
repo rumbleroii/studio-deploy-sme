@@ -5,10 +5,16 @@
 	"account_id": "573d1b2ea922ae79ad5277bfa9df4aa7",
 	"workers_dev": true,
 	"vars": {
-		"PREVIEW_DOMAIN": "metaforms-sandbox.com",
+		"PREVIEW_DOMAIN": "dev.metaforms-sandbox.com",
 		"R2_ENDPOINT": "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com",
 		"R2_BUCKET_NAME": "studio-dev-bucket"
 	},
+	"routes": [
+		{
+			"pattern": "*dev.metaforms-sandbox.com/*",
+			"zone_name": "metaforms-sandbox.com"
+		}
+	],
 	"durable_objects": {
 		"bindings": [
 			{
