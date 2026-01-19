@@ -49,6 +49,31 @@ export function generateDynamicRows(
 
   if (!sourceQuestion) return [];
 
+  // Check if source is a matrix question (object with row IDs)
+  if (sourceValue && typeof sourceValue === 'object' && !Array.isArray(sourceValue) && (sourceQuestion as any).type === 'matrix') {
+    const matrixRows = (sourceQuestion as any).matrixRows || [];
+
+    // Extract answered row IDs (non-null, non-empty values)
+    const answeredRowIds = Object.keys(sourceValue).filter(
+      rowId => sourceValue[rowId] !== undefined &&
+               sourceValue[rowId] !== null &&
+               sourceValue[rowId] !== ''
+    );
+
+    // Apply excludeValues filter if specified
+    const excludeSet = new Set(config.excludeValues || []);
+    const filteredRowIds = answeredRowIds.filter(id => !excludeSet.has(id));
+
+    const rows: MatrixRow[] = [];
+    for (const rowId of filteredRowIds) {
+      const sourceRow = matrixRows.find((r: any) => r.id === rowId);
+      if (sourceRow) {
+        rows.push({ id: sourceRow.id, label: sourceRow.label });
+      }
+    }
+    return rows;
+  }
+
   // Get the actual options from the source question
   // If the source question also uses dynamic piping, we need to resolve it first
   let sourceOptions: Option[] = sourceQuestion.options || [];
@@ -149,6 +174,35 @@ export function generateDynamicOptions(
   const sourceValue = responses[config.sourceQuestionId];
 
   if (!sourceQuestion) return [];
+
+  // Check if source is a matrix question (object with row IDs)
+  if (sourceValue && typeof sourceValue === 'object' && !Array.isArray(sourceValue) && (sourceQuestion as any).type === 'matrix') {
+    const matrixRows = (sourceQuestion as any).matrixRows || [];
+
+    // Extract answered row IDs (non-null, non-empty values)
+    const answeredRowIds = Object.keys(sourceValue).filter(
+      rowId => sourceValue[rowId] !== undefined &&
+               sourceValue[rowId] !== null &&
+               sourceValue[rowId] !== ''
+    );
+
+    // Apply excludeValues filter if specified
+    const excludeSet = new Set(config.excludeValues || []);
+    const filteredRowIds = answeredRowIds.filter(id => !excludeSet.has(id));
+
+    const options: Option[] = [];
+    for (const rowId of filteredRowIds) {
+      const sourceRow = matrixRows.find((r: any) => r.id === rowId);
+      if (sourceRow) {
+        options.push({
+          id: Math.floor(Math.random() * 10000), // Generate unique ID
+          label: sourceRow.label,
+          value: sourceRow.id,
+        });
+      }
+    }
+    return options;
+  }
 
   // Get the actual options from the source question
   // If the source question also uses dynamic piping, we need to resolve it first

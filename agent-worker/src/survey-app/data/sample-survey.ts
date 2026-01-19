@@ -33,6 +33,12 @@ import { Survey } from '../types/survey';
  * Q11: pipeRowsFrom Q10 (selected_options) - Rows = what user selected in Q10
  *      Supports chained piping: Q11 → Q10 → Q9
  *
+ * LOOP QUESTIONS (Ask same question for each item selected):
+ * Q13: Multiple choice source for loop (brands tried)
+ * Q14: Loop question - satisfaction rating per brand [INSERT LOOP_ITEM LABEL]
+ * Q15: Loop question - purchase location per brand [INSERT LOOP_ITEM LABEL]
+ *      Responses stored as: Q14_corona, Q14_pacifico, Q15_corona, Q15_pacifico, etc.
+ *
  * Other features demonstrated:
  * - Randomization & Anchoring (Q4, Q4a)
  * - Exclusive Options (Q4)
@@ -787,7 +793,7 @@ export const sampleSurvey: Survey = {
           text: 'Of the tools you would recommend, which ONE is the most critical for business operations?',
           required: true,
           options: [],
-          defaultNextQuestion: 'COMPLETE',
+          defaultNextQuestion: 'Q13',
           metadata: {
             pipeOptionsFrom: {
               sourceQuestionId: 'Q10',
@@ -805,6 +811,95 @@ export const sampleSurvey: Survey = {
             'pipeOptionsFrom.includeOtherText: false - Don\'t include other text (already filtered in Q10)',
             'Example: User selected 5 tools in Q9 → recommended 3 in Q10 → picks 1 most critical in Q12',
             'This demonstrates CHAINED dynamic option piping across multiple questions'
+          ]
+        },
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // LOOP QUESTIONS EXAMPLE
+        // These questions repeat for each brand selected in Q13
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        {
+          id: 'Q13',
+          type: 'multiple_choice',
+          text: 'Which of these brands have you tried in the past month? (Select all that apply)',
+          required: true,
+          options: [
+            { id: 1, label: 'Corona', value: 'corona' },
+            { id: 2, label: 'Pacifico', value: 'pacifico' },
+            { id: 3, label: 'Modelo', value: 'modelo' },
+            { id: 4, label: 'Dos Equis', value: 'dos_equis' },
+            { id: 5, label: 'Tecate', value: 'tecate' },
+            { id: 6, label: 'None of the above', value: 'none' }
+          ],
+          defaultNextQuestion: 'Q14',
+          metadata: {
+            exclusiveOptions: [6],
+            minSelections: 1
+          },
+          validation: [
+            { type: 'required', message: 'Please select at least one brand' }
+          ],
+          notes: [
+            '✅ LOOP SOURCE QUESTION',
+            'This is the source question for the loop - user selections become loop items',
+            'Q14 and Q15 will repeat for each brand selected (except "None of the above")',
+            'exclusiveOptions: [6] means "None of the above" is filtered out of the loop'
+          ]
+        },
+        {
+          id: 'Q14',
+          type: 'single_choice',
+          text: 'How satisfied are you with [INSERT LOOP_ITEM LABEL]?',
+          required: true,
+          options: [
+            { id: 1, label: 'Very Dissatisfied', value: '1' },
+            { id: 2, label: 'Dissatisfied', value: '2' },
+            { id: 3, label: 'Neutral', value: '3' },
+            { id: 4, label: 'Satisfied', value: '4' },
+            { id: 5, label: 'Very Satisfied', value: '5' }
+          ],
+          defaultNextQuestion: 'Q15',
+          metadata: {
+            loopSourceQuestion: 'Q13',
+            loopDisplayTemplate: 'Q14_[LOOP_INDEX]'
+          },
+          validation: [
+            { type: 'required', message: 'Please provide a rating' }
+          ],
+          notes: [
+            '✅ LOOP QUESTION EXAMPLE #1: Satisfaction rating per brand',
+            'loopSourceQuestion: "Q13" - Gets loop items from Q13 selections',
+            '[INSERT LOOP_ITEM LABEL] - Replaced with brand name (e.g., "Corona")',
+            'Responses stored as: Q14_corona, Q14_pacifico, Q14_modelo, etc.',
+            'This question will repeat for each brand selected in Q13'
+          ]
+        },
+        {
+          id: 'Q15',
+          type: 'single_choice',
+          text: 'Where did you most recently purchase [INSERT LOOP_ITEM LABEL]?',
+          required: true,
+          options: [
+            { id: 1, label: 'Supermarket/Grocery store', value: 'supermarket' },
+            { id: 2, label: 'Liquor store', value: 'liquor_store' },
+            { id: 3, label: 'Bar/Restaurant', value: 'bar' },
+            { id: 4, label: 'Convenience store', value: 'convenience' },
+            { id: 5, label: 'Online', value: 'online' }
+          ],
+          defaultNextQuestion: 'COMPLETE',
+          metadata: {
+            loopSourceQuestion: 'Q13',
+            loopDisplayTemplate: 'Q15_[LOOP_INDEX]'
+          },
+          validation: [
+            { type: 'required', message: 'Please select a purchase location' }
+          ],
+          notes: [
+            '✅ LOOP QUESTION EXAMPLE #2: Purchase location per brand',
+            'loopSourceQuestion: "Q13" - Same source as Q14, continues the loop',
+            '[INSERT LOOP_ITEM LABEL] - Replaced with brand name',
+            'Responses stored as: Q15_corona, Q15_pacifico, Q15_modelo, etc.',
+            'After all brands are processed, proceeds to COMPLETE',
+            'Loop flow: Q13(select) → Q14(Corona) → Q15(Corona) → Q14(Pacifico) → Q15(Pacifico) → ... → COMPLETE'
           ]
         }
       ]

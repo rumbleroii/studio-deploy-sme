@@ -102,11 +102,24 @@ export interface DynamicOptionsConfig {
 }
 
 /**
- * Metadata for dynamic row piping in matrix questions (generating rows from previous question responses)
+ * Dynamic row piping configuration - generates matrix rows from another question
+ *
+ * Supports:
+ * - Multiple choice sources (selected options become rows)
+ * - Matrix sources (answered rows become rows)
+ * - Chained piping (Q9 → Q10 → Q11)
+ *
+ * @example
+ * {
+ *   sourceQuestionId: 'Q9',
+ *   generateFrom: 'selected_options',
+ *   excludeValues: ['none_of_above'],
+ *   includeOtherText: true
+ * }
  */
 export interface DynamicRowsConfig {
   sourceQuestionId: string; // Question ID to pull rows from (e.g., 'Q9')
-  generateFrom: 'selected_options' | 'all_options'; // What to use: user selections or all available options
+  generateFrom: 'selected_options' | 'all_options' | 'answered_rows'; // What to use: user selections, all options, or answered matrix rows
   excludeValues?: (string | number)[]; // Values to filter out (e.g., ['none', 'other'])
   includeOtherText?: boolean; // If true, includes user-typed "Other" text as a row
 }
@@ -205,6 +218,25 @@ export interface RankingQuestionMetadata {
 
 /**
  * Loop question configuration - iterates through each value from a source question
+ *
+ * Response Storage:
+ * - Loop responses are stored with iteration-specific keys
+ * - Format: `${questionId}_${loopItem}` (e.g., "Q5_corona", "Q5_pacifico")
+ * - Enables multiple iterations without overwriting responses
+ *
+ * Loop Source:
+ * - Can be multiple_choice (array of selected values)
+ * - Can be matrix (object keys = row IDs with non-null values)
+ * - Exclusive options are automatically filtered out
+ *
+ * @example
+ * {
+ *   loopSourceQuestion: 'Q9',  // Multi-select: [corona, pacifico, modelo]
+ *   loopItemKey: 'brand',      // Optional key name for metadata
+ *   loopDisplayTemplate: 'Q10_[LOOP_INDEX]'  // Optional display format
+ * }
+ *
+ * Results in questions: Q10_corona, Q10_pacifico, Q10_modelo
  */
 export interface LoopQuestionMetadata {
   loopSourceQuestion: string;

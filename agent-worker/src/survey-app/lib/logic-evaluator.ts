@@ -1,36 +1,36 @@
 import { Expression, LogicCondition, Question } from '../types/survey';
 import { generateDynamicOptions } from './masking';
+import { extractLoopItems, findFirstLoopQuestion, resolveItemLabel, resolveResponseValue } from './loop-utils';
 
 /**
  * Evaluates a logic expression against current survey responses
+ * @param allQuestions - Optional: needed for underscore notation in matrix references
  */
 export function evaluateExpression(
   expression: Expression,
-  responses: Record<string, any>
+  responses: Record<string, any>,
+  allQuestions?: Question[]
 ): boolean {
   const { operator, left, right, conditions } = expression;
 
   // Handle compound expressions (and/or)
   if (operator === 'and' && conditions) {
-    return conditions.every(cond => evaluateExpression(cond, responses));
+    return conditions.every(cond => evaluateExpression(cond, responses, allQuestions));
   }
   if (operator === 'or' && conditions) {
-    return conditions.some(cond => evaluateExpression(cond, responses));
+    return conditions.some(cond => evaluateExpression(cond, responses, allQuestions));
   }
 
   // Get the actual value from responses
-  // Handle property access (e.g., "Q4.length")
+  // Handles: direct key, dot notation (Q.row), underscore notation (Q_row for matrix)
   let leftValue;
-  if (left.includes('.')) {
-    const [questionId, property] = left.split('.');
+  if (left.includes('.') && left.split('.')[1] === 'length') {
+    // Special case: Q.length for array length
+    const [questionId] = left.split('.');
     const value = responses[questionId];
-    if (property === 'length' && Array.isArray(value)) {
-      leftValue = value.length;
-    } else {
-      leftValue = value?.[property];
-    }
+    leftValue = Array.isArray(value) ? value.length : 0;
   } else {
-    leftValue = responses[left];
+    leftValue = resolveResponseValue(left, responses, allQuestions);
   }
 
   // Simple comparisons
@@ -97,6 +97,7 @@ export function shouldShowQuestion(
 export interface LoopNavigationResult {
   nextQuestionId: string | null;
   loopAction?: 'start' | 'continue' | 'end';
+  loopSourceId?: string;
   loopItems?: string[];
   nextLoopIndex?: number;
 }
@@ -177,25 +178,20 @@ export function getNextQuestionWithLoopSupport(
 
   const loopMeta = nextQuestion.metadata;
   if (loopMeta?.loopSourceQuestion) {
-    const sourceResponse = responses[loopMeta.loopSourceQuestion];
-    if (Array.isArray(sourceResponse) && sourceResponse.length > 0) {
-      const filteredItems = sourceResponse.filter(item => {
-        const sourceQuestion = allQuestions.find(q => q.id === loopMeta.loopSourceQuestion);
-        const exclusiveOptions = sourceQuestion?.metadata?.exclusiveOptions || [];
-        const option = sourceQuestion?.options?.find(o => o.value === item);
-        return option && !exclusiveOptions.includes(Number(option.id));
-      });
-      
-      if (filteredItems.length > 0) {
-        return {
-          nextQuestionId: nextQuestion.id,
-          loopAction: 'start',
-          loopItems: filteredItems,
-          nextLoopIndex: 0
-        };
-      }
+    const sourceQuestion = allQuestions.find(q => q.id === loopMeta.loopSourceQuestion);
+    const loopItems = extractLoopItems(loopMeta.loopSourceQuestion, responses, sourceQuestion);
+
+    if (loopItems.length > 0) {
+      return {
+        nextQuestionId: nextQuestion.id,
+        loopAction: 'start',
+        loopSourceId: loopMeta.loopSourceQuestion,
+        loopItems: loopItems,
+        nextLoopIndex: 0
+      };
     }
-    
+
+    // No valid loop items - skip loop questions
     const afterLoopIndex = allQuestions.findIndex(q => q.id === nextQuestion!.id);
     for (let i = afterLoopIndex + 1; i < allQuestions.length; i++) {
       if (shouldShowQuestion(allQuestions[i], responses)) {
@@ -208,13 +204,17 @@ export function getNextQuestionWithLoopSupport(
   if (loopState && currentQuestion.metadata?.loopSourceQuestion) {
     const nextLoopIndex = loopState.currentIndex + 1;
     if (nextLoopIndex < loopState.items.length) {
+      // Continue loop - find first question in loop block
+      const firstLoopQuestion = findFirstLoopQuestion(loopState.sourceQuestionId, allQuestions);
       return {
-        nextQuestionId: currentQuestion.id,
+        nextQuestionId: firstLoopQuestion?.id || currentQuestion.id,
         loopAction: 'continue',
+        loopSourceId: loopState.sourceQuestionId,
         loopItems: loopState.items,
         nextLoopIndex
       };
     } else {
+      // End loop - proceed to next question
       return {
         nextQuestionId: nextQuestion.id,
         loopAction: 'end'
@@ -295,11 +295,8 @@ export function applyPiping(
 
   if (loopContext) {
     result = result.replace(/\[INSERT\s+LOOP_ITEM\s+LABEL\]/gi, () => {
-      if (!allQuestions) return loopContext.currentItem;
-      const sourceQuestion = allQuestions.find(q => q.id === loopContext.sourceQuestionId);
-      if (!sourceQuestion?.options) return loopContext.currentItem;
-      const option = sourceQuestion.options.find(opt => opt.value === loopContext.currentItem);
-      return option ? option.label : loopContext.currentItem;
+      const sourceQuestion = allQuestions?.find(q => q.id === loopContext.sourceQuestionId);
+      return resolveItemLabel(loopContext.currentItem, sourceQuestion);
     });
 
     result = result.replace(/\[INSERT\s+LOOP_ITEM\]/gi, () => {

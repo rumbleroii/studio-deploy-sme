@@ -6,6 +6,7 @@ import { sampleSurvey } from '../../../data/sample-survey';
 import { useSurvey } from '../../../lib/survey-context';
 import {
   getNextQuestionId,
+  getNextQuestionWithLoopSupport,
   validateResponse,
   shouldShowQuestion
 } from '../../../lib/logic-evaluator';
@@ -41,7 +42,7 @@ export default function QuestionPage() {
   const searchParams = useSearchParams();
   const questionId = searchParams.get('q');
 
-  const { responses, addVisitedQuestion, visitedQuestions, progress, setProgress } = useSurvey();
+  const { responses, addVisitedQuestion, visitedQuestions, progress, setProgress, loopState, setLoopState, getCurrentLoopItem } = useSurvey();
   const [error, setError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFirstVisit, setIsFirstVisit] = useState<boolean>(true);
@@ -151,11 +152,31 @@ export default function QuestionPage() {
 
     setError('');
 
-    // Get next question from last in group
+    // Get next question from last in group (with loop support)
     const lastGroupQuestion = groupedQuestions[groupedQuestions.length - 1] || currentQuestion;
-    const nextQuestionId = getNextQuestionId(lastGroupQuestion, responses, allQuestions);
+    const navResult = getNextQuestionWithLoopSupport(
+      lastGroupQuestion,
+      responses,
+      allQuestions,
+      loopState
+    );
 
-    console.log('Navigating from', currentQuestion.id, 'to', nextQuestionId);
+    // Handle loop state updates
+    if (navResult.loopAction === 'start' || navResult.loopAction === 'continue') {
+      setLoopState({
+        sourceQuestionId: navResult.loopSourceId!,
+        currentIndex: navResult.nextLoopIndex!,
+        items: navResult.loopItems!
+      });
+    }
+
+    if (navResult.loopAction === 'end') {
+      setLoopState(null);
+    }
+
+    const nextQuestionId = navResult.nextQuestionId;
+
+    console.log('Navigating from', currentQuestion.id, 'to', nextQuestionId, 'loopAction:', navResult.loopAction);
 
     // Submit responses to API (only in production mode)
     if (isProduction) {
@@ -244,6 +265,8 @@ export default function QuestionPage() {
                   question={question}
                   allQuestions={allQuestions}
                   isFirstVisit={isFirstVisit}
+                  loopState={loopState}
+                  currentLoopItem={getCurrentLoopItem()}
                   onComplete={() => {}}
                 />
               </div>

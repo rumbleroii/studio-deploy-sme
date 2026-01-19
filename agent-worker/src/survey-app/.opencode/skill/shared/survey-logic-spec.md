@@ -680,9 +680,92 @@ Iteration 3: Rate your satisfaction with Google Pixel → stored as Q6_google_pi
 - Exclusive options (e.g., "None of the above") are filtered from loop items
 - Can pipe loop results in later questions: `[INSERT Q6_iphone]` → `"5"`
 
+**Matrix Source for Loops:**
+
+Loops can also source from matrix questions. When the source is a matrix, the loop iterates through the **answered row IDs**:
+
+```typescript
+// Matrix source question
+{
+  id: 'S20',
+  type: 'matrix',
+  text: 'Rate your relationship with each brand',
+  matrixRows: [
+    { id: 'corona', label: 'Corona' },
+    { id: 'pacifico', label: 'Pacifico' },
+    { id: 'modelo', label: 'Modelo' }
+  ],
+  // ...
+}
+
+// Loop question
+{
+  id: 'L1',
+  type: 'single_choice',
+  text: 'Where did you purchase [INSERT LOOP_ITEM LABEL]?',
+  metadata: {
+    loopSourceQuestion: 'S20'  // Loops through answered rows
+  }
+}
+```
+
+If user answered rows for Corona and Pacifico (but not Modelo):
+- Loop iterates: `corona`, `pacifico`
+- Responses stored as: `L1_corona`, `L1_pacifico`
+
 ---
 
-### 5.3 Conditional Piping
+### 5.4 Matrix Sub-Question References
+
+**CRITICAL**: When referencing matrix row responses in logic expressions, use **dot notation**:
+
+**Correct Notation:**
+```typescript
+left: 'S19.pacifico'  // ✓ Accesses responses['S19']['pacifico']
+```
+
+**Incorrect Notation:**
+```typescript
+left: 'S19_pacifico'  // ✗ Looks for responses['S19_pacifico'] (doesn't exist)
+```
+
+**Usage in Termination/Skip Logic:**
+```typescript
+logic: [{
+  action: 'terminate',
+  when: {
+    operator: 'neq',
+    left: 'S19.pacifico',    // DOT notation
+    right: 'drank_past_month'
+  }
+}]
+```
+
+**Usage in Show/Hide Conditions:**
+```typescript
+showCondition: "S20.corona === 'frequently' || S20.pacifico === 'frequently'"
+```
+
+**Why Dot Notation:**
+Matrix responses are stored as nested objects:
+```typescript
+responses['S19'] = {
+  'pacifico': 'drank_past_month',
+  'corona': 'never_heard'
+}
+```
+
+The logic evaluator uses dot notation to access nested properties:
+```typescript
+if (left.includes('.')) {
+  const [questionId, property] = left.split('.');
+  leftValue = responses[questionId]?.[property];
+}
+```
+
+---
+
+### 5.5 Conditional Piping
 
 **Purpose**: Show different piped text based on conditions
 

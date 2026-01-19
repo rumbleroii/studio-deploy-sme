@@ -8,28 +8,42 @@ import { applyOptionOrdering } from '../lib/ordering';
 import { filterOptions, filterMatrixRows, generateDynamicOptions, generateDynamicRows } from '../lib/masking';
 import { MultiGridRenderer } from './MultiGridRenderer';
 import { RankingRenderer } from './RankingRenderer';
+import { LoopState, getEffectiveQuestionId } from '../lib/loop-utils';
 
 interface QuestionRendererProps {
   question: Question;
   onComplete: (value: any) => void;
   allQuestions?: Question[];
   isFirstVisit?: boolean;
+  loopState?: LoopState | null;
+  currentLoopItem?: string | null;
 }
 
 export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   question,
   onComplete,
   allQuestions,
-  isFirstVisit
+  isFirstVisit,
+  loopState,
+  currentLoopItem
 }) => {
-  const { responses, setResponse, visitedQuestions } = useSurvey();
+  const { responses, setResponse, visitedQuestions, respondentMetadata } = useSurvey();
   const [currentValue, setCurrentValue] = useState<any>('');
   const [error, setError] = useState<string>('');
   const [otherTextValues, setOtherTextValues] = useState<Record<string, string>>({});
   const [exclusiveSelected, setExclusiveSelected] = useState<boolean>(false);
   const [terminationWarning, setTerminationWarning] = useState<string>('');
 
-  const questionText = applyPiping(question.text, responses, allQuestions);
+  // Compute effective question ID for loop questions
+  const effectiveQuestionId = getEffectiveQuestionId(question.id, loopState ?? null, currentLoopItem ?? null);
+
+  // Build loop context for piping
+  const loopContext = loopState && currentLoopItem ? {
+    currentItem: currentLoopItem,
+    sourceQuestionId: loopState.sourceQuestionId
+  } : undefined;
+
+  const questionText = applyPiping(question.text, responses, allQuestions, loopContext, respondentMetadata);
 
   const orderedOptions = useMemo(() => {
     const metadata = question.metadata || {};
@@ -77,8 +91,8 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
   }, [question.options, question.metadata, responses, allQuestions]);
 
   useEffect(() => {
-    const storedValue = responses[question.id];
-    const storedExclusive = responses[`${question.id}_exclusive`];
+    const storedValue = responses[effectiveQuestionId];
+    const storedExclusive = responses[`${effectiveQuestionId}_exclusive`];
     const shouldPreFill = isFirstVisit === false || (isFirstVisit === undefined && storedValue !== undefined);
 
     if (storedValue && shouldPreFill) {
@@ -88,13 +102,15 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
       setCurrentValue('');
       setExclusiveSelected(true);
     } else if (!shouldPreFill && storedValue === undefined) {
+      // Reset state for new loop iterations or first visits
       setCurrentValue('');
       setExclusiveSelected(false);
+      setOtherTextValues({});
     } else if (storedValue !== undefined) {
       setCurrentValue(storedValue);
       setExclusiveSelected(false);
     }
-  }, [question.id, responses, isFirstVisit]);
+  }, [effectiveQuestionId, responses, isFirstVisit]);
 
   const validateInput = (value: any): string | null => {
     if (!question.validation) return null;
@@ -166,7 +182,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
   const handleChange = (value: any) => {
     setCurrentValue(value);
-    setResponse(question.id, value);
+    setResponse(effectiveQuestionId, value);
     setError('');
 
     if (question.type === 'text' && typeof value === 'string') {
@@ -175,7 +191,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
     if (value && exclusiveSelected) {
       setExclusiveSelected(false);
-      setResponse(`${question.id}_exclusive`, undefined);
+      setResponse(`${effectiveQuestionId}_exclusive`, undefined);
     }
   };
 
@@ -185,11 +201,11 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
     if (newExclusiveState) {
       setCurrentValue('');
-      setResponse(question.id, '');
-      setResponse(`${question.id}_exclusive`, true);
+      setResponse(effectiveQuestionId, '');
+      setResponse(`${effectiveQuestionId}_exclusive`, true);
       setError('');
     } else {
-      setResponse(`${question.id}_exclusive`, undefined);
+      setResponse(`${effectiveQuestionId}_exclusive`, undefined);
     }
   };
 
@@ -201,7 +217,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
       valueToValidate = currentValue?.trim();
       if (valueToValidate !== currentValue) {
         setCurrentValue(valueToValidate);
-        setResponse(question.id, valueToValidate);
+        setResponse(effectiveQuestionId, valueToValidate);
       }
     }
 
@@ -251,7 +267,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
           setOtherTextValues(clearedOtherTextValues);
           availableOptions.forEach((opt: any) => {
             if (String(opt.id) === String(metadata.otherOptionId)) {
-              setResponse(`${question.id}_other_${opt.value}`, undefined);
+              setResponse(`${effectiveQuestionId}_other_${opt.value}`, undefined);
             }
           });
         }
@@ -276,7 +292,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         const newOtherTextValues = { ...otherTextValues };
         delete newOtherTextValues[optionValue];
         setOtherTextValues(newOtherTextValues);
-        setResponse(`${question.id}_other_${optionValue}`, undefined);
+        setResponse(`${effectiveQuestionId}_other_${optionValue}`, undefined);
       }
     }
 
@@ -285,7 +301,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
   const handleOtherTextChange = (optionValue: string, text: string) => {
     setOtherTextValues({ ...otherTextValues, [optionValue]: text });
-    setResponse(`${question.id}_other_${optionValue}`, text);
+    setResponse(`${effectiveQuestionId}_other_${optionValue}`, text);
   };
 
   const handleOtherTextBlur = (optionValue: string) => {
@@ -294,7 +310,7 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
 
     if (trimmedText !== currentText) {
       setOtherTextValues({ ...otherTextValues, [optionValue]: trimmedText });
-      setResponse(`${question.id}_other_${optionValue}`, trimmedText);
+      setResponse(`${effectiveQuestionId}_other_${optionValue}`, trimmedText);
     }
   };
 
@@ -316,6 +332,8 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         question={question}
         allQuestions={allQuestions}
         isFirstVisit={isFirstVisit}
+        loopState={loopState}
+        currentLoopItem={currentLoopItem}
       />
     );
   }
@@ -326,6 +344,8 @@ export const QuestionRenderer: React.FC<QuestionRendererProps> = ({
         question={question}
         allQuestions={allQuestions}
         isFirstVisit={isFirstVisit}
+        loopState={loopState}
+        currentLoopItem={currentLoopItem}
       />
     );
   }
