@@ -447,6 +447,125 @@ export const QuestionSchema = z.object({
         path: ['matrixColumns']
       });
     }
+
+    // Validate multi-grid metadata
+    const metadata = question.metadata;
+    if (metadata) {
+      // selectionMode is required for multi_grid
+      if (!metadata.selectionMode) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Multi-grid question "${question.id}" must have metadata.selectionMode ("single" or "multiple")`,
+          path: ['metadata', 'selectionMode']
+        });
+      }
+
+      // Validate otherRowIds exist in matrixRows
+      if (metadata.otherRowIds && question.matrixRows) {
+        const rowIds = new Set(question.matrixRows.map(row => row.id));
+        metadata.otherRowIds.forEach((rowId: string) => {
+          if (!rowIds.has(rowId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Multi-grid question "${question.id}": otherRowIds includes "${rowId}" which does not exist in matrixRows`,
+              path: ['metadata', 'otherRowIds']
+            });
+          }
+        });
+      }
+
+      // Validate exclusiveRowIds exist in matrixRows
+      if (metadata.exclusiveRowIds && question.matrixRows) {
+        const rowIds = new Set(question.matrixRows.map(row => row.id));
+        metadata.exclusiveRowIds.forEach((rowId: string) => {
+          if (!rowIds.has(rowId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Multi-grid question "${question.id}": exclusiveRowIds includes "${rowId}" which does not exist in matrixRows`,
+              path: ['metadata', 'exclusiveRowIds']
+            });
+          }
+        });
+      }
+
+      // Validate perColumnExclusiveRows exist in matrixRows
+      if (metadata.perColumnExclusiveRows && question.matrixRows) {
+        const rowIds = new Set(question.matrixRows.map(row => row.id));
+        metadata.perColumnExclusiveRows.forEach((rowId: string) => {
+          if (!rowIds.has(rowId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Multi-grid question "${question.id}": perColumnExclusiveRows includes "${rowId}" which does not exist in matrixRows`,
+              path: ['metadata', 'perColumnExclusiveRows']
+            });
+          }
+        });
+      }
+
+      // Validate columnExclusiveOptions exist in matrixColumns
+      if (metadata.columnExclusiveOptions && question.matrixColumns) {
+        const columnIds = new Set(question.matrixColumns.map(col => col.id));
+        metadata.columnExclusiveOptions.forEach((colId: string | number) => {
+          if (!columnIds.has(colId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Multi-grid question "${question.id}": columnExclusiveOptions includes "${colId}" which does not exist in matrixColumns`,
+              path: ['metadata', 'columnExclusiveOptions']
+            });
+          }
+        });
+      }
+
+      // Validate rowOtherSpecify references existing rows
+      if (metadata.rowOtherSpecify && question.matrixRows) {
+        const rowIds = new Set(question.matrixRows.map(row => row.id));
+        metadata.rowOtherSpecify.forEach((spec: any, index: number) => {
+          if (!rowIds.has(spec.rowId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Multi-grid question "${question.id}": rowOtherSpecify[${index}].rowId "${spec.rowId}" does not exist in matrixRows`,
+              path: ['metadata', 'rowOtherSpecify', index, 'rowId']
+            });
+          }
+        });
+      }
+
+      // Validate columnOtherSpecify references existing columns
+      if (metadata.columnOtherSpecify && question.matrixColumns) {
+        const columnIds = new Set(question.matrixColumns.map(col => col.id));
+        metadata.columnOtherSpecify.forEach((spec: any, index: number) => {
+          if (!columnIds.has(spec.columnId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Multi-grid question "${question.id}": columnOtherSpecify[${index}].columnId "${spec.columnId}" does not exist in matrixColumns`,
+              path: ['metadata', 'columnOtherSpecify', index, 'columnId']
+            });
+          }
+        });
+      }
+
+      // Validate cellTerminations reference existing rows and columns
+      if (metadata.cellTerminations && question.matrixRows && question.matrixColumns) {
+        const rowIds = new Set(question.matrixRows.map(row => row.id));
+        const columnIds = new Set(question.matrixColumns.map(col => col.id));
+        metadata.cellTerminations.forEach((term: any, index: number) => {
+          if (!rowIds.has(term.rowId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Multi-grid question "${question.id}": cellTerminations[${index}].rowId "${term.rowId}" does not exist in matrixRows`,
+              path: ['metadata', 'cellTerminations', index, 'rowId']
+            });
+          }
+          if (!columnIds.has(term.columnId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Multi-grid question "${question.id}": cellTerminations[${index}].columnId "${term.columnId}" does not exist in matrixColumns`,
+              path: ['metadata', 'cellTerminations', index, 'columnId']
+            });
+          }
+        });
+      }
+    }
   }
 
   // Ranking must have options
@@ -457,6 +576,86 @@ export const QuestionSchema = z.object({
         message: `Ranking question "${question.id}" must have options array`,
         path: ['options']
       });
+    }
+
+    // Validate ranking metadata constraints
+    const metadata = question.metadata;
+    if (metadata) {
+      const optionsCount = question.options?.length || 0;
+
+      // Check minRank is valid
+      if (metadata.minRank !== undefined) {
+        if (metadata.minRank < 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Ranking question "${question.id}": minRank must be at least 1 (got ${metadata.minRank})`,
+            path: ['metadata', 'minRank']
+          });
+        }
+        if (metadata.minRank > optionsCount) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Ranking question "${question.id}": minRank (${metadata.minRank}) cannot be greater than number of options (${optionsCount})`,
+            path: ['metadata', 'minRank']
+          });
+        }
+      }
+
+      // Check maxRank is valid
+      if (metadata.maxRank !== undefined) {
+        if (metadata.maxRank < 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Ranking question "${question.id}": maxRank must be at least 1 (got ${metadata.maxRank})`,
+            path: ['metadata', 'maxRank']
+          });
+        }
+        if (metadata.maxRank > optionsCount) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Ranking question "${question.id}": maxRank (${metadata.maxRank}) cannot be greater than number of options (${optionsCount})`,
+            path: ['metadata', 'maxRank']
+          });
+        }
+      }
+
+      // Check exactRank is valid
+      if (metadata.exactRank !== undefined) {
+        if (metadata.exactRank < 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Ranking question "${question.id}": exactRank must be at least 1 (got ${metadata.exactRank})`,
+            path: ['metadata', 'exactRank']
+          });
+        }
+        if (metadata.exactRank > optionsCount) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Ranking question "${question.id}": exactRank (${metadata.exactRank}) cannot be greater than number of options (${optionsCount})`,
+            path: ['metadata', 'exactRank']
+          });
+        }
+      }
+
+      // Check minRank <= maxRank
+      if (metadata.minRank !== undefined && metadata.maxRank !== undefined) {
+        if (metadata.minRank > metadata.maxRank) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Ranking question "${question.id}": minRank (${metadata.minRank}) cannot be greater than maxRank (${metadata.maxRank})`,
+            path: ['metadata', 'minRank']
+          });
+        }
+      }
+
+      // Warn if both exactRank and minRank/maxRank are specified (exactRank takes precedence)
+      if (metadata.exactRank !== undefined && (metadata.minRank !== undefined || metadata.maxRank !== undefined)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Ranking question "${question.id}": exactRank is specified along with minRank/maxRank. exactRank takes precedence and minRank/maxRank will be ignored.`,
+          path: ['metadata', 'exactRank']
+        });
+      }
     }
   }
 

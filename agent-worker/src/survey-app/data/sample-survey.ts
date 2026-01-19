@@ -39,6 +39,19 @@ import { Survey } from '../types/survey';
  * Q15: Loop question - purchase location per brand [INSERT LOOP_ITEM LABEL]
  *      Responses stored as: Q14_corona, Q14_pacifico, Q15_corona, Q15_pacifico, etc.
  *
+ * MULTI-GRID QUESTIONS (Multiple selections per row with advanced features):
+ * Q16: Multi-grid with exclusive rows, optional rows, and per-column exclusivity
+ *      - Checkboxes for multiple selections per row
+ *      - "Other (specify)" rows that are optional
+ *      - "Don't Know" exclusive rows that clear all others
+ *      - Per-column exclusive rows (clears only that column)
+ *
+ * RANKING QUESTIONS (Order items by preference):
+ * Q17: Ranking question with drag-and-drop interface
+ *      - Rank top 3 out of 6 options
+ *      - minRank/maxRank constraints
+ *      - Multiple UI modes available (drag_drop, number_input, select)
+ *
  * Other features demonstrated:
  * - Randomization & Anchoring (Q4, Q4a)
  * - Exclusive Options (Q4)
@@ -46,6 +59,8 @@ import { Survey } from '../types/survey';
  * - Logic & Navigation (S1, Q4, Q6, Q7, Q8, Q8e-Q8g)
  * - Validation (S11, Q7)
  * - Matrix Questions (Q5a, Q11)
+ * - Multi-Grid Questions (Q16)
+ * - Ranking Questions (Q17)
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 
@@ -885,7 +900,7 @@ export const sampleSurvey: Survey = {
             { id: 4, label: 'Convenience store', value: 'convenience' },
             { id: 5, label: 'Online', value: 'online' }
           ],
-          defaultNextQuestion: 'COMPLETE',
+          defaultNextQuestion: 'Q16',
           metadata: {
             loopSourceQuestion: 'Q13',
             loopDisplayTemplate: 'Q15_[LOOP_INDEX]'
@@ -898,8 +913,182 @@ export const sampleSurvey: Survey = {
             'loopSourceQuestion: "Q13" - Same source as Q14, continues the loop',
             '[INSERT LOOP_ITEM LABEL] - Replaced with brand name',
             'Responses stored as: Q15_corona, Q15_pacifico, Q15_modelo, etc.',
-            'After all brands are processed, proceeds to COMPLETE',
-            'Loop flow: Q13(select) → Q14(Corona) → Q15(Corona) → Q14(Pacifico) → Q15(Pacifico) → ... → COMPLETE'
+            'After all brands are processed, proceeds to Q16',
+            'Loop flow: Q13(select) → Q14(Corona) → Q15(Corona) → Q14(Pacifico) → Q15(Pacifico) → ... → Q16'
+          ]
+        },
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // MULTI-GRID QUESTION EXAMPLE
+        // Demonstrates multiple selections per row with advanced behaviors
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        {
+          id: 'Q16',
+          type: 'multi_grid',
+          text: 'For each smartphone feature, please indicate which aspects are important to you when making a purchase decision. Select all that apply.',
+          required: true,
+          matrixRows: [
+            { id: 'camera', label: 'Camera Quality' },
+            { id: 'battery', label: 'Battery Life' },
+            { id: 'screen', label: 'Screen Size & Quality' },
+            { id: 'processor', label: 'Processor Speed' },
+            { id: 'storage', label: 'Storage Capacity' },
+            { id: 'other', label: 'Other feature (please specify)' },
+            { id: 'none', label: 'None of these features matter' },
+            { id: 'dk', label: "Don't know / Can't decide" }
+          ],
+          matrixColumns: [
+            { id: 1, label: 'Very Important', value: 'very_important' },
+            { id: 2, label: 'Somewhat Important', value: 'somewhat_important' },
+            { id: 3, label: 'Not Important', value: 'not_important' },
+            { id: 4, label: 'Not Applicable', value: 'na' }
+          ],
+          defaultNextQuestion: 'COMPLETE',
+          metadata: {
+            selectionMode: 'multiple',
+            maxPerColumn: 3,
+            otherRowIds: ['other'],
+            exclusiveRowIds: ['none'],
+            perColumnExclusiveRows: ['dk'],
+            columnExclusiveOptions: [4],
+            rowOtherSpecify: [
+              {
+                rowId: 'other',
+                required: true,
+                placeholder: 'Please specify the feature',
+                alwaysVisible: false
+              }
+            ]
+          },
+          validation: [
+            { type: 'required', message: 'Please provide ratings for all features' }
+          ],
+          notes: [
+            '✅ MULTI-GRID QUESTION EXAMPLE: Advanced grid with multiple behaviors',
+            '',
+            'MULTI-SELECT PER ROW:',
+            '- selectionMode: "multiple" - User can check multiple columns per row',
+            '- maxPerColumn: 3 - Limit to 3 selections per row',
+            '',
+            'OPTIONAL ROWS (otherRowIds):',
+            '- otherRowIds: ["other"] - "Other" row is optional, validation skips it if unanswered',
+            '- If user selects "Other" row, they must provide text specification',
+            '- rowOtherSpecify configures the text input behavior',
+            '',
+            'EXCLUSIVE ROWS (exclusiveRowIds):',
+            '- exclusiveRowIds: ["none"] - "None of these features matter" row',
+            '- Selecting ANY cell in "none" row → CLEARS ALL other rows completely',
+            '- Selecting any cell in non-exclusive row → CLEARS "none" row completely',
+            '- Useful for "None of the above" scenarios',
+            '',
+            'PER-COLUMN EXCLUSIVE ROWS (perColumnExclusiveRows):',
+            '- perColumnExclusiveRows: ["dk"] - "Don\'t know" row is per-column exclusive',
+            '- Selecting "Don\'t know - Very Important" → CLEARS only "Very Important" column in other rows',
+            '- Other columns (Somewhat Important, Not Important, N/A) remain unchanged',
+            '- Different from exclusiveRowIds which clears ALL rows in ALL columns',
+            '',
+            'COLUMN EXCLUSIVE OPTIONS (columnExclusiveOptions):',
+            '- columnExclusiveOptions: [4] - "Not Applicable" column ID',
+            '- Selecting "Camera - Not Applicable" → CLEARS other columns for Camera row only',
+            '- Selecting "Camera - Very Important" → CLEARS "Not Applicable" for Camera row',
+            '',
+            'VALIDATION BEHAVIOR:',
+            '- If exclusiveRowIds row selected → validation passes (only that row needed)',
+            '- If no exclusive row → all rows except otherRowIds must be answered',
+            '- "Other" row can be left blank (optional)',
+            '',
+            'USER FLOW EXAMPLE 1 (Exclusive Row):',
+            '1. User selects: Camera-Very Important, Battery-Somewhat Important',
+            '2. User clicks: None-Very Important',
+            '3. Result: Camera and Battery cleared, only "None-Very Important" remains',
+            '',
+            'USER FLOW EXAMPLE 2 (Per-Column Exclusive):',
+            '1. User selects: Camera-Very Important, Battery-Very Important, Screen-Somewhat Important',
+            '2. User clicks: Don\'t know-Very Important',
+            '3. Result: Camera and Battery "Very Important" cleared, but Screen-Somewhat Important remains',
+            '4. Only "Don\'t know-Very Important" active in that column',
+            '',
+            'USER FLOW EXAMPLE 3 (Column Exclusive):',
+            '1. User selects: Camera-Very Important, Camera-Somewhat Important',
+            '2. User clicks: Camera-Not Applicable',
+            '3. Result: Very Important and Somewhat Important cleared for Camera row only',
+            '4. Other rows unaffected'
+          ]
+        },
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // RANKING QUESTION EXAMPLE
+        // Demonstrates drag-and-drop ranking with constraints
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        {
+          id: 'Q17',
+          type: 'ranking',
+          text: 'Please rank your top 3 most important factors when choosing a smartphone. Drag to reorder, with 1 being most important.',
+          required: true,
+          options: [
+            { id: 1, label: 'Price / Value for money', value: 'price' },
+            { id: 2, label: 'Brand reputation', value: 'brand' },
+            { id: 3, label: 'Camera quality', value: 'camera' },
+            { id: 4, label: 'Battery life', value: 'battery' },
+            { id: 5, label: 'Screen size and quality', value: 'screen' },
+            { id: 6, label: 'Operating system (iOS vs Android)', value: 'os' },
+            { id: 7, label: '5G connectivity', value: '5g' },
+            { id: 8, label: 'Storage capacity', value: 'storage' }
+          ],
+          defaultNextQuestion: 'COMPLETE',
+          metadata: {
+            minRank: 3,
+            maxRank: 3,
+            uiMode: 'drag_drop'
+          },
+          validation: [
+            { type: 'required', message: 'Please rank your top 3 choices' }
+          ],
+          notes: [
+            '✅ RANKING QUESTION EXAMPLE: Drag-and-drop ranking with constraints',
+            '',
+            'RANKING METADATA:',
+            '- minRank: 3 - User must rank at least 3 items',
+            '- maxRank: 3 - User can rank at most 3 items (combined with minRank = exactly 3)',
+            '- uiMode: "drag_drop" - Drag-and-drop interface (most common)',
+            '',
+            'ALTERNATIVE UI MODES:',
+            '- uiMode: "number_input" - User types rank numbers (1, 2, 3) next to each option',
+            '- uiMode: "select" - Dropdown selectors for each option',
+            '- Default if not specified: "drag_drop"',
+            '',
+            'RANKING CONSTRAINTS:',
+            '- If minRank only: User must rank AT LEAST minRank items (e.g., minRank: 3 means rank 3 or more)',
+            '- If maxRank only: User can rank UP TO maxRank items (e.g., maxRank: 5 means rank 1-5 items)',
+            '- If exactRank: User must rank EXACTLY that many items (e.g., exactRank: 3)',
+            '- If minRank = maxRank: Effectively the same as exactRank',
+            '- If no constraints: User can rank all items or just a subset',
+            '',
+            'RESPONSE FORMAT:',
+            '- Stored as array: ["camera", "battery", "price"] (values in ranked order)',
+            '- Index 0 = 1st choice, Index 1 = 2nd choice, Index 2 = 3rd choice',
+            '- Unranked items are not included in the response array',
+            '',
+            'USER INTERACTION:',
+            '1. User sees all 8 options in a list',
+            '2. User drags "Camera quality" to position 1',
+            '3. User drags "Battery life" to position 2',
+            '4. User drags "Price" to position 3',
+            '5. Result: ["camera", "battery", "price"]',
+            '',
+            'VALIDATION:',
+            '- Validates that exactly 3 items are ranked (minRank = maxRank = 3)',
+            '- If user ranks less than 3: "Please rank your top 3 choices" error',
+            '- If user ranks more than 3: System prevents ranking beyond 3',
+            '',
+            'WHEN TO USE RANKING VS SINGLE CHOICE:',
+            '- Use ranking when: Order matters (1st, 2nd, 3rd priority)',
+            '- Use single_choice when: Only one selection needed, order doesn\'t matter',
+            '- Use multiple_choice when: Multiple selections, but order doesn\'t matter',
+            '',
+            'COMMON USE CASES:',
+            '- Feature prioritization: "Rank top 3 features you want"',
+            '- Brand preference: "Rank these brands by preference"',
+            '- Purchase drivers: "Rank factors influencing your decision"',
+            '- Product comparison: "Rank these products from favorite to least favorite"'
           ]
         }
       ]
