@@ -1,4 +1,4 @@
-import { Option, MatrixRow, Expression } from '../types/survey';
+import { Option, MatrixRow, Expression, DynamicRowsConfig } from '../types/survey';
 import { evaluateExpression } from './logic-evaluator';
 
 export function filterOptions(
@@ -30,13 +30,6 @@ export function filterMatrixColumns(
   responses: Record<string, any>
 ): Option[] {
   return filterOptions(columns, responses);
-}
-
-export interface DynamicRowsConfig {
-  sourceQuestionId: string;
-  generateFrom: 'selected_options' | 'all_options';
-  includeOtherText?: boolean;
-  excludeValues?: (string | number)[];
 }
 
 export function generateDynamicRows(

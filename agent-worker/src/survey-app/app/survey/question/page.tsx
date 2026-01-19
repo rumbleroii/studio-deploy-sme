@@ -17,6 +17,7 @@ import {
   setRespondentId as saveRespondentId,
   SURVEY_ID,
 } from '../../../lib/api';
+import { getEffectiveQuestionId } from '../../../lib/loop-utils';
 
 // Lazy load QuestionRenderer for better performance
 const QuestionRenderer = lazy(() => import('../../../components/QuestionRenderer').then(mod => ({ default: mod.QuestionRenderer })));
@@ -140,8 +141,10 @@ export default function QuestionPage() {
     if (isSubmitting) return;
 
     // Validate all grouped questions
+    const currentLoopItem = getCurrentLoopItem();
     for (const question of groupedQuestions) {
-      const currentValue = responses[question.id];
+      const effectiveId = getEffectiveQuestionId(question.id, loopState, currentLoopItem);
+      const currentValue = responses[effectiveId];
       const validation = validateResponse(question, currentValue, responses, allQuestions);
 
       if (!validation.isValid) {

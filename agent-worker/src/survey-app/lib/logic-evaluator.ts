@@ -172,10 +172,46 @@ export function getNextQuestionWithLoopSupport(
     }
   }
 
+  // Check for loop continuation only when leaving the loop block
+  // (i.e., next question is NOT in the same loop, or there's no next question)
+  if (loopState && currentQuestion.metadata?.loopSourceQuestion) {
+    const isNextQuestionInSameLoop = nextQuestion?.metadata?.loopSourceQuestion === loopState.sourceQuestionId;
+
+    // If next question is still in the same loop, just proceed normally
+    if (isNextQuestionInSameLoop) {
+      return { nextQuestionId: nextQuestion!.id };
+    }
+
+    // We're leaving the loop block - check if we need to continue or end
+    const nextLoopIndex = loopState.currentIndex + 1;
+    if (nextLoopIndex < loopState.items.length) {
+      // Continue loop - find first question in loop block
+      const firstLoopQuestion = findFirstLoopQuestion(loopState.sourceQuestionId, allQuestions);
+      return {
+        nextQuestionId: firstLoopQuestion?.id || currentQuestion.id,
+        loopAction: 'continue',
+        loopSourceId: loopState.sourceQuestionId,
+        loopItems: loopState.items,
+        nextLoopIndex
+      };
+    } else {
+      // End loop - proceed to next non-loop question
+      if (nextQuestion) {
+        return {
+          nextQuestionId: nextQuestion.id,
+          loopAction: 'end'
+        };
+      }
+      // No next question found - survey complete
+      return { nextQuestionId: 'COMPLETE', loopAction: 'end' };
+    }
+  }
+
   if (!nextQuestion) {
     return { nextQuestionId: 'COMPLETE' };
   }
 
+  // Check if entering a new loop
   const loopMeta = nextQuestion.metadata;
   if (loopMeta?.loopSourceQuestion) {
     const sourceQuestion = allQuestions.find(q => q.id === loopMeta.loopSourceQuestion);
@@ -199,27 +235,6 @@ export function getNextQuestionWithLoopSupport(
       }
     }
     return { nextQuestionId: 'COMPLETE' };
-  }
-
-  if (loopState && currentQuestion.metadata?.loopSourceQuestion) {
-    const nextLoopIndex = loopState.currentIndex + 1;
-    if (nextLoopIndex < loopState.items.length) {
-      // Continue loop - find first question in loop block
-      const firstLoopQuestion = findFirstLoopQuestion(loopState.sourceQuestionId, allQuestions);
-      return {
-        nextQuestionId: firstLoopQuestion?.id || currentQuestion.id,
-        loopAction: 'continue',
-        loopSourceId: loopState.sourceQuestionId,
-        loopItems: loopState.items,
-        nextLoopIndex
-      };
-    } else {
-      // End loop - proceed to next question
-      return {
-        nextQuestionId: nextQuestion.id,
-        loopAction: 'end'
-      };
-    }
   }
 
   return { nextQuestionId: nextQuestion.id };
