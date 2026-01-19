@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Question, Option, MatrixRow } from '../types/survey';
+import { Question, Option, MatrixRow, MultiGridMetadata } from '../types/survey';
 import { useSurvey } from '../lib/survey-context';
 import { applyPiping } from '../lib/logic-evaluator';
 import { filterMatrixRows, filterOptions, generateDynamicRows } from '../lib/masking';
@@ -46,7 +46,8 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
   const exclusiveRowIds = new Set(metadata.exclusiveRowIds || []);
   const perColumnExclusiveRows = new Set(metadata.perColumnExclusiveRows || []);
   const otherRowIds = new Set(metadata.otherRowIds || []);
-  const rowOtherSpecify = metadata.rowOtherSpecify || [];
+  const rowOtherSpecify =
+    (metadata.rowOtherSpecify ?? []) as NonNullable<MultiGridMetadata['rowOtherSpecify']>;
 
   // Check if rows should be dynamically generated from another question
   let matrixRows = question.matrixRows || [];
@@ -73,7 +74,7 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
       setOtherTextValues({});
     }
 
-    rowOtherSpecify.forEach((spec: { rowId: string }) => {
+    rowOtherSpecify.forEach((spec) => {
       const otherKey = `${effectiveQuestionId}_other_${spec.rowId}`;
       if (responses[otherKey]) {
         setOtherTextValues(prev => ({ ...prev, [spec.rowId]: responses[otherKey] }));
@@ -181,7 +182,7 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
   };
 
   const getOtherSpecify = (rowId: string) => {
-    return rowOtherSpecify.find((spec: { rowId: string }) => spec.rowId === rowId);
+    return rowOtherSpecify.find(spec => spec.rowId === rowId);
   };
 
   return (
