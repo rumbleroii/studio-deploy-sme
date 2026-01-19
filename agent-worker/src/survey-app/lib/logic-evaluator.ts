@@ -1,5 +1,5 @@
 import { Expression, LogicCondition, Question } from '../types/survey';
-import { generateDynamicOptions } from './masking';
+import { generateDynamicOptions, generateDynamicRows } from './masking';
 import { extractLoopItems, findFirstLoopQuestion, resolveItemLabel, resolveResponseValue } from './loop-utils';
 
 /**
@@ -575,20 +575,184 @@ export function validateResponse(
     }
   }
 
-  if (question.type === 'multi_grid' && question.matrixRows && question.matrixColumns) {
+  if (question.type === 'multi_grid' && question.matrixColumns) {
     const metadata = question.metadata || {};
     const requireAllRows = metadata.requireAllRows !== false;
     const otherRowIds = new Set(metadata.otherRowIds || []);
     const exclusiveRowIds = new Set(metadata.exclusiveRowIds || []);
+    const perColumnExclusiveRows = new Set(metadata.perColumnExclusiveRows || []);
+    const columnExclusiveOptions = new Set(metadata.columnExclusiveOptions || []);
 
+    // Get actual rows (could be dynamic from pipeRowsFrom)
+    let actualRows = question.matrixRows || [];
+    if (metadata.pipeRowsFrom && allQuestions && allResponses) {
+      const sourceQuestion = allQuestions.find(q => q.id === metadata.pipeRowsFrom?.sourceQuestionId);
+      actualRows = generateDynamicRows(
+        metadata.pipeRowsFrom,
+        allResponses,
+        sourceQuestion,
+        allQuestions
+      );
+    }
+
+    // Skip validation if no rows to validate
+    if (actualRows.length === 0) {
+      return { isValid: true };
+    }
+
+    // ========================================================================
+    // ZOD VALIDATION (runs first - catches all exclusive + requireAllRows violations)
+    // ========================================================================
+    try {
+      const { validateMultiGridResponse } = require('./zod-validator');
+      const zodResult = validateMultiGridResponse(question, value, actualRows);
+      if (!zodResult.success && zodResult.errors.length > 0) {
+        return {
+          isValid: false,
+          error: zodResult.errors[0].message
+        };
+      }
+    } catch (error) {
+      console.warn('Zod validation unavailable for multi_grid, using manual validation:', error);
+    }
+
+    // ========================================================================
+    // MANUAL VALIDATION (fallback if Zod fails)
+    // ========================================================================
+
+    // EXCLUSIVE ROWS VALIDATION
+    if (exclusiveRowIds.size > 0 && value && typeof value === 'object') {
+      const exclusiveRowsWithSelections = actualRows.filter((row: any) => {
+        if (!exclusiveRowIds.has(row.id)) return false;
+        const rowVal = value[row.id];
+        if (!rowVal || typeof rowVal !== 'object') return false;
+        return Object.values(rowVal).some(v => !!v);
+      });
+
+      if (exclusiveRowsWithSelections.length > 0) {
+        const nonExclusiveRowsWithSelections = actualRows.filter((row: any) => {
+          if (exclusiveRowIds.has(row.id)) return false;
+          const rowVal = value[row.id];
+          if (!rowVal || typeof rowVal !== 'object') return false;
+          return Object.values(rowVal).some(v => !!v);
+        });
+
+        if (nonExclusiveRowsWithSelections.length > 0) {
+          const exclusiveRowLabels = exclusiveRowsWithSelections.map((r: any) => r.label).join(', ');
+          const nonExclusiveRowLabels = nonExclusiveRowsWithSelections.map((r: any) => r.label).join(', ');
+          return {
+            isValid: false,
+            error: `Exclusive row "${exclusiveRowLabels}" cannot be selected alongside other rows "${nonExclusiveRowLabels}"`
+          };
+        }
+
+        if (exclusiveRowsWithSelections.length > 1) {
+          const exclusiveRowLabels = exclusiveRowsWithSelections.map((r: any) => r.label).join(', ');
+          return {
+            isValid: false,
+            error: `Only one exclusive row can be selected at a time. Selected: "${exclusiveRowLabels}"`
+          };
+        }
+      }
+    }
+
+    // PER-COLUMN EXCLUSIVE ROWS VALIDATION
+    if (perColumnExclusiveRows.size > 0 && value && typeof value === 'object' && question.matrixColumns) {
+      for (const col of question.matrixColumns) {
+        const colId = col.id ?? col.value;
+
+        const perColExclusiveRowsWithSelection = actualRows.filter((row: any) => {
+          if (!perColumnExclusiveRows.has(row.id)) return false;
+          const rowVal = value[row.id];
+          if (!rowVal || typeof rowVal !== 'object') return false;
+          return !!rowVal[colId];
+        });
+
+        if (perColExclusiveRowsWithSelection.length > 0) {
+          const otherRowsWithSelectionInColumn = actualRows.filter((row: any) => {
+            if (perColumnExclusiveRows.has(row.id)) return false;
+            const rowVal = value[row.id];
+            if (!rowVal || typeof rowVal !== 'object') return false;
+            return !!rowVal[colId];
+          });
+
+          if (otherRowsWithSelectionInColumn.length > 0) {
+            const perColExclusiveLabels = perColExclusiveRowsWithSelection.map((r: any) => r.label).join(', ');
+            const otherRowLabels = otherRowsWithSelectionInColumn.map((r: any) => r.label).join(', ');
+            return {
+              isValid: false,
+              error: `Per-column exclusive row "${perColExclusiveLabels}" cannot have selections in column "${col.label}" alongside rows "${otherRowLabels}"`
+            };
+          }
+        }
+      }
+    }
+
+    // COLUMN EXCLUSIVE OPTIONS VALIDATION
+    if (columnExclusiveOptions.size > 0 && value && typeof value === 'object') {
+      for (const row of actualRows) {
+        const rowVal = value[row.id];
+        if (!rowVal || typeof rowVal !== 'object') continue;
+
+        const selectedColumns = Object.entries(rowVal)
+          .filter(([, selected]) => !!selected)
+          .map(([colId]) => colId);
+
+        const exclusiveColumnsSelected = selectedColumns.filter(colId =>
+          columnExclusiveOptions.has(colId) || columnExclusiveOptions.has(Number(colId))
+        );
+
+        if (exclusiveColumnsSelected.length > 0) {
+          const nonExclusiveColumnsSelected = selectedColumns.filter(colId =>
+            !columnExclusiveOptions.has(colId) && !columnExclusiveOptions.has(Number(colId))
+          );
+
+          if (nonExclusiveColumnsSelected.length > 0) {
+            const exclusiveColLabels = exclusiveColumnsSelected
+              .map(colId => {
+                const col = question.matrixColumns?.find((c: any) => String(c.id) === String(colId) || String(c.value) === String(colId));
+                return col?.label || colId;
+              })
+              .join(', ');
+            const nonExclusiveColLabels = nonExclusiveColumnsSelected
+              .map(colId => {
+                const col = question.matrixColumns?.find((c: any) => String(c.id) === String(colId) || String(c.value) === String(colId));
+                return col?.label || colId;
+              })
+              .join(', ');
+
+            return {
+              isValid: false,
+              error: `In row "${row.label}", exclusive column "${exclusiveColLabels}" cannot be selected alongside columns "${nonExclusiveColLabels}"`
+            };
+          }
+
+          if (exclusiveColumnsSelected.length > 1 && metadata.selectionMode === 'multiple') {
+            const exclusiveColLabels = exclusiveColumnsSelected
+              .map(colId => {
+                const col = question.matrixColumns?.find((c: any) => String(c.id) === String(colId) || String(c.value) === String(colId));
+                return col?.label || colId;
+              })
+              .join(', ');
+
+            return {
+              isValid: false,
+              error: `In row "${row.label}", only one exclusive column can be selected. Selected: "${exclusiveColLabels}"`
+            };
+          }
+        }
+      }
+    }
+
+    // REQUIRE ALL ROWS VALIDATION
     if (requireAllRows) {
       if (!value || typeof value !== 'object') {
-        const hasOnlyOtherRows = question.matrixRows.every(r => otherRowIds.has(r.id));
+        const hasOnlyOtherRows = actualRows.every((r: any) => otherRowIds.has(r.id));
         if (!hasOnlyOtherRows) {
           return { isValid: false, error: 'Please answer all rows' };
         }
       } else {
-        const exclusiveRowSelected = question.matrixRows.some(row => {
+        const exclusiveRowSelected = actualRows.some((row: any) => {
           if (!exclusiveRowIds.has(row.id)) return false;
           const rowVal = value[row.id];
           if (!rowVal || typeof rowVal !== 'object') return false;
@@ -596,12 +760,12 @@ export function validateResponse(
         });
 
         if (!exclusiveRowSelected) {
-          const unansweredRows = question.matrixRows.filter(row => {
+          const unansweredRows = actualRows.filter((row: any) => {
             if (otherRowIds.has(row.id)) return false;
-            
+
             const rowValue = value[row.id];
             if (!rowValue || typeof rowValue !== 'object') return true;
-            const selectedColumns = Object.values(rowValue).filter(v => 
+            const selectedColumns = Object.values(rowValue).filter(v =>
               Array.isArray(v) ? v.length > 0 : !!v
             );
             return selectedColumns.length === 0;
@@ -613,11 +777,12 @@ export function validateResponse(
       }
     }
 
+    // MAX PER COLUMN VALIDATION
     if (metadata.maxPerColumn && typeof metadata.maxPerColumn === 'number') {
       const maxPerCol = metadata.maxPerColumn;
       for (const col of question.matrixColumns) {
         let countForColumn = 0;
-        for (const row of question.matrixRows) {
+        for (const row of actualRows) {
           const rowVal = value?.[row.id];
           if (rowVal && typeof rowVal === 'object') {
             const colVal = rowVal[col.id ?? col.value];
@@ -629,9 +794,9 @@ export function validateResponse(
           }
         }
         if (countForColumn > maxPerCol) {
-          return { 
-            isValid: false, 
-            error: `You can select at most ${maxPerCol} items in the "${col.label}" column` 
+          return {
+            isValid: false,
+            error: `You can select at most ${maxPerCol} items in the "${col.label}" column`
           };
         }
       }

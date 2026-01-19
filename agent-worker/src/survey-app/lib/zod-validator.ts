@@ -431,12 +431,15 @@ export const QuestionSchema = z.object({
     }
   }
 
-  // Multi-grid must have rows and columns
+  // Multi-grid must have rows and columns (unless dynamic rows)
   if (question.type === 'multi_grid') {
-    if (!question.matrixRows || question.matrixRows.length === 0) {
+    const hasDynamicRows = question.metadata?.pipeRowsFrom;
+    const hasStaticRows = question.matrixRows && question.matrixRows.length > 0;
+
+    if (!hasDynamicRows && !hasStaticRows) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `Multi-grid question "${question.id}" must have matrixRows array`,
+        message: `Multi-grid question "${question.id}" must have EITHER:\n  1. matrixRows array with at least one row (static rows), OR\n  2. metadata.pipeRowsFrom configuration (dynamic rows)\n  Currently has neither - multi-grid will have no rows to display!`,
         path: ['matrixRows']
       });
     }
@@ -516,8 +519,8 @@ export const QuestionSchema = z.object({
         });
       }
 
-      // Validate rowOtherSpecify references existing rows
-      if (metadata.rowOtherSpecify && question.matrixRows) {
+      // Validate rowOtherSpecify references existing rows (skip if dynamic rows)
+      if (metadata.rowOtherSpecify && question.matrixRows && !hasDynamicRows) {
         const rowIds = new Set(question.matrixRows.map(row => row.id));
         metadata.rowOtherSpecify.forEach((spec: any, index: number) => {
           if (!rowIds.has(spec.rowId)) {
@@ -568,19 +571,20 @@ export const QuestionSchema = z.object({
     }
   }
 
-  // Ranking must have options
+  // Ranking must have options (unless dynamic piping)
   if (question.type === 'ranking') {
-    if (!question.options || question.options.length === 0) {
+    const hasDynamicOptions = question.metadata?.pipeOptionsFrom;
+    if (!hasDynamicOptions && (!question.options || question.options.length === 0)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `Ranking question "${question.id}" must have options array`,
+        message: `Ranking question "${question.id}" must have options array (or use pipeOptionsFrom for dynamic options)`,
         path: ['options']
       });
     }
 
-    // Validate ranking metadata constraints
+    // Validate ranking metadata constraints (only for static options)
     const metadata = question.metadata;
-    if (metadata) {
+    if (metadata && !hasDynamicOptions) {
       const optionsCount = question.options?.length || 0;
 
       // Check minRank is valid

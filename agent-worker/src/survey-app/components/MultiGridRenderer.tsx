@@ -80,7 +80,13 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
         setOtherTextValues(prev => ({ ...prev, [spec.rowId]: responses[otherKey] }));
       }
     });
-  }, [effectiveQuestionId, responses, isFirstVisit]);
+  }, [effectiveQuestionId, isFirstVisit]);
+
+  const isColumnExclusive = (colId: string | number): boolean => {
+    return columnExclusiveOptions.has(colId) ||
+           columnExclusiveOptions.has(String(colId)) ||
+           columnExclusiveOptions.has(Number(colId));
+  };
 
   const isRowHasSelection = (rowId: string): boolean => {
     const rowVal = gridValue[rowId];
@@ -90,12 +96,12 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
 
   const handleCellChange = (rowId: string, colId: string | number, checked: boolean) => {
     let newValue = { ...gridValue };
-    
+
     if (!newValue[rowId]) {
       newValue[rowId] = {};
     }
 
-    const isExclusive = columnExclusiveOptions.has(colId);
+    const isExclusive = isColumnExclusive(colId);
     const isExclusiveRow = exclusiveRowIds.has(rowId);
     const isPerColumnExclusiveRow = perColumnExclusiveRows.has(rowId);
 
@@ -136,9 +142,9 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
           newValue[rowId] = { [colId]: true };
         } else {
           const currentSelections = Object.entries(newValue[rowId] || {})
-            .filter(([cId, val]) => val === true && !columnExclusiveOptions.has(cId))
+            .filter(([cId, val]) => val === true && !isColumnExclusive(cId))
             .map(([cId]) => cId);
-          
+
           if (maxPerColumn !== undefined && currentSelections.length >= maxPerColumn) {
             setError(`You can select a maximum of ${maxPerColumn} option${maxPerColumn === 1 ? '' : 's'} per row`);
             return;
@@ -146,7 +152,7 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
 
           const cleaned: Record<string | number, boolean> = {};
           for (const [cId, val] of Object.entries(newValue[rowId] || {})) {
-            if (val === true && !columnExclusiveOptions.has(cId)) {
+            if (val === true && !isColumnExclusive(cId)) {
               cleaned[cId] = true;
             }
           }
@@ -155,7 +161,14 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
         }
       }
     } else {
-      delete newValue[rowId][colId];
+      // Unchecking a cell
+      if (newValue[rowId]) {
+        delete newValue[rowId][colId];
+        // Clean up empty rows
+        if (Object.keys(newValue[rowId]).length === 0) {
+          delete newValue[rowId];
+        }
+      }
     }
 
     setGridValue(newValue);
@@ -198,12 +211,12 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
             <tr>
               <th className="border-2 border-gray-300 p-3 bg-gray-50 text-left text-sm font-semibold"></th>
               {filteredColumns.map((col) => (
-                <th 
-                  key={col.id} 
+                <th
+                  key={col.id}
                   className="border-2 border-gray-300 p-3 bg-gray-50 text-center text-xs font-medium min-w-[100px]"
                 >
                   {col.label}
-                  {columnExclusiveOptions.has(col.id) && (
+                  {isColumnExclusive(col.id) && (
                     <span className="block text-[10px] text-gray-500">(exclusive)</span>
                   )}
                 </th>

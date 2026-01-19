@@ -217,7 +217,7 @@ metadata: {
 For text or numeric questions where respondents may not know or prefer not to answer, add an exclusive checkbox.
 
 **When to use:**
-- Questionnaire mentions "EXCLUSIVE" or "Don't know" or "Prefer not to answer"
+- Questionnaire mentions "EXCLUSIVE" or "Don't know" or "Prefer not to answer" or "None of the above", "not applicable", "None"
 - Allows respondent to skip the input while still being valid
 
 **Schema:**

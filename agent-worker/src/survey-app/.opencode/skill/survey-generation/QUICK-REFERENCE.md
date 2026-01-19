@@ -187,7 +187,7 @@ validation: {
 
 ### Text/Numeric Exclusive Checkbox
 
-When questionnaire mentions "EXCLUSIVE" or "Don't know" for text/numeric inputs:
+When questionnaire mentions "EXCLUSIVE" or "Don't know" or "Not aplicable" for text/numeric inputs:
 
 ```typescript
 metadata: {
@@ -231,7 +231,7 @@ validation: {
 
 ## ⚡ Exclusive Options (Multiple Choice)
 
-Options that deselect all others when selected (e.g., "None of the above").
+Options that deselect all others when selected (e.g., "None of the above", "Not Applicable", "None", "Dont know").
 
 ```typescript
 metadata: {
