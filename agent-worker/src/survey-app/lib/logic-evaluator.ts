@@ -24,7 +24,7 @@ export function evaluateExpression(
   // Get the actual value from responses
   // Handles: direct key, dot notation (Q.row), underscore notation (Q_row for matrix)
   let leftValue;
-  if (left.includes('.') && left.split('.')[1] === 'length') {
+  if (left && left.includes('.') && left.split('.')[1] === 'length') {
     // Special case: Q.length for array length
     const [questionId] = left.split('.');
     const value = responses[questionId];

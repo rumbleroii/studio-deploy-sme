@@ -69,7 +69,8 @@ export const RankingRenderer: React.FC<RankingRendererProps> = ({
       setRankings({});
       setPendingInputs({});
     }
-  }, [effectiveQuestionId, responses, isFirstVisit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveQuestionId, isFirstVisit]);
 
   const handleRankChange = (optionValue: string | number, rank: number | null) => {
     const newRankings = { ...rankings };
