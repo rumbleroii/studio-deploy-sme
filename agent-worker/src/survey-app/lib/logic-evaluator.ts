@@ -559,16 +559,51 @@ export function validateResponse(
   }
 
   // Matrix validation: Check if all rows are answered
-  if (question.type === 'matrix' && question.matrixRows) {
+  if (question.type === 'matrix' && question.matrixColumns) {
     const metadata = question.metadata || {};
-    const requireAllRows = metadata.requireAllRows !== false; // Default: true
 
+    // Get actual rows (either static or dynamically generated)
+    let actualRows = question.matrixRows || [];
+    if (metadata.pipeRowsFrom && allQuestions && allResponses) {
+      const sourceQuestion = allQuestions.find(q => q.id === metadata.pipeRowsFrom?.sourceQuestionId);
+      actualRows = generateDynamicRows(
+        metadata.pipeRowsFrom,
+        allResponses,
+        sourceQuestion,
+        allQuestions
+      );
+    }
+
+    // Skip validation if no rows to validate
+    if (actualRows.length === 0) {
+      return { isValid: true };
+    }
+
+    // ========================================================================
+    // ZOD VALIDATION (validates requireAllRows)
+    // ========================================================================
+    try {
+      const { validateMatrixResponse } = require('./zod-validator');
+      const zodResult = validateMatrixResponse(question, value, actualRows);
+      if (!zodResult.success && zodResult.errors.length > 0) {
+        return {
+          isValid: false,
+          error: zodResult.errors[0].message
+        };
+      }
+    } catch (error) {
+      console.error('Matrix Zod validation error:', error);
+      // Fall through to manual validation if Zod fails
+    }
+
+    // Manual validation as fallback
+    const requireAllRows = metadata.requireAllRows !== false; // Default: true
     if (requireAllRows) {
       if (!value || typeof value !== 'object') {
         return { isValid: false, error: 'Please answer all rows' };
       }
 
-      const unansweredRows = question.matrixRows.filter(row => !value[row.id]);
+      const unansweredRows = actualRows.filter(row => !value[row.id]);
       if (unansweredRows.length > 0) {
         return { isValid: false, error: 'Please answer all rows before proceeding' };
       }

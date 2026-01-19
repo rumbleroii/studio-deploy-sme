@@ -798,6 +798,202 @@ export interface ValidationResult {
 }
 
 /**
+ * Validates matrix question response
+ * Checks that all rows are answered when requireAllRows is true
+ */
+export function validateMatrixResponse(
+  question: any,
+  value: any,
+  actualRows?: any[]
+): ValidationResult {
+  const result: ValidationResult = {
+    success: true,
+    errors: [],
+    warnings: []
+  };
+
+  const metadata = question.metadata || {};
+  const requireAllRows = metadata.requireAllRows !== false; // Default: true
+  const rows = actualRows || question.matrixRows || [];
+
+  if (requireAllRows && rows.length > 0) {
+    if (!value || typeof value !== 'object') {
+      result.success = false;
+      result.errors.push({
+        path: `${question.id}`,
+        message: 'Please answer all rows',
+        questionId: question.id
+      });
+      return result;
+    }
+
+    const unansweredRows = rows.filter((row: any) => !value[row.id]);
+    if (unansweredRows.length > 0) {
+      result.success = false;
+      result.errors.push({
+        path: `${question.id}`,
+        message: 'Please answer all rows before proceeding',
+        questionId: question.id
+      });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Validates multi_grid question response
+ * Checks requireAllRows, exclusive options, and maxPerColumn constraints
+ */
+export function validateMultiGridResponse(
+  question: any,
+  value: any,
+  actualRows?: any[]
+): ValidationResult {
+  const result: ValidationResult = {
+    success: true,
+    errors: [],
+    warnings: []
+  };
+
+  const metadata = question.metadata || {};
+  const requireAllRows = metadata.requireAllRows !== false;
+  const exclusiveRowIds = new Set(metadata.exclusiveRowIds || []);
+  const perColumnExclusiveRows = new Set(metadata.perColumnExclusiveRows || []);
+  const columnExclusiveOptions = new Set(metadata.columnExclusiveOptions || []);
+  const maxPerColumn = metadata.maxPerColumn;
+  const rows = actualRows || question.matrixRows || [];
+
+  // Helper to check if column is exclusive (handles type coercion)
+  const isColumnExclusive = (colId: string | number): boolean => {
+    return columnExclusiveOptions.has(colId) ||
+           columnExclusiveOptions.has(String(colId)) ||
+           columnExclusiveOptions.has(Number(colId));
+  };
+
+  if (!value || typeof value !== 'object') {
+    if (requireAllRows && rows.length > 0) {
+      result.success = false;
+      result.errors.push({
+        path: `${question.id}`,
+        message: 'Please answer all rows',
+        questionId: question.id
+      });
+    }
+    return result;
+  }
+
+  // EXCLUSIVE ROWS VALIDATION
+  const answeredExclusiveRows = rows.filter((row: any) =>
+    exclusiveRowIds.has(row.id) && value[row.id] && Object.keys(value[row.id]).length > 0
+  );
+
+  if (answeredExclusiveRows.length > 0) {
+    const otherAnsweredRows = Object.keys(value).filter(rowId =>
+      !exclusiveRowIds.has(rowId) && value[rowId] && Object.keys(value[rowId]).length > 0
+    );
+
+    if (otherAnsweredRows.length > 0) {
+      result.success = false;
+      result.errors.push({
+        path: `${question.id}`,
+        message: 'Exclusive rows cannot be selected with other rows',
+        questionId: question.id
+      });
+    }
+
+    if (answeredExclusiveRows.length > 1) {
+      result.success = false;
+      result.errors.push({
+        path: `${question.id}`,
+        message: 'Only one exclusive row can be selected',
+        questionId: question.id
+      });
+    }
+  }
+
+  // PER-COLUMN EXCLUSIVE VALIDATION
+  for (const perColExRowId of perColumnExclusiveRows) {
+    if (value[perColExRowId]) {
+      const selectedColumns = Object.keys(value[perColExRowId]).filter(colId => value[perColExRowId][colId]);
+
+      for (const colId of selectedColumns) {
+        const otherRowsWithSameColumn = Object.keys(value).filter(rowId =>
+          rowId !== perColExRowId && value[rowId]?.[colId] === true
+        );
+
+        if (otherRowsWithSameColumn.length > 0) {
+          result.success = false;
+          result.errors.push({
+            path: `${question.id}`,
+            message: `Per-column exclusive row cannot share columns with other rows`,
+            questionId: question.id
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  // COLUMN EXCLUSIVE OPTIONS VALIDATION
+  for (const rowId of Object.keys(value)) {
+    if (value[rowId] && typeof value[rowId] === 'object') {
+      const selectedColumns = Object.keys(value[rowId]).filter(colId => value[rowId][colId] === true);
+      const hasExclusive = selectedColumns.some(colId => isColumnExclusive(colId));
+      const nonExclusiveSelections = selectedColumns.filter(colId => !isColumnExclusive(colId));
+
+      if (hasExclusive && nonExclusiveSelections.length > 0) {
+        result.success = false;
+        result.errors.push({
+          path: `${question.id}.${rowId}`,
+          message: 'Exclusive columns cannot be selected with other columns',
+          questionId: question.id
+        });
+      }
+    }
+  }
+
+  // MAX PER COLUMN VALIDATION
+  if (maxPerColumn !== undefined) {
+    for (const rowId of Object.keys(value)) {
+      if (value[rowId] && typeof value[rowId] === 'object') {
+        const nonExclusiveSelections = Object.keys(value[rowId]).filter(
+          colId => value[rowId][colId] === true && !isColumnExclusive(colId)
+        );
+
+        if (nonExclusiveSelections.length > maxPerColumn) {
+          result.success = false;
+          result.errors.push({
+            path: `${question.id}.${rowId}`,
+            message: `Maximum ${maxPerColumn} selection${maxPerColumn === 1 ? '' : 's'} allowed per row`,
+            questionId: question.id
+          });
+        }
+      }
+    }
+  }
+
+  // REQUIRE ALL ROWS VALIDATION
+  if (requireAllRows && rows.length > 0) {
+    const unansweredRows = rows.filter((row: any) => {
+      const rowValue = value[row.id];
+      return !rowValue || typeof rowValue !== 'object' || Object.keys(rowValue).length === 0;
+    });
+
+    if (unansweredRows.length > 0) {
+      result.success = false;
+      result.errors.push({
+        path: `${question.id}`,
+        message: 'Please answer all rows before proceeding',
+        questionId: question.id
+      });
+    }
+  }
+
+  return result;
+}
+
+/**
  * Validates a survey schema and returns detailed errors
  * NON-BREAKING: Does not throw, returns validation result
  */
