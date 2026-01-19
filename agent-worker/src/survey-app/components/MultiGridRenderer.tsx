@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Question, Option, MatrixRow } from '../types/survey';
 import { useSurvey } from '../lib/survey-context';
 import { applyPiping } from '../lib/logic-evaluator';
-import { filterMatrixRows, filterOptions } from '../lib/masking';
+import { filterMatrixRows, filterOptions, generateDynamicRows } from '../lib/masking';
 import { LoopState, getEffectiveQuestionId } from '../lib/loop-utils';
 
 interface MultiGridRendererProps {
@@ -48,7 +48,19 @@ export const MultiGridRenderer: React.FC<MultiGridRendererProps> = ({
   const otherRowIds = new Set(metadata.otherRowIds || []);
   const rowOtherSpecify = metadata.rowOtherSpecify || [];
 
-  const filteredRows = filterMatrixRows(question.matrixRows || [], responses);
+  // Check if rows should be dynamically generated from another question
+  let matrixRows = question.matrixRows || [];
+  if (metadata.pipeRowsFrom) {
+    const sourceQuestion = allQuestions?.find(q => q.id === metadata.pipeRowsFrom?.sourceQuestionId);
+    matrixRows = generateDynamicRows(
+      metadata.pipeRowsFrom,
+      responses,
+      sourceQuestion,
+      allQuestions
+    );
+  }
+
+  const filteredRows = filterMatrixRows(matrixRows, responses);
   const filteredColumns = filterOptions(question.matrixColumns || [], responses);
 
   useEffect(() => {

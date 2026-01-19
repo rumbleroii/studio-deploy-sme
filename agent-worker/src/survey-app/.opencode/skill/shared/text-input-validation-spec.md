@@ -246,7 +246,8 @@ For text or numeric questions where respondents may not know or prefer not to an
 **Common labels:**
 - "Don't know"
 - "Prefer not to answer"
-- "Not applicable"
+- "Not applicable",
+- "None of the above"
 
 **Applies to:**
 - `type: "text"` (all inputTypes)

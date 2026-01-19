@@ -861,7 +861,7 @@ Notes:
 Use `type: "multi_grid"` when:
 - Respondents can select MULTIPLE columns per row (not just one)
 - You need "Other (specify)" rows that are optional
-- You need "Don't know" / "None" / "None of the above" / "Not applicable" exclusive rows that clear other selections
+- You need "Don't know" / "None" / "None of the above" / "Not applicable" / "Don't know" exclusive rows that clear other selections
 
 ### Multi Grid Schema
 
@@ -879,6 +879,7 @@ Use `type: "multi_grid"` when:
     { id: "none", label: "None" }
     { id: "none_of_the_above", label: "None of the above" },
     { id: "not_applicable", label: "Not Applicable" },
+    { id: "dont_know", label: "Don't know"}
   ],
   matrixColumns: [
     { id: "fast", label: "Fast", value: "fast" },

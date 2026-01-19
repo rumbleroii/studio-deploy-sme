@@ -82,7 +82,8 @@
     { id: 99, label: "Other (please specify)", value: "other" },
     { id: 0, label: "None of the above", value: "none" },
     { id: 10, label: "None", value: "none" },
-    { id: 20, label: "Not Applicable", value: "na" }
+    { id: 20, label: "Not Applicable", value: "na" },
+    { id: 21, label: "Don't know", value: "dont_know"}
   ],
   metadata: {
     hasOtherOption: true,

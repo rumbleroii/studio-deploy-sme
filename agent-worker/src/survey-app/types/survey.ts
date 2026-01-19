@@ -19,8 +19,8 @@ export type LogicOperator = 'eq' | 'neq' | 'gt' | 'lt' | 'gte' | 'lte' | 'in' | 
 
 export interface Expression {
   operator: LogicOperator;
-  left: string; // question ID or value
-  right: any;
+  left?: string; // question ID or value (optional for compound operators)
+  right?: any; // value (optional for compound operators)
   conditions?: Expression[]; // for nested logic (AND/OR)
 }
 

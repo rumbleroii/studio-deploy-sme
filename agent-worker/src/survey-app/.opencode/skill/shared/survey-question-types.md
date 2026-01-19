@@ -1187,7 +1187,7 @@ Notes:
 
 **Exclusive Options**:
 
-Exclusive options automatically deselect all others when selected. Use for "None of the above", "Prefer not to answer", or "Not applicable".
+Exclusive options automatically deselect all others when selected. Use for "None of the above", "Don't Know", "Prefer not to answer", or "Not applicable".
 
 ```typescript
 {
@@ -1213,7 +1213,7 @@ Exclusive options automatically deselect all others when selected. Use for "None
 - User has "None of the above" selected, then clicks "Feature A" → Only "Feature A" remains selected
 - Use option **IDs** (numbers), not values (strings)
 
-**Common patterns**: "None of the above", "Prefer not to answer", "Not applicable"
+**Common patterns**: "None of the above", "Prefer not to answer","Dont know", "Not applicable"
 
 **Example with "Other" Option**:
 ```
@@ -1442,6 +1442,8 @@ Notes:
 - "Don't know"
 - "Prefer not to answer"
 - "Not applicable"
+- "None"
+- "none of the above"
 
 **Applies to:**
 - `type: "text"` (all inputTypes: text, textarea, email, tel, url, number)
