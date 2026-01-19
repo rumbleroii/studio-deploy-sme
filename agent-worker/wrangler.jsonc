@@ -4,7 +4,7 @@
 	"compatibility_date": "2024-12-01",
 	"account_id": "573d1b2ea922ae79ad5277bfa9df4aa7",
 	"workers_dev": true,
-	"vars": {
+		"vars": {
 		"PREVIEW_DOMAIN": "metaforms-sandbox.com",
 		"R2_ENDPOINT": "https://573d1b2ea922ae79ad5277bfa9df4aa7.r2.cloudflarestorage.com",
 		"R2_BUCKET_NAME": "studio-bucket"
