@@ -1,13 +1,28 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-opus-4-5",
-  "default_agent": "build",
   "plugin": ["oh-my-opencode"],
   "instructions": [
     "AGENTS.md"
   ],
+  "provider": {
+    "helicone": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Helicone",
+      "options": {
+        "baseURL": "https://ai-gateway.helicone.ai",
+        "headers": {
+          "Helicone-Auth": "Bearer sk-helicone-54efccq-kpkew5y-xbha4eq-wdwg3uy",
+          "Helicone-Cache-Enabled": "true"
+        }
+      },
+      "models": {
+        "claude-opus-4-5": { "name": "Claude Opus 4.5" },
+        "claude-sonnet-4": { "name": "Claude Sonnet 4" }
+      }
+    }
+  },
   "permission": {
-    "*": "allow",
     "bash": "allow",
     "edit": "allow",
     "read": "allow",
@@ -20,6 +35,7 @@
     "skill": {
       "survey-generation": "allow",
       "survey-hosted": "allow",
+      "survey-qa": "allow",
       "*": "allow"
     }
   }
