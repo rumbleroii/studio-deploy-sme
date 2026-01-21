@@ -27,6 +27,10 @@
 
 **If you think a question is missing, ASK the user - don't invent it yourself.**
 
+## 🚨 Critical Rule: NO Extra OPTIONS (HIGHEST PRIORITY)
+
+**This is the MOST COMMON error. NEVER add options that are not explicitly listed in the questionnaire.**
+
 ## Step 0: Read ALL Specification Files (MANDATORY)
 Before generating ANY schema, read these files in full:
 - [ ] other-option-spec.md
@@ -402,38 +406,6 @@ For each question in questionnaire:
 - [ ] Set validation: require all items ranked OR top N
 - [ ] Choose display: drag-and-drop OR dropdown selectors
 - [ ] Randomization rules (if any)
-
-#### Multiple Choice with Exclusive Options
-
-Exclusive options automatically deselect all others when selected.
-
-**Common exclusive options:**
-- "None of the above"
-- "Prefer not to answer"
-- "Not applicable"
-- "I don't use any of these"
-
-**Schema:**
-```typescript
-{
-  type: "multiple_choice",
-  options: [
-    { id: 1, label: "Option A", value: "a" },
-    { id: 2, label: "Option B", value: "b" },
-    { id: 99, label: "None of the above", value: "none" }
-  ],
-  metadata: {
-    exclusiveOptions: [99]  // Use option ID (number), not value (string)
-  }
-}
-```
-
-**CHECKLIST:**
-- [ ] Identify exclusive options in questionnaire
-- [ ] Add option as regular option with ID
-- [ ] Add option ID to `metadata.exclusiveOptions` array
-- [ ] Use option **ID** (number), not value (string)
-- [ ] Note behavior: Selecting exclusive deselects all others, and vice versa
 
 #### "Other (Please Specify)" Options
 
@@ -1083,5 +1055,127 @@ npx prisma generate
 - [ ] Database connection verified
 
 **Skip if development mode only (`NEXT_PUBLIC_DEPLOYMENT=development`)**
+
+---
+
+## 🚨 CRITICAL: QA Verification Protocol (NON-NEGOTIABLE)
+
+**This section is MANDATORY. A survey is NOT complete until ALL QA checks pass.**
+
+### Rule 1: NEVER Mark Complete with Known Failures
+
+**NEVER mark a task as "completed" or "successful" if ANY requirement from the questionnaire is not working correctly.**
+
+If during testing you observe:
+- A feature not working as specified in the questionnaire
+- Logic/routing behaving differently than documented
+- Questions showing when they shouldn't (or vice versa)
+- Dynamic piping not filtering correctly
+- Validation not enforcing requirements
+- ANY deviation from questionnaire specification
+
+**You MUST:**
+1. **STOP** - Do not proceed with other tasks
+2. **DOCUMENT** - Note all breaking scenarios observed
+3. **FIX** - Address all issues before marking complete
+4. **RE-TEST** - Verify fixes work correctly
+5. **ONLY THEN** - Mark the task as complete
+
+### Rule 2: Observe ALL Breaking Scenarios First
+
+When you find one issue, **systematically test for related issues** before fixing:
+
+```
+BREAKING SCENARIO DISCOVERY PROCESS:
+
+1. Document ALL Issues Found:
+   Issue 1: Q13 pipeRowsFrom not filtering by answer value
+   Issue 2: [any other issues found]
+   Issue 3: [any other issues found]
+
+2. Fix ALL Issues
+3. Re-test the breaking scenario
+4. THEN mark complete when all scenerios tested
+```
+
+### Rule 3: Test Against Questionnaire Requirements
+
+**For every question, verify it matches the questionnaire specification EXACTLY:**
+
+| Questionnaire Says | Test For |
+|-------------------|----------|
+| "Only show if Q11 = Familiar" | Verify question ONLY shows when Q11 response is 'familiar' |
+| "TERMINATE if not X" | Verify termination screen shows for non-X responses |
+| "Randomize options, anchor Other" | Verify options randomize but "Other" stays at bottom |
+| "Sum to 100%" | Verify validation rejects values not summing to 100 |
+| "Min 10 characters" | Verify < 10 chars shows error |
+
+### Rule 4: Breaking Test Examples
+
+**Always test these scenarios:**
+
+1. **Termination Paths**: Select each terminating option → verify termination
+2. **Conditional Questions**: Answer source question → verify target shows/hides correctly
+3. **Dynamic Piping**: 
+   - Select specific options in source → verify ONLY those appear in target
+   - Change source answers → verify target updates
+4. **Matrix Validation**: Leave rows unanswered → verify error appears
+5. **Exclusive Options**: Select "None" → verify other selections clear
+6. **Skip Logic**: Answer with skip condition → verify correct destination
+
+### Rule 5: What "Complete" Actually Means
+
+A survey is ONLY complete when:
+
+- [ ] **ALL questions** from questionnaire are implemented
+- [ ] **ALL termination logic** routes to termination correctly
+- [ ] **ALL conditional logic** shows/hides questions correctly
+- [ ] **ALL dynamic piping** filters options/rows based on actual answer VALUES
+- [ ] **ALL validation rules** are enforced
+- [ ] **Happy path** completes to thank you screen
+- [ ] **At least one termination path** verified
+- [ ] **No console errors** during survey flow
+- [ ] **Every feature** matches questionnaire specification EXACTLY
+
+### Example: How NOT to Handle Issues
+
+```
+❌ WRONG:
+"Q13 showed all suppliers instead of just familiar ones. 
+The survey structure is correct though. Marking as complete."
+
+✅ RIGHT:
+"Q13 showed all suppliers instead of just familiar ones.
+This is a BREAKING issue - the questionnaire requires filtering by Q11 value.
+
+STOPPING to:
+1. Document this issue
+2. Check for similar issues in other questions
+3. Fix the generateDynamicRows function to support filtering by answer value
+4. Re-test Q13 with various Q11 responses
+5. Verify fix doesn't break other dynamic piping
+6. THEN mark complete"
+```
+
+### Verification Checklist (Run Before Marking Complete)
+
+```
+QA VERIFICATION CHECKLIST:
+
+□ All termination paths tested and working
+□ All conditional show/hide logic verified  
+□ All dynamic piping filtering correctly by:
+  □ Selected options (for multiple choice sources)
+  □ Answer values (for matrix sources) ← CRITICAL
+  □ Exclusion rules (excludeValues working)
+□ All matrix questions requiring all rows
+□ All validation rules enforcing correctly
+□ Happy path reaches completion
+□ No features "noted for later" - all fixed NOW
+□ No "works mostly" - must work EXACTLY as specified
+
+ONLY CHECK THIS BOX IF ALL ABOVE ARE TRUE:
+□ Survey is COMPLETE and matches questionnaire specification
+```
 
 ---

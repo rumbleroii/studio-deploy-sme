@@ -216,38 +216,19 @@ metadata: {
 
 For text or numeric questions where respondents may not know or prefer not to answer, add an exclusive checkbox.
 
-**When to use:**
-- Questionnaire mentions "EXCLUSIVE" or "Don't know" or "Prefer not to answer" or "None of the above", "not applicable", "None"
-- Allows respondent to skip the input while still being valid
+**When to use**: Detect by semantic meaning — any option meaning "I can't/won't provide this answer". See `shared/survey-question-types.md` → "Exclusive Options" for full pattern list.
 
 **Schema:**
 ```typescript
-{
-  type: "text",
-  text: "What is your annual income?",
-  required: true,
-  metadata: {
-    inputType: "number",
-    exclusiveOption: "Prefer not to answer"  // Shows checkbox with this label
-  }
+metadata: {
+  exclusiveOption: "Prefer not to answer"  // Shows checkbox with this label
 }
 ```
 
 **Behavior:**
 - Checkbox appears below the input field
-- When checkbox is selected:
-  - Input field is disabled and cleared
-  - Response is marked valid (can proceed to next question)
-- When user types in input:
-  - Checkbox is automatically unchecked
-- If neither checkbox selected nor input filled:
-  - Shows required error
-
-**Common labels:**
-- "Don't know"
-- "Prefer not to answer"
-- "Not applicable",
-- "None of the above"
+- Selecting checkbox: disables/clears input, marks response valid
+- Typing in input: auto-unchecks the checkbox
 
 **Applies to:**
 - `type: "text"` (all inputTypes)

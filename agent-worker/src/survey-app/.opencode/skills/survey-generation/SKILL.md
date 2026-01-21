@@ -274,7 +274,8 @@ When user uploads a questionnaire:
 
 **CRITICAL - Exclusive Options (Multiple Choice):**
 
-- **Identify exclusive options** in questionnaires: "None of the above", "Prefer not to answer", "Not applicable", "I don't use any of these". Or questionnare mentions which option is [EXCLUSIVE].
+- **Identify exclusive options** by semantic meaning — any option that means "I reject/negate/opt-out of the choices above"
+- **See**: `shared/survey-question-types.md` → "Exclusive Options" for full pattern list
 - **Add to schema**: Include option as regular option with numeric ID, then add ID to `metadata.exclusiveOptions: [optionId]`
 - **Example**:
   ```typescript

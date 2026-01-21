@@ -1187,7 +1187,17 @@ Notes:
 
 **Exclusive Options**:
 
-Exclusive options automatically deselect all others when selected. Use for "None of the above", "Don't Know", "Prefer not to answer", or "Not applicable".
+Exclusive options automatically deselect all others when selected. **Detect by semantic meaning, not exact text.**
+
+**Recognize as exclusive** — any option meaning "I reject/negate/opt-out of the choices above":
+- None/Nothing: "None", "None of the above", "Nothing"
+- Uncertainty: "Don't know", "Not sure", "Unsure", "Can't recall"
+- Negation: "I don't...", "I haven't...", "I never..."
+- Non-use: "Not applicable", "N/A", "Does not apply", "I don't use any"
+- Refusal: "Prefer not to answer", "Decline to answer"
+- Explicit: `[EXCLUSIVE]`, `[SINGLE PUNCH]` markers
+
+**NOT exclusive**: "Other (please specify)", "All of the above"
 
 ```typescript
 {
@@ -1198,22 +1208,15 @@ Exclusive options automatically deselect all others when selected. Use for "None
   options: [
     { id: 1, label: "Feature A", value: "a" },
     { id: 2, label: "Feature B", value: "b" },
-    { id: 3, label: "Feature C", value: "c" },
     { id: 99, label: "None of the above", value: "none" }
   ],
   metadata: {
-    minSelections: 1,
-    exclusiveOptions: [99]  // Option ID 99 deselects all others
+    exclusiveOptions: [99]  // Option ID (number), not value
   }
 }
 ```
 
-**Behavior**:
-- User selects "Feature A", "Feature B", then clicks "None of the above" → Only "None" remains selected
-- User has "None of the above" selected, then clicks "Feature A" → Only "Feature A" remains selected
-- Use option **IDs** (numbers), not values (strings)
-
-**Common patterns**: "None of the above", "Prefer not to answer","Dont know", "Not applicable"
+**Behavior**: Selecting exclusive deselects all others; selecting any other deselects exclusive.
 
 **Example with "Other" Option**:
 ```

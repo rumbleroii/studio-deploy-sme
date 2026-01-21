@@ -233,7 +233,7 @@ validation: {
 
 ## ⚡ Exclusive Options (Multiple Choice)
 
-Options that deselect all others when selected (e.g., "None of the above", "Not Applicable", "None", "Dont know").
+Options that deselect all others when selected. **Detect by semantic meaning** — any option meaning "I reject/negate/opt-out".
 
 ```typescript
 metadata: {
@@ -241,7 +241,7 @@ metadata: {
 }
 ```
 
-**Common patterns**: "None of the above", "Prefer not to answer", "Not applicable"
+**See**: `shared/survey-question-types.md` → "Exclusive Options" for full pattern list.
 
 **Working example**: See `data/sample-survey.ts` - Q4
 
