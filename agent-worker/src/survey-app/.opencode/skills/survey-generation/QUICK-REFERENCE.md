@@ -13,7 +13,7 @@ One-page cheat sheet for generating consistent surveys.
 
 **STOP! Before writing ANY code:**
 
-1. ✅ Read **ALL** files in `.opencode/skill/` folder:
+1. ✅ Read **ALL** files in `.opencode/skills/` folder:
    - `survey-generation/` - All guides
    - `shared/` - ALL specs (text-input-validation-spec, question types, logic, matrix, other-options)
    - `survey-hosted/` - Runtime specs
@@ -22,7 +22,9 @@ One-page cheat sheet for generating consistent surveys.
 2. ✅ Read implementation files:
    - `data/sample-survey.ts` - Correct schema format
    - `types/survey.ts` - TypeScript types (SOURCE OF TRUTH)
-   - `components/QuestionRenderer.tsx` - What's implemented
+   - `components/QuestionRenderer.tsx` - What's implemented / Update as per requirement
+   - `lib/zod-validator.ts` - Zod schema validation; UPDATE or use this for all schema and input validation
+   -
 
 3. ✅ Verify consistency:
    - Types match TypeScript schema (e.g., use `"numeric"` NOT `"numeric_input"`)
@@ -345,6 +347,53 @@ Before presenting survey:
 - [ ] Matrix questions have `requireAllRows: true`
 - [ ] Multiple choice have `minSelections: 1`
 - [ ] Text inputs have whitespace validation
+- [ ] **Zod schema validation passes**: `npx tsx test-validation.ts`
+
+## 🚨 MANDATORY QA (DO NOT SKIP)
+
+**After Zod validation passes, you MUST test a happy flow:**
+
+- [ ] **Run Zod validation**: `npx tsx test-validation.ts` - FIX ALL ERRORS
+- [ ] **Test hosted survey**: Complete at least 1 happy flow path in `/survey`
+- [ ] **Verify dynamic piping**: Check any questions with `pipeOptionsFrom` or `pipeRowsFrom`
+- [ ] **Verify logic/routing**: Skip logic, show/hide conditions work correctly
+- [ ] **Reach completion**: Survey can be completed without runtime errors
+
+**Why both are required:**
+- Zod catches **schema structure errors** (type mismatches, missing fields)
+- Happy flow testing catches **runtime errors** (piping not working, logic failures)
+- **Example:** Q13 piping from Q11 passed Zod but failed at runtime because `filterByValue` wasn't implemented
+
+**If happy flow fails:**
+1. Diagnose the issue (browser console, component code)
+2. Fix the schema OR the implementation (masking.ts, logic-evaluator.ts, etc.)
+3. Re-run Zod validation
+4. Re-test happy flow
+5. Repeat until it works
+
+---
+
+## 🔍 VERIFY BEFORE USE (CRITICAL)
+
+**Before using ANY metadata feature, verify it's implemented:**
+
+1. **Check `lib/masking.ts`** for piping features (`pipeRowsFrom`, `pipeOptionsFrom`, `filterByValue`, `filterByQuestion`)
+2. **Check `lib/logic-evaluator.ts`** for logic features (`show`, `skip`, `terminate`, operators)
+3. **Check `types/survey.ts`** for supported type definitions
+
+**Common trap:** Schema accepts a property but runtime doesn't use it.
+
+| Feature | Verify In | What To Check |
+|---------|-----------|---------------|
+| `filterByValue` | `masking.ts` | Matrix source handling |
+| `filterByQuestion` | `masking.ts` | Cross-question filter logic |
+| `pipeRowsFrom` | `masking.ts` | `generateDynamicRows()` function |
+| `pipeOptionsFrom` | `masking.ts` | `generateDynamicOptions()` function |
+| Logic operators | `logic-evaluator.ts` | `evaluateExpression()` switch cases |
+
+**Rule:** If you can't find the feature in the implementation, either:
+1. Use an alternative that IS implemented, OR
+2. Implement the feature first, then use it
 
 **Production Mode Additional:**
 - [ ] `MONGODB_URI` in `.env.local` (if `NEXT_PUBLIC_DEPLOYMENT=production`)

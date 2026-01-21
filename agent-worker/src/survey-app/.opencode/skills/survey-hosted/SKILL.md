@@ -98,36 +98,45 @@ Use this skill independently when the user:
 
 ## Instructions
 
-### Step 1: Verify Survey Schema is Valid (CRITICAL - AUTO-VALIDATED)
+### Step 1: Verify Survey Schema is Valid (CRITICAL - AUTO-VALIDATED + HAPPY FLOW TESTED)
 
-**IMPORTANT: Survey schema validation happens AUTOMATICALLY in survey-generation skill!**
+**IMPORTANT: Survey schema validation AND happy flow testing should happen in survey-generation skill!**
 
-By the time survey-hosted skill is triggered, the survey schema has ALREADY been validated via:
+By the time survey-hosted skill is triggered, the survey schema has ALREADY been:
 
+1. **Validated via Zod** (schema structure):
 ```bash
-# This command was AUTOMATICALLY executed by survey-generation skill
 npx tsx test-validation.ts
 ```
 
-**What was automatically checked:**
+2. **Tested via happy flow** (runtime behavior):
+- At least one complete survey path tested in `/survey`
+- Dynamic piping verified (pipeOptionsFrom, pipeRowsFrom)
+- Logic/routing verified (skip, show/hide, terminate)
+
+**What was automatically checked by survey-generation skill:**
 - ✅ Type mismatches (e.g., string vs number in showIf conditions)
 - ✅ Logic conditions are correctly structured
 - ✅ "ASK IF" patterns have both source routing AND target show conditions
 - ✅ Matrix questions have rows (static or dynamic)
 - ✅ All required fields present
 - ✅ No structural errors
+- ✅ **Dynamic piping works at runtime** (not just schema-valid)
+- ✅ **Navigation flow works end-to-end**
 
 **Your task in survey-hosted skill:**
-- Assume validation has ALREADY passed (survey-generation skill ensures this)
-- If you encounter unexpected behavior, you MAY re-run validation: `npx tsx test-validation.ts`
-- Focus on implementing the hosted survey runtime using the validated schema
+- Assume validation AND happy flow testing have ALREADY passed
+- If you encounter unexpected behavior, re-run both:
+  1. `npx tsx test-validation.ts` (schema validation)
+  2. Test the flow manually in `/survey` (runtime validation)
+- Focus on implementing/verifying the hosted survey runtime
 
 **When to re-validate:**
 - ⚠️ Only if you modify the survey schema during hosted implementation (rare)
 - ⚠️ Only if user reports logic not working as expected
 - ✅ Otherwise, proceed directly to Step 2
 
-**See:** `survey-generation/SKILL.md` Step 7 for complete automatic validation documentation.
+**See:** `survey-generation/SKILL.md` Step 7-8 for complete validation and happy flow testing documentation.
 
 ### Step 2: Understand the Boilerplate Structure
 

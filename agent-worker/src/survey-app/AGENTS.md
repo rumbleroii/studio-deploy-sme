@@ -118,7 +118,7 @@ User inputs:
 
 ---
 
-## SKILLS (HOW TO USE `.opencode/skill/**`)
+## SKILLS (HOW TO USE `.opencode/skills/**`)
 
 Use skills as the primary guidance. Treat skill specs as mandatory when applicable and load them into the context.
 
@@ -128,6 +128,13 @@ Routing table(more than 1 skill can be utilized at the same time):
 - `shared/*`: question types, matrix/grid rules, “other specify”, logic spec, advanced features.
 
 ---
+
+### TODOs for Robust Survey Development
+
+- **Add Zod validation:**  
+  Always implement schema validation using [Zod](https://github.com/colinhacks/zod). Ensure every user input, especially survey schema changes, is validated with Zod before accepting updates or deploying changes.
+
+
 
 ## Internal Instructions (DO NOT SHARE WITH USERS)
 
@@ -150,4 +157,4 @@ User uploaded files are in the `user_files/` directory (relative to current work
 Run on port 3001. Do not show URLs to users (the UI handles preview automatically).
 
 ### Skills
-Skills live in `.opencode/skill/`. Use **survey-generation**, **survey-hosted**, and **shared** to guide implementation and survey correctness.
+Skills live in `.opencode/skills/`. Use **survey-generation**, **survey-hosted**, and **shared** to guide implementation and survey correctness.

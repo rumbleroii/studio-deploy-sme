@@ -13,7 +13,7 @@ export function evaluateExpression(
   const { operator, left, right, conditions } = expression;
 
   // Get the actual value from responses
-  const leftValue = responses[left];
+  const leftValue = left ? responses[left] : undefined;
 
   switch (operator) {
     case 'eq':

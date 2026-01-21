@@ -40,7 +40,7 @@ Before writing ANY code or making ANY changes, you MUST:
 
 1. **Read the questionnaire file completely** - Understand all questions, logic, and requirements
 
-2. **Read ALL documentation files in the `.opencode/skill/` folder:**
+2. **Read ALL documentation files in the `.opencode/skills/` folder:**
    - `survey-generation/` - All generation guides and checklists
    - `shared/` - ALL shared specifications (question types, validation, logic, matrix, other-options, etc.)
    - `survey-hosted/` - Runtime and implementation specs
@@ -55,6 +55,7 @@ Before writing ANY code or making ANY changes, you MUST:
    - Check that documentation matches `types/survey.ts` (TypeScript types are always correct)
    - If documentation contradicts implementation, **follow the implementation**
    - Note any mismatches and use correct patterns
+   - `lib/zod-validator.ts` - Zod schema validation; UPDATE or use this for all schema and input validation
 
 **COMMUNICATION RULE:**
 - ❌ **DO NOT** tell the user "I'm reading the questionnaire..." or "I found X questions..."
@@ -181,6 +182,54 @@ When user uploads a questionnaire:
 5. **update existing sample-survey.ts file** in `app/data/sample-survey.ts`
 6. **Follow exact TypeScript structure** from existing schemas
 7. **Include all**: metadata, sections, questions, options, logic, notes
+8. Update and Use Zod Validation (`lib/zod-validator.ts`)
+
+- **All survey schema changes must be validated with Zod.**  
+- Always update `lib/zod-validator.ts` to match the true schema (see `types/survey.ts`).
+- **No edits, additions, or new surveys should skip Zod validation!**
+- Zod validation should run:
+  - Whenever a schema is loaded or edited
+  - Before deploying, saving, or previewing a survey
+  - During "happy path" QA
+
+**Update process:**
+1. Open `lib/zod-validator.ts`  
+   - Make sure the Zod schema structure matches *exactly* with `types/survey.ts`.
+   - All question types, section & logic formats, metadata fields, etc. must be reflected.
+
+2. When adding new features:
+   - Add the property to both `types/survey.ts` **AND** the Zod schema.
+   - If docs and types disagree, always follow `types/survey.ts`.
+
+3. **Validation Rules:**  
+   - Enforce types, required/optional fields, and value constraints.
+   - Validate IDs (`string` or `number`, as per the type), metadata shapes, nested logic, etc.
+   - Reject invalid values (e.g., option type typo, out-of-range rating, missing metadata).
+
+4. **Test:**  
+   - Every build or edit agent should call the Zod validator against the schema.
+   - On validation error: Halt, summarize the error, and correct before proceeding.
+
+**References:**
+- Zod: https://github.com/colinhacks/zod
+- Example implementation: `lib/zod-validator.ts` (in repo)
+- Source of truth: `types/survey.ts` (never just copy-paste, *verify* type rules!)
+
+> **Tip:** Whenever you see a survey schema change, review and update Zod validation first. This prevents bugs in all downstream survey tools (author, hosted, export).
+
+**Happy Flow Success Criteria:**
+
+- After survey schema edits or generation, **the "happy flow" (user completes the survey end-to-end without error) should always succeed** before marking the survey as ready.
+- "Happy flow" means a hypothetical respondent can answer every question as intended (with correct data types/values), submit, and reach completion with no UI, logic, or validation errors.
+- **Checklist:**
+  - Zod validation passes with typical responses for all questions.
+  - All required questions can be answered.
+  - Routing/logic does not block or misroute any expected path.
+  - No crashes, undefined values, or missing data in components.
+- If happy flow fails (e.g., required field cannot be answered, routing breaks, validation rejects valid input), **halt and fix schema or implementation before proceeding.**
+- **Always simulate a complete survey run as the very last pre-completion check.**
+
+
 
 **CRITICAL - No Extra Questions:**
 
@@ -1247,7 +1296,7 @@ After creating or modifying a survey schema, **you MUST IMMEDIATELY validate it*
 **MANDATORY VALIDATION COMMAND:**
 
 ```bash
-# Run validation test - EXECUTE THIS AUTOMATICALLY AFTER EVERY SURVEY GENERATION OR MODIFICATION
+# Run validation test - EXECUTE THIS AFTER EVERY SURVEY GENERATION OR MODIFICATION
 npx tsx test-validation.ts
 ```
 
@@ -1363,9 +1412,9 @@ logic: [
 ]
 ```
 
-**Validation Checklist (MANDATORY - EXECUTE AUTOMATICALLY):**
+**Validation Checklist (MANDATORY - EXECUTE):**
 
-- [ ] ✅ **AUTOMATICALLY RUN** `npx tsx test-validation.ts` after generating/modifying survey (NOT OPTIONAL)
+- [ ] ✅ **RUN** `npx tsx test-validation.ts` after generating/modifying survey (NOT OPTIONAL)
 - [ ] Fix all errors (red ❌) immediately
 - [ ] Review all warnings (yellow ⚠️) and address if needed
 - [ ] Re-run validation if errors were fixed

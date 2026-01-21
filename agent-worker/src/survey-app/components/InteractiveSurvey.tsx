@@ -68,7 +68,7 @@ export const InteractiveSurvey: React.FC<InteractiveSurveyProps> = ({
       // Check if there are any termination conditions
       const matchedLogic = question.logic?.find(logic => {
         const { operator, left, right } = logic.when;
-        const leftValue = newResponses[left];
+        const leftValue = left ? newResponses[left] : undefined;
 
         if (operator === 'eq') return leftValue === right;
         if (operator === 'neq') return leftValue !== right;

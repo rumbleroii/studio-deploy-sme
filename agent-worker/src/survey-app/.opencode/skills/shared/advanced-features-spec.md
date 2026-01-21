@@ -83,14 +83,16 @@ If source question has no valid selections (only exclusive options selected), sk
 
 ### Purpose
 
-In 3D Matrix / Multi-Grid questions, allow a row (like "Don't Know") to clear only the selections in that column, not all rows entirely.
+In 3D Matrix / Multi-Grid / 3D Grid questions, allow a row (like "Don't Know") to clear only the selections in that column, not all rows entirely.
 
 ### Difference from Row Exclusivity
 
-| Feature | Behavior |
-|---------|----------|
-| `exclusiveRowIds` | Selecting row clears ALL other rows completely |
-| `perColumnExclusiveRows` | Selecting row in column X clears only column X in other rows |
+| Feature | Behavior | Validation |
+|---------|----------|------------|
+| `exclusiveRowIds` | Selecting row clears ALL other rows completely | Row is OPTIONAL; if selected, validation passes immediately |
+| `perColumnExclusiveRows` | Selecting row in column X clears only column X in other rows | Row is OPTIONAL; must still answer other required rows |
+
+**Note**: Both `exclusiveRowIds` and `perColumnExclusiveRows` rows are optional in validation - user doesn't need to answer them.
 
 ### Schema Structure
 

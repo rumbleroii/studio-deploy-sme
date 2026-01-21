@@ -25,7 +25,7 @@ When a user uploads a questionnaire document and asks you to create a survey, yo
 
 Before writing ANY code, you MUST read ALL documentation:
 
-1. **Read ALL files in `.opencode/skill/` folder:**
+1. **Read ALL files in `.opencode/skills/` folder:**
    - `survey-generation/` - ALL generation guides, checklists, references
    - `shared/` - ALL specifications (question types, validation, logic, matrix, other-options, UI theme, components, terminology)
    - `survey-hosted/` - ALL runtime and implementation specs
@@ -36,7 +36,13 @@ Before writing ANY code, you MUST read ALL documentation:
    - `types/survey.ts` - TypeScript types (SOURCE OF TRUTH - if docs contradict this, follow this)
    - `components/QuestionRenderer.tsx` - See what's already implemented
 
-3. **Verify consistency before coding:**
+3. **Verify runtime implementation before using features:**
+   - `lib/masking.ts` - Check `generateDynamicRows()` and `generateDynamicOptions()` for piping features
+   - `lib/logic-evaluator.ts` - Check `evaluateExpression()` for supported logic operators
+   - **CRITICAL**: Schema may accept properties that runtime doesn't implement!
+   - Before using `filterByValue`, `filterByQuestion`, `pipeRowsFrom`, etc., verify the feature exists in the runtime code
+
+4. **Verify consistency before coding:**
    - Check question types match `types/survey.ts` (e.g., use `"numeric"` NOT `"numeric_input"`)
    - Check metadata structure (e.g., `hasOtherOption` goes in `question.metadata`, NOT on option object)
    - Check validation structure (e.g., `validation` is an array of ValidationRule objects)

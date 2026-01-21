@@ -854,7 +854,7 @@ Notes:
 
 ---
 
-## Multi Grid / 3D Grid Questions
+## Multi Grid / 3D Matrix/ 3d Grid Questions
 
 ### When to Use Multi Grid Instead of Standard Matrix
 
@@ -921,9 +921,15 @@ metadata: {
 ### Exclusive Row Behavior
 
 Rows listed in `exclusiveRowIds`:
+- Are OPTIONAL - validation does not require them to be answered
 - Selecting clears ALL other row selections
 - Selecting any non-exclusive row clears exclusive rows
-- Validation passes if exclusive row is selected (only need that row)
+- If exclusive row IS selected, validation passes immediately (no other rows required)
+
+**Key Point**: Exclusive rows like "Don't know" are escape hatches, NOT required answers. When `requireAllRows: true`:
+- Regular rows must all be answered
+- Exclusive rows are skipped in validation (user doesn't have to select them)
+- BUT if user DOES select an exclusive row, it satisfies validation completely
 
 ```typescript
 metadata: {
@@ -938,10 +944,17 @@ metadata: {
 4. User clicks: Brand A → Fast
 5. Result: "Don't know" cleared, only Brand A → Fast remains
 
+**Validation Flow Example**:
+1. Grid has: Camera, Battery Life, Other (specify), Don't Know
+2. `exclusiveRowIds: ["dont_know"]`, `otherRowIds: ["other"]`
+3. User answers Camera and Battery Life only
+4. Validation: PASSES (Don't Know is exclusive/optional, Other is optional)
+5. User doesn't need to select "Don't Know" to proceed
+
 ### Validation Rules
 
 ```typescript
-// Standard validation - all non-other rows required
+// Standard validation - all rows required
 metadata: { requireAllRows: true }
 
 // With other rows - other rows optional
@@ -951,13 +964,37 @@ metadata: {
 }
 // Result: All rows except "other" must be answered
 
-// With exclusive rows - if exclusive selected, validation passes
+// With exclusive rows - exclusive rows are ALWAYS optional
 metadata: {
   requireAllRows: true,
   exclusiveRowIds: ["dont_know"]
 }
-// Result: If "dont_know" selected, no other rows required
+// Result: 
+// - User does NOT need to answer "dont_know" row
+// - User must answer all other non-exclusive rows
+// - BUT if user DOES select "dont_know", no other rows required
+
+// Combined - typical "Don't know" + "Other" pattern
+metadata: {
+  requireAllRows: true,
+  exclusiveRowIds: ["dont_know"],
+  otherRowIds: ["other"]
+}
+// Result:
+// - "dont_know" row: optional (exclusive escape hatch)
+// - "other" row: optional (specify if applicable)
+// - All other rows: required
+// - If "dont_know" selected: validation passes immediately
 ```
+
+**IMPORTANT**: Exclusive rows serve two purposes:
+1. **Escape hatch**: User can select to skip answering other rows
+2. **Optional by default**: User is NOT required to select them
+
+This means a grid with Camera, Battery, Other, Don't Know where `exclusiveRowIds: ["dont_know"]` and `otherRowIds: ["other"]`:
+- User MUST answer: Camera, Battery
+- User MAY answer: Other, Don't Know
+- If user selects Don't Know: validation passes, no other answers needed
 
 ### Decision: Matrix vs Multi Grid
 

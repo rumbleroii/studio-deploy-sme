@@ -29,8 +29,10 @@ export function evaluateExpression(
     const [questionId] = left.split('.');
     const value = responses[questionId];
     leftValue = Array.isArray(value) ? value.length : 0;
-  } else {
+  } else if (left) {
     leftValue = resolveResponseValue(left, responses, allQuestions);
+  } else {
+    leftValue = undefined;
   }
 
   // Simple comparisons
@@ -796,14 +798,22 @@ export function validateResponse(
 
         if (!exclusiveRowSelected) {
           const unansweredRows = actualRows.filter((row: any) => {
+            // Skip optional "other" rows
             if (otherRowIds.has(row.id)) return false;
+            
+            // Skip exclusive rows - they are optional escape hatches, not required answers
+            if (exclusiveRowIds.has(row.id)) return false;
 
             const rowValue = value[row.id];
             if (!rowValue || typeof rowValue !== 'object') return true;
-            const selectedColumns = Object.values(rowValue).filter(v =>
+            
+            const selectedColumns = Object.entries(rowValue).filter(([, v]) =>
               Array.isArray(v) ? v.length > 0 : !!v
             );
-            return selectedColumns.length === 0;
+            
+            if (selectedColumns.length === 0) return true;
+            
+            return false;
           });
           if (unansweredRows.length > 0) {
             return { isValid: false, error: 'Please answer all rows before proceeding' };

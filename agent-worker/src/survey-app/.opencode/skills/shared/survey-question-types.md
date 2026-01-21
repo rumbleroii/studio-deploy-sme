@@ -1816,11 +1816,11 @@ validation: {
 
 ---
 
-### 5.3 Multi Grid / 3D Grid
+### 5.3 Multi Grid / 3D Matrix / 3D Grid
 
 **Purpose**: Rate multiple items across multiple columns with multi-select capability per cell
 
-**Type Badge**: "Multi Grid" or "3D Grid"
+**Type Badge**: "Multi Grid" or "3D Grid" or "3D Matrix"
 
 **Question ID Format**: Q1, MG1, etc.
 
@@ -1880,8 +1880,10 @@ validation: {
    - If answered, the response is captured normally
 
 2. **Exclusive Rows** (`exclusiveRowIds`):
+   - These rows are OPTIONAL - validation does not require them to be answered
    - Selecting any cell in an exclusive row DESELECTS ALL other rows
    - Selecting any cell in a non-exclusive row DESELECTS all exclusive rows
+   - If an exclusive row IS selected, validation passes immediately (no other rows required)
    - Useful for "Don't know", "None of the above", "Not applicable" rows
 
 **Example with Exclusive Row**:
@@ -1903,8 +1905,9 @@ metadata: {
   exclusiveRowIds: ["dont_know"]
 }
 ```
-- If `exclusiveRowIds` row is selected → validation passes (only that row needed)
-- If no exclusive row selected → all non-`otherRowIds` rows must be answered
+- Exclusive rows (`exclusiveRowIds`) are ALWAYS optional - user doesn't need to answer them
+- If an exclusive row IS selected → validation passes immediately (no other rows required)
+- If no exclusive row selected → all non-`otherRowIds` and non-`exclusiveRowIds` rows must be answered
 
 ---
 
